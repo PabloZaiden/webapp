@@ -96,9 +96,14 @@ function authErrorResponse(error: unknown): Response {
   if (error instanceof AuthError) {
     return errorResponse(error.status, error.code, error.message);
   }
-  if (error instanceof Error) {
-    return errorResponse(400, "request_failed", error.message);
+  return errorResponse(500, "request_failed", "Request failed");
+}
+
+function routeHandlerErrorResponse(error: unknown): Response {
+  if (error instanceof AuthError) {
+    return errorResponse(error.status, error.code, error.message);
   }
+  log.error("Unhandled route handler error", { error: error instanceof Error ? error.message : String(error) });
   return errorResponse(500, "request_failed", "Request failed");
 }
 
@@ -682,7 +687,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
           server,
         }));
       } catch (error) {
-        return withSecurityHeaders(authErrorResponse(error));
+        return withSecurityHeaders(routeHandlerErrorResponse(error));
       }
     }
     return htmlResponse(input.index);

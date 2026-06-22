@@ -137,8 +137,11 @@ function registrationUserId(userId: string): Uint8Array<ArrayBuffer> {
   return new Uint8Array(Buffer.from(userId)) as Uint8Array<ArrayBuffer>;
 }
 
-function webauthnRpId(hostname: string): string | undefined {
-  return isIP(hostname) ? undefined : hostname;
+function webauthnRpId(hostname: string): string {
+  if (isIP(hostname)) {
+    throw new AuthError("invalid_passkey_host", "Passkeys require a hostname such as localhost, not an IP address", 400);
+  }
+  return hostname;
 }
 
 async function beginRegistrationForUser(req: Request, store: WebAppStore, config: RuntimeConfig, user: { id: string; username: string }, type: ChallengePayload["type"], setupTokenHash?: string) {
@@ -357,7 +360,7 @@ export async function completeAuthentication(req: Request, store: WebAppStore, c
     response,
     expectedChallenge: challenge.challenge,
     expectedOrigin: origin.origin,
-    expectedRPID: rpID ?? origin.hostname,
+    expectedRPID: rpID,
     credential: {
       id: passkey.credentialId,
       publicKey: passkey.publicKey,

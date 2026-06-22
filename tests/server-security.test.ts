@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync } from "node:fs";
+import { Database } from "bun:sqlite";
 import { RealtimeBus, createWebAppServer, defineRoutes, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
 import { createApiKey } from "../src/server/auth/api-keys";
 import { readRuntimeConfig } from "../src/server/runtime-config";
@@ -126,6 +128,117 @@ describe("server security defaults", () => {
     }
   });
 
+  test("passkey setup rejects IP hosts with a clear auth error", async () => {
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_IP_PASSKEY",
+      index: "<html></html>",
+      store: testStore("ip-passkey"),
+      auth: { passkeys: true },
+      routes: defineRoutes({}),
+    });
+
+    const response = await app.handleRequest(new Request("http://127.0.0.1/api/passkey-auth/bootstrap/options", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "owner" }),
+    }));
+    const body = await responseJson<{ error: string; message: string }>(response);
+
+    expect(response?.status).toBe(400);
+    expect(body.error).toBe("invalid_passkey_host");
+    expect(body.message).toContain("hostname");
+  });
+
+  test("sqlite store migrates legacy single-user data to owner-owned records", () => {
+    const dataDir = `.cache/tests/legacy-single-user-${crypto.randomUUID()}`;
+    mkdirSync(dataDir, { recursive: true });
+    const db = new Database(`${dataDir}/webapp.sqlite`);
+    const now = new Date().toISOString();
+    db.exec(`
+      CREATE TABLE webapp_preferences (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE webapp_passkeys (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        credential_id TEXT NOT NULL UNIQUE,
+        public_key BLOB NOT NULL,
+        counter INTEGER NOT NULL,
+        device_type TEXT NOT NULL,
+        backed_up INTEGER NOT NULL,
+        transports TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_used_at TEXT
+      );
+      CREATE TABLE webapp_api_keys (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        prefix TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        scopes TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT,
+        expires_at TEXT
+      );
+      CREATE TABLE webapp_device_auth_requests (
+        device_code_hash TEXT PRIMARY KEY,
+        user_code TEXT NOT NULL UNIQUE,
+        client_id TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+      CREATE TABLE webapp_refresh_sessions (
+        id TEXT PRIMARY KEY,
+        family_id TEXT NOT NULL,
+        client_id TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        refresh_token_hash TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        last_used_at TEXT,
+        revoked_at TEXT
+      );
+    `);
+    db.query("INSERT INTO webapp_preferences (key, value, updated_at) VALUES (?, ?, ?)").run("passkey.secret", "secret", now);
+    db.query("INSERT INTO webapp_preferences (key, value, updated_at) VALUES (?, ?, ?)").run("theme", "dark", now);
+    db.query(`
+      INSERT INTO webapp_passkeys
+      (id, name, credential_id, public_key, counter, device_type, backed_up, transports, created_at, updated_at, last_used_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("passkey-id", "Primary passkey", "credential-id", new Uint8Array([1, 2, 3]), 4, "singleDevice", 1, JSON.stringify(["internal"]), now, now, now);
+    db.query("INSERT INTO webapp_api_keys (id, name, prefix, token_hash, scopes, created_at, last_used_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("api-key-id", "Legacy key", "wapp", "token-hash", JSON.stringify(["*"]), now, now, null);
+    db.query("INSERT INTO webapp_device_auth_requests (device_code_hash, user_code, client_id, scope, status, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("device-hash", "ABCD-EFGH", "cli", "todos:read", "approved", now, now, now);
+    db.query("INSERT INTO webapp_refresh_sessions (id, family_id, client_id, scope, refresh_token_hash, created_at, updated_at, expires_at, last_used_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("refresh-id", "family-id", "cli", "todos:read", "refresh-hash", now, now, now, null, null);
+    db.close();
+
+    const store = sqliteWebAppStore({ dataDir });
+    store.initialize();
+    const owner = store.getOwnerUser();
+
+    expect(owner?.username).toBe("owner");
+    expect(owner?.passkeyConfigured).toBe(true);
+    expect(store.getPreference("passkey.secret")).toBe("secret");
+    expect(store.getThemePreference(owner!.id)).toBe("dark");
+    expect(store.listPasskeys(owner!.id)).toHaveLength(1);
+    expect(store.listApiKeys(owner!.id)).toHaveLength(1);
+    expect(store.getDeviceAuthByUserCode("ABCD-EFGH")?.approvedByUserId).toBe(owner!.id);
+    expect(store.listRefreshSessions(owner!.id)).toHaveLength(1);
+
+    store.initialize();
+    expect(store.countUsers()).toBe(1);
+  });
+
   test("runtime config names invalid prefixed log level variables", () => {
     const previous = process.env["TEST_LOG_LEVEL"];
     process.env["TEST_LOG_LEVEL"] = "verbose";
@@ -209,6 +322,39 @@ describe("server security defaults", () => {
     const response = await app.handleRequest(new Request("http://localhost/api/current-user"));
     expect(response?.status).toBe(401);
     expect(await response?.json()).toMatchObject({ error: "authentication_required" });
+  });
+
+  test("route handler generic errors return sanitized server errors", async () => {
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_ROUTE_ERROR",
+      index: "<html></html>",
+      store: testStore("route-handler-error"),
+      auth: { passkeys: false },
+      routes: defineRoutes({
+        "/api/boom": {
+          auth: "public",
+          GET: () => {
+            throw new Error("secret database detail");
+          },
+        },
+      }),
+    });
+
+    const loggedErrors: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => loggedErrors.push(args.map(String).join(" "));
+    let response: Response | undefined;
+    try {
+      response = await app.handleRequest(new Request("http://localhost/api/boom"));
+    } finally {
+      console.error = originalError;
+    }
+    const body = await responseJson<{ error: string; message: string }>(response);
+
+    expect(response?.status).toBe(500);
+    expect(body).toEqual({ error: "request_failed", message: "Request failed" });
+    expect(loggedErrors.some((message) => message.includes("secret database detail"))).toBe(true);
   });
 
   test("declarative route auth enforces admin and owner roles", async () => {

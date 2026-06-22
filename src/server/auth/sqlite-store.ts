@@ -13,6 +13,7 @@ import type {
   WebAppStore,
 } from "./store";
 import type { LogLevelName, ThemePreference, WebAppUserRole } from "../../contracts";
+import { createUserRecord } from "./users";
 
 type Row = Record<string, unknown>;
 
@@ -44,9 +45,29 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
   const dbPath = join(dataDir, options.fileName ?? "webapp.sqlite");
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
-  db.exec("PRAGMA foreign_keys = ON;");
 
-  function initialize(): void {
+  function tableExists(table: string): boolean {
+    const row = db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) as Row | null;
+    return Boolean(row);
+  }
+
+  function tableColumns(table: string): string[] {
+    return (db.query(`PRAGMA table_info(${table})`).all() as Row[]).map((row) => text(row["name"]));
+  }
+
+  function hasColumn(table: string, column: string): boolean {
+    return tableExists(table) && tableColumns(table).includes(column);
+  }
+
+  function countRows(table: string, where = ""): number {
+    if (!tableExists(table)) {
+      return 0;
+    }
+    const row = db.query(`SELECT COUNT(*) AS count FROM ${table}${where}`).get() as Row | null;
+    return Number(row?.["count"] ?? 0);
+  }
+
+  function createSchema(): void {
     db.exec(`
       CREATE TABLE IF NOT EXISTS webapp_users (
         id TEXT PRIMARY KEY,
@@ -153,6 +174,111 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
       CREATE INDEX IF NOT EXISTS idx_webapp_refresh_user ON webapp_refresh_sessions(user_id);
       CREATE INDEX IF NOT EXISTS idx_webapp_audit_created ON webapp_audit_events(created_at);
     `);
+  }
+
+  function migrateSingleUserSchema(): void {
+    const legacySources = [
+      ["webapp_preferences", tableExists("webapp_preferences") && !hasColumn("webapp_preferences", "user_id")],
+      ["webapp_passkeys", tableExists("webapp_passkeys") && !hasColumn("webapp_passkeys", "user_id")],
+      ["webapp_api_keys", tableExists("webapp_api_keys") && !hasColumn("webapp_api_keys", "user_id")],
+      ["webapp_device_auth_requests", tableExists("webapp_device_auth_requests") && !hasColumn("webapp_device_auth_requests", "approved_by_user_id")],
+      ["webapp_refresh_sessions", tableExists("webapp_refresh_sessions") && !hasColumn("webapp_refresh_sessions", "user_id")],
+    ] as const;
+    const legacyTables = legacySources.filter(([, legacy]) => legacy).map(([table]) => table);
+    if (legacyTables.length === 0) {
+      return;
+    }
+
+    const legacyName = (table: string) => `${table}_legacy_single_user`;
+    const transaction = db.transaction(() => {
+      for (const table of legacyTables) {
+        db.exec(`DROP TABLE IF EXISTS ${legacyName(table)};`);
+        db.exec(`ALTER TABLE ${table} RENAME TO ${legacyName(table)};`);
+      }
+
+      createSchema();
+
+      const legacyPasskeys = legacyName("webapp_passkeys");
+      const legacyApiKeys = legacyName("webapp_api_keys");
+      const legacyDeviceRequests = legacyName("webapp_device_auth_requests");
+      const legacyRefreshSessions = legacyName("webapp_refresh_sessions");
+      const hasOwnerData =
+        countRows(legacyPasskeys) > 0 ||
+        countRows(legacyApiKeys) > 0 ||
+        countRows(legacyRefreshSessions) > 0 ||
+        countRows(legacyDeviceRequests, " WHERE status IN ('approved', 'consumed')") > 0;
+      const owner = hasOwnerData ? createUserRecord({ username: "owner", role: "owner" }) : undefined;
+      if (owner) {
+        db.query(`
+          INSERT INTO webapp_users (id, username, role, auth_version, created_at, updated_at, last_login_at, disabled_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(owner.id, owner.username, owner.role, owner.authVersion, owner.createdAt, owner.updatedAt, owner.lastLoginAt ?? null, owner.disabledAt ?? null);
+      }
+
+      if (tableExists(legacyName("webapp_preferences"))) {
+        db.exec(`
+          INSERT INTO webapp_preferences (key, user_id, value, updated_at)
+          SELECT key, '', value, updated_at FROM ${legacyName("webapp_preferences")}
+        `);
+        if (owner) {
+          db.query(`
+            INSERT OR IGNORE INTO webapp_preferences (key, user_id, value, updated_at)
+            SELECT key, ?, value, updated_at FROM ${legacyName("webapp_preferences")} WHERE key = 'theme'
+          `).run(owner.id);
+        }
+      }
+
+      if (owner && tableExists(legacyPasskeys)) {
+        db.query(`
+          INSERT INTO webapp_passkeys
+          (id, user_id, name, credential_id, public_key, counter, device_type, backed_up, transports, created_at, updated_at, last_used_at)
+          SELECT id, ?, name, credential_id, public_key, counter, device_type, backed_up, transports, created_at, updated_at, last_used_at
+          FROM ${legacyPasskeys}
+          ORDER BY created_at ASC
+          LIMIT 1
+        `).run(owner.id);
+      }
+
+      if (owner && tableExists(legacyApiKeys)) {
+        db.query(`
+          INSERT INTO webapp_api_keys (id, user_id, name, prefix, token_hash, scopes, created_at, last_used_at, expires_at)
+          SELECT id, ?, name, prefix, token_hash, scopes, created_at, last_used_at, expires_at FROM ${legacyApiKeys}
+        `).run(owner.id);
+      }
+
+      if (tableExists(legacyDeviceRequests)) {
+        db.query(`
+          INSERT INTO webapp_device_auth_requests
+          (device_code_hash, user_code, client_id, scope, status, approved_by_user_id, created_at, updated_at, expires_at)
+          SELECT device_code_hash, user_code, client_id, scope, status,
+            CASE WHEN status IN ('approved', 'consumed') THEN ? ELSE NULL END,
+            created_at, updated_at, expires_at
+          FROM ${legacyDeviceRequests}
+        `).run(owner?.id ?? null);
+      }
+
+      if (owner && tableExists(legacyRefreshSessions)) {
+        db.query(`
+          INSERT INTO webapp_refresh_sessions
+          (id, user_id, family_id, client_id, scope, refresh_token_hash, created_at, updated_at, expires_at, last_used_at, revoked_at)
+          SELECT id, ?, family_id, client_id, scope, refresh_token_hash, created_at, updated_at, expires_at, last_used_at, revoked_at
+          FROM ${legacyRefreshSessions}
+        `).run(owner.id);
+      }
+
+      for (const table of legacyTables) {
+        db.exec(`DROP TABLE IF EXISTS ${legacyName(table)};`);
+      }
+    });
+
+    db.exec("PRAGMA foreign_keys = OFF;");
+    transaction();
+  }
+
+  function initialize(): void {
+    migrateSingleUserSchema();
+    createSchema();
+    db.exec("PRAGMA foreign_keys = ON;");
   }
 
   function getPreference(key: string, userId?: string): string | undefined {
