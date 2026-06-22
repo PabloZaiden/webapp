@@ -4,11 +4,22 @@ Apps are one Bun application: backend routes, websocket, React UI and static ass
 
 ```ts
 import webIndex from "./index.html";
-import { createWebAppServer, defineRoutes, jsonResponse } from "@pablozaiden/webapp/server";
+import { createWebAppServer, defineRoutes, jsonResponse, parseJson } from "@pablozaiden/webapp/server";
+
+const items: Array<{ id: string; userId: string; title: string }> = [];
 
 const routes = defineRoutes({
   "/api/items": {
-    GET: () => jsonResponse([{ id: "one", title: "One" }]),
+    auth: "user",
+    GET: (_req, ctx) => jsonResponse(ctx.filterOwned(items)),
+    async POST(req, ctx) {
+      const user = ctx.requireUser();
+      const body = await parseJson<{ title: string }>(req);
+      const item = { id: crypto.randomUUID(), userId: user.id, title: body.title };
+      items.push(item);
+      ctx.userRealtime.publishEntityChanged("items", item.id);
+      return jsonResponse(item);
+    },
   },
   "/api/webhooks/:source/:token": {
     auth: "public",
@@ -29,12 +40,27 @@ const app = createWebAppServer({
 await app.runFromCli();
 ```
 
-Frontend entrypoints should import the framework CSS explicitly so Bun hot reload observes style changes:
+Frontend entrypoints should use `renderWebApp` so Bun/browser hot reload reuses the existing React root instead of calling `createRoot()` twice. Import the framework CSS explicitly so Bun hot reload observes style changes:
 
-```ts
-import { WebAppRoot } from "@pablozaiden/webapp/web";
+```tsx
+import { WebAppRoot, renderWebApp } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
+
+function Home() {
+  return <main className="wapp-main-content">Hello</main>;
+}
+
+renderWebApp(
+  <WebAppRoot
+    appName="My App"
+    homeRoute={{ view: "home" }}
+    sidebar={{ getNodes: () => [] }}
+    routes={{ home: <Home /> }}
+  />,
+);
 ```
+
+`renderWebApp` renders into `#root` by default and reuses the existing React root across hot reloads. Pass a custom element id or `Element` only when the app uses a different mount point.
 
 Recommended dev script:
 
@@ -50,11 +76,11 @@ The app configures an uppercase `envPrefix`; the framework reads only variables 
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `{PREFIX}_HOST` | `127.0.0.1` | Bind host |
+| `{PREFIX}_HOST` | `localhost` | Bind host |
 | `{PREFIX}_PORT` | `3000` | Bind port |
 | `{PREFIX}_DATA_DIR` | `./data` | SQLite persistence directory |
 | `{PREFIX}_LOG_LEVEL` | `info` | `trace`, `debug`, `info`, `warn`, `error`; locks settings log-level control when set |
-| `{PREFIX}_DISABLE_PASSKEY` | unset | Development escape hatch |
+| `{PREFIX}_DISABLE_PASSKEY` | unset | Emergency bypass that logs in as the existing owner; it does not create users |
 | `{PREFIX}_DISABLE_SAME_ORIGIN_CHECK` | unset | Development/testing escape hatch |
 | `{PREFIX}_PUBLIC_BASE_URL` | request origin | External URL for device auth links |
 | `{PREFIX}_AUTH_ISSUER` | `urn:{prefix}:webapp` | JWT issuer override |

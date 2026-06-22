@@ -1,13 +1,14 @@
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { ApiKeySummary, AuthSessionSummary, CreatedApiKeyResponse, DeviceVerificationDetails, PasskeyAuthStatusResponse, ThemePreference, WebAppConfigResponse } from "../contracts";
-import { ActionMenu, Badge, Button, ConfirmDialog, ContextMenu, DangerZone, EmptyState, FormSection, IconButton, Panel, SelectField, TextField, type ContextMenuPosition } from "./components";
+import type { ApiKeySummary, AuthSessionSummary, CreatedApiKeyResponse, CreatedUserResponse, DeviceVerificationDetails, PasskeyAuthStatusResponse, ThemePreference, UserSetupDetails, WebAppConfigResponse, WebAppUserRole, WebAppUserSummary } from "../contracts";
+import { ActionMenu, Badge, Button, ConfirmDialog, ContextMenu, DangerZone, Dialog, EmptyState, FormSection, IconButton, Panel, SelectField, TextField, type ContextMenuPosition } from "./components";
 import type { ActionMenuItem, SidebarAction, SidebarBuildContext, SidebarNode, WebAppRoute } from "./sidebar/types";
 
 type SettingsSection = {
   id: string;
   title: string;
   description?: string;
+  scope?: "user" | "admin" | "owner";
   rows?: SettingsRow[];
   render?: () => ReactNode;
 };
@@ -16,6 +17,7 @@ type SettingsRow = {
   id: string;
   title: string;
   description?: string;
+  scope?: "user" | "admin" | "owner";
   content?: ReactNode;
   actions?: ReactNode | SettingsAction[];
   danger?: boolean;
@@ -217,14 +219,23 @@ function ActionIcon({ icon }: { icon?: ReactNode }) {
 function PasskeyAuthScreen({ status, refresh }: { status: PasskeyAuthStatusResponse; refresh: () => Promise<void> }) {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  async function register() {
+  const [username, setUsername] = useState("");
+  const description = status.bootstrapRequired
+    ? "Choose the username for the owner"
+    : status.ownerPasskeySetupRequired
+      ? "The owner passkey was removed. Set it up again to continue."
+      : "Authenticate to continue.";
+
+  async function register(endpoint: "bootstrap" | "owner-setup") {
     setBusy(true);
     setError(undefined);
     try {
-      const options = await json<PublicKeyCredentialCreationOptionsJSON>("/api/passkey-auth/registration/options", { method: "POST", body: "{}" });
+      const body = endpoint === "bootstrap" ? JSON.stringify({ username }) : "{}";
+      const options = await json<PublicKeyCredentialCreationOptionsJSON>(`/api/passkey-auth/${endpoint}/options`, { method: "POST", body });
       const credential = await startRegistration({ optionsJSON: options as never });
-      await json("/api/passkey-auth/registration/verify", { method: "POST", body: JSON.stringify(credential) });
+      await json(`/api/passkey-auth/${endpoint}/verify`, { method: "POST", body: JSON.stringify(credential) });
       await refresh();
+      window.location.reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -239,6 +250,7 @@ function PasskeyAuthScreen({ status, refresh }: { status: PasskeyAuthStatusRespo
       const credential = await startAuthentication({ optionsJSON: options as never });
       await json("/api/passkey-auth/authentication/verify", { method: "POST", body: JSON.stringify(credential) });
       await refresh();
+      window.location.reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -247,12 +259,69 @@ function PasskeyAuthScreen({ status, refresh }: { status: PasskeyAuthStatusRespo
   }
   return (
     <main className="wapp-auth-screen">
-      <Panel title="Passkey required" description={status.passkeyConfigured ? "Authenticate to continue." : "Set up the first passkey for this app."}>
+      <Dialog
+        className="wapp-auth-dialog"
+        title={status.bootstrapRequired ? "Create owner user" : status.ownerPasskeySetupRequired ? "Set up owner passkey" : "Passkey required"}
+        actions={status.bootstrapRequired ? (
+          <Button type="button" variant="primary" disabled={busy || !username.trim()} onClick={() => void register("bootstrap")}>Create owner</Button>
+        ) : status.ownerPasskeySetupRequired ? (
+          <Button type="button" variant="primary" disabled={busy} onClick={() => void register("owner-setup")}>Set up owner passkey</Button>
+        ) : (
+          <Button type="button" variant="primary" disabled={busy} onClick={() => void login()}>Authenticate</Button>
+        )}
+      >
+        <p>{description}</p>
         {error ? <p className="wapp-error">{error}</p> : null}
-        <div className="wapp-row-actions">
-          {status.passkeyConfigured ? <Button type="button" variant="primary" disabled={busy} onClick={() => void login()}>Authenticate</Button> : <Button type="button" variant="primary" disabled={busy} onClick={() => void register()}>Set up passkey</Button>}
-        </div>
-      </Panel>
+        {status.bootstrapRequired ? <><br /><TextField label="Username" value={username} onChange={(event) => setUsername(event.currentTarget.value)} placeholder="owner" /></> : null}
+      </Dialog>
+    </main>
+  );
+}
+
+function UserSetupScreen({ refresh }: { refresh: () => Promise<void> }) {
+  const token = new URLSearchParams(window.location.search).get("token") ?? "";
+  const [details, setDetails] = useState<UserSetupDetails>();
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!token) {
+      setError("Setup token is missing");
+      return;
+    }
+    void json<UserSetupDetails>(`/api/user-setup?token=${encodeURIComponent(token)}`)
+      .then(setDetails)
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+  }, [token]);
+
+  async function setup() {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const options = await json<PublicKeyCredentialCreationOptionsJSON>("/api/user-setup/options", { method: "POST", body: JSON.stringify({ token }) });
+      const credential = await startRegistration({ optionsJSON: options as never });
+      await json("/api/user-setup/verify", { method: "POST", body: JSON.stringify({ token, response: credential }) });
+      window.history.replaceState(null, "", "/");
+      await refresh();
+      window.location.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="wapp-auth-screen">
+      <Dialog
+        className="wapp-auth-dialog"
+        title={details?.kind === "reset" ? "Reset passkey" : "Finish user setup"}
+        actions={<Button type="button" variant="primary" disabled={busy || !details} onClick={() => void setup()}>Set up passkey</Button>}
+      >
+        <p>{details ? `Username: ${details.username}` : "Loading setup link..."}</p>
+        {details ? <p className="wapp-muted">Role: {details.role}. This link expires at {details.expiresAt}.</p> : null}
+        {error ? <p className="wapp-error">{error}</p> : null}
+      </Dialog>
     </main>
   );
 }
@@ -407,6 +476,114 @@ function StructuredSettingsSection({ section }: { section: SettingsSection }) {
   );
 }
 
+function isScopeVisible(scope: "user" | "admin" | "owner" | undefined, config: WebAppConfigResponse): boolean {
+  if (!scope || scope === "user") return Boolean(config.currentUser);
+  if (scope === "admin") return Boolean(config.currentUser?.isAdmin);
+  return Boolean(config.currentUser?.isOwner);
+}
+
+function UserManagement({ config }: { config: WebAppConfigResponse }) {
+  const [users, setUsers] = useState<WebAppUserSummary[]>([]);
+  const [username, setUsername] = useState("");
+  const [role, setRole] = useState<WebAppUserRole>("user");
+  const [setupLink, setSetupLink] = useState<string>();
+  const [error, setError] = useState<string>();
+
+  const refreshUsers = useCallback(async () => {
+    if (config.userManagement.canManageUsers) {
+      setUsers(await json<WebAppUserSummary[]>("/api/users"));
+    }
+  }, [config.userManagement.canManageUsers]);
+
+  useEffect(() => void refreshUsers().catch(() => undefined), [refreshUsers]);
+
+  async function createUser() {
+    try {
+      setError(undefined);
+      const result = await json<CreatedUserResponse>("/api/users", { method: "POST", body: JSON.stringify({ username, role }) });
+      setUsername("");
+      setRole("user");
+      setSetupLink(result.setupLink.url);
+      await refreshUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function updateRole(user: WebAppUserSummary, nextRole: WebAppUserRole) {
+    try {
+      setError(undefined);
+      await json(`/api/users/${encodeURIComponent(user.id)}/role`, { method: "PATCH", body: JSON.stringify({ role: nextRole }) });
+      await refreshUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function resetUser(user: WebAppUserSummary) {
+    try {
+      setError(undefined);
+      const result = await json<CreatedUserResponse>(`/api/users/${encodeURIComponent(user.id)}/reset`, { method: "POST", body: "{}" });
+      setSetupLink(result.setupLink.url);
+      await refreshUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function deleteUser(user: WebAppUserSummary) {
+    try {
+      setError(undefined);
+      await json(`/api/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
+      await refreshUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  if (!config.userManagement.canManageUsers) return null;
+  return (
+    <FormSection title="User management" description="Create users, reset passkeys, and manage admin access.">
+      {error ? <p className="wapp-error">{error}</p> : null}
+      <br />
+      <div className="wapp-settings-row stacked">
+        <div>
+          <TextField label="Username" value={username} onChange={(event) => setUsername(event.currentTarget.value)} placeholder="new-user" />
+          <br />
+          <SelectField label="Role" value={role} onChange={(event) => setRole(event.currentTarget.value as WebAppUserRole)}>
+            <option value="user">User</option>
+            <option value="admin">Admin</option>
+          </SelectField>
+        </div>
+        <br />
+        <div className="wapp-row-actions"><Button type="button" variant="primary" disabled={!username.trim()} onClick={() => void createUser()}>Create setup link</Button></div>
+        {setupLink ? <code className="wapp-token">{setupLink}</code> : null}
+      </div>
+      <br />
+      <div className="wapp-list">
+        {users.map((user) => (
+          <div className="wapp-list-row" key={user.id}>
+            <span>
+              <strong>{user.username}</strong>
+              <small>{user.role} · passkey {user.passkeyConfigured ? "configured" : "pending"} · created {user.createdAt}</small>
+            </span>
+            <div className="wapp-row-actions">
+              {user.role !== "owner" ? (
+                <select className="wapp-inline-select" aria-label={`Role for ${user.username}`} value={user.role} onChange={(event) => void updateRole(user, event.currentTarget.value as WebAppUserRole)}>
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+              ) : <Badge variant="success">Owner</Badge>}
+              {user.role !== "owner" ? <Button type="button" onClick={() => void resetUser(user)}>Reset</Button> : null}
+              <Button type="button" variant="danger" disabled={user.role === "owner"} onClick={() => void deleteUser(user)}>Delete</Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </FormSection>
+  );
+}
+
 function SettingsView({ config, refresh, customSections, theme, setTheme }: { config: WebAppConfigResponse; refresh: () => Promise<void>; customSections: SettingsSection[]; theme: ThemePreference; setTheme: (theme: ThemePreference) => void }) {
   const [apiKeys, setApiKeys] = useState<ApiKeySummary[]>([]);
   const [authSessions, setAuthSessions] = useState<AuthSessionSummary[]>([]);
@@ -451,9 +628,9 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
   async function setupPasskey() {
     try {
       setError(undefined);
-      const options = await json<PublicKeyCredentialCreationOptionsJSON>("/api/passkey-auth/registration/options", { method: "POST", body: "{}" });
+      const options = await json<PublicKeyCredentialCreationOptionsJSON>("/api/passkey-auth/owner-setup/options", { method: "POST", body: "{}" });
       const credential = await startRegistration({ optionsJSON: options as never });
-      await json("/api/passkey-auth/registration/verify", { method: "POST", body: JSON.stringify(credential) });
+      await json("/api/passkey-auth/owner-setup/verify", { method: "POST", body: JSON.stringify(credential) });
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -480,25 +657,36 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
   return (
     <div className="wapp-settings">
       {error ? <p className="wapp-error">{error}</p> : null}
+      {config.currentUser ? (
+        <FormSection title="Account">
+          <p>Signed in as <strong>{config.currentUser.username}</strong> <Badge variant={config.currentUser.isAdmin ? "success" : "disabled"}>{config.currentUser.role}</Badge></p>
+        </FormSection>
+      ) : null}
       <FormSection title="Display Settings">
-        <SelectField label="Theme" value={theme} onChange={(event) => setTheme(event.currentTarget.value as ThemePreference)}>
+        <SelectField label="Theme" value={theme} onChange={(event) => {
+          const next = event.currentTarget.value as ThemePreference;
+          setTheme(next);
+          void json("/api/preferences/theme", { method: "PUT", body: JSON.stringify({ theme: next }) }).catch((err) => setError(String(err)));
+        }}>
           <option value="system">System</option>
           <option value="light">Light</option>
           <option value="dark">Dark</option>
         </SelectField>
       </FormSection>
 
-      <FormSection title="Developer Settings">
-        <SelectField label={config.logLevel.fromEnv ? `Log level (${config.logLevel.level}, controlled by env)` : "Log level"} value={config.logLevel.level} disabled={config.logLevel.fromEnv} onChange={(event) => void json("/api/preferences/log-level", { method: "PUT", body: JSON.stringify({ level: event.currentTarget.value }) }).then(refresh)}>
-          {["trace", "debug", "info", "warn", "error"].map((level) => <option key={level} value={level}>{level}</option>)}
-        </SelectField>
-      </FormSection>
+      {config.currentUser?.isAdmin ? (
+        <FormSection title="Developer Settings">
+          <SelectField label={config.logLevel.fromEnv ? `Log level (${config.logLevel.level}, controlled by env)` : "Log level"} value={config.logLevel.level} disabled={config.logLevel.fromEnv} onChange={(event) => void json("/api/preferences/log-level", { method: "PUT", body: JSON.stringify({ level: event.currentTarget.value }) }).then(refresh)}>
+            {["trace", "debug", "info", "warn", "error"].map((level) => <option key={level} value={level}>{level}</option>)}
+          </SelectField>
+        </FormSection>
+      ) : null}
 
       <FormSection title="Security">
         <div className="wapp-settings-row">
           <div>
             <strong>Passkey</strong>
-            <p>{config.passkeyAuth.passkeyConfigured ? "Passkey protection is configured." : "No passkey configured yet."}</p>
+            <p>{config.passkeyAuth.passkeyConfigured ? "Your passkey protects this account." : "No passkey configured yet."}</p>
           </div>
           <div className="wapp-row-actions">
             {config.passkeyAuth.passkeyConfigured ? (
@@ -507,7 +695,7 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
                 <Button type="button" variant="danger" onClick={() => setConfirmDeletePasskey(true)}>Delete passkey</Button>
               </>
             ) : (
-              <Button type="button" variant="primary" onClick={() => void setupPasskey()}>Set up passkey</Button>
+              config.currentUser?.isOwner ? <Button type="button" variant="primary" onClick={() => void setupPasskey()}>Set up passkey</Button> : null
             )}
           </div>
         </div>
@@ -549,12 +737,19 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
         ) : null}
       </FormSection>
 
-      <FormSection title="Server operations">
-        {killRequested ? <p className="wapp-notice">Server is shutting down. Reloading soon...</p> : null}
-        <Button type="button" variant="danger" onClick={() => void killServer().catch((err) => setError(String(err)))}>Kill server</Button>
-      </FormSection>
+      <UserManagement config={config} />
 
-      {customSections.map((section) => <StructuredSettingsSection key={section.id} section={section} />)}
+      {config.currentUser?.isAdmin ? (
+        <FormSection title="Server operations">
+          {killRequested ? <p className="wapp-notice">Server is shutting down. Reloading soon...</p> : null}
+          <Button type="button" variant="danger" onClick={() => void killServer().catch((err) => setError(String(err)))}>Kill server</Button>
+        </FormSection>
+      ) : null}
+
+      {customSections.filter((section) => isScopeVisible(section.scope, config)).map((section) => ({
+        ...section,
+        rows: section.rows?.filter((row) => isScopeVisible(row.scope, config)),
+      })).map((section) => <StructuredSettingsSection key={section.id} section={section} />)}
 
       <FormSection title="About">
         <p>{config.appName} {config.version}</p>
@@ -634,13 +829,23 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, settin
     ];
   }, [augmentPinningActions, baseNodes, currentPins, filteredNodes, pinningEnabled, search, sidebar.pinning]);
 
+  useEffect(() => {
+    if (!config?.currentUser) return;
+    void json<{ theme: ThemePreference }>("/api/preferences/theme")
+      .then((result) => setTheme(result.theme))
+      .catch(() => undefined);
+  }, [config?.currentUser?.id, setTheme]);
+
   if (error) {
     return <main className="wapp-auth-screen"><Panel title="Unable to load app" description={error} /></main>;
   }
   if (!config) {
     return <main className="wapp-auth-screen">Loading...</main>;
   }
-  if (config.passkeyAuth.enabled && !config.passkeyAuth.passkeyDisabled && (!config.passkeyAuth.passkeyConfigured || (config.passkeyAuth.passkeyRequired && !config.passkeyAuth.authenticated))) {
+  if (window.location.pathname === "/setup") {
+    return <UserSetupScreen refresh={refresh} />;
+  }
+  if (config.passkeyAuth.enabled && (config.passkeyAuth.bootstrapRequired || config.passkeyAuth.ownerPasskeySetupRequired || (!config.passkeyAuth.passkeyDisabled && config.passkeyAuth.passkeyRequired && !config.passkeyAuth.authenticated))) {
     return <PasskeyAuthScreen status={config.passkeyAuth} refresh={refresh} />;
   }
   if (config.deviceAuth.enabled && window.location.pathname === "/device") {
@@ -668,6 +873,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, settin
     ...(activePinningAction ? [activePinningAction] : []),
   ];
   const headerTitle = header?.renderTitle?.(headerContext) ?? defaultTitle;
+  const headerActionLabel = typeof headerTitle === "string" ? headerTitle : defaultTitle;
 
   return (
     <main className={`wapp-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarOpen ? "sidebar-open" : ""}`}>
@@ -695,7 +901,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, settin
           </div>
           {headerActions.length ? (
             <div className="wapp-main-header-actions">
-              <ActionMenu items={headerActions} ariaLabel={`Actions for ${defaultTitle}`} />
+              <ActionMenu items={headerActions} ariaLabel={`Actions for ${headerActionLabel}`} />
             </div>
           ) : null}
         </header>

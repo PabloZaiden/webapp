@@ -1,6 +1,5 @@
-import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Badge, Button, EmptyState, Panel, TextField, WebAppRoot, useRealtimeRefresh, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
+import { Badge, Button, EmptyState, Panel, TextField, WebAppRoot, renderWebApp, useRealtimeRefresh, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
 
@@ -15,6 +14,10 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, { ...init, headers: { "content-type": "application/json", ...init.headers } });
   if (!response.ok) throw new Error(await response.text());
   return await response.json() as T;
+}
+
+function needsAuthentication(config: { passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }): boolean {
+  return config.passkeyAuth.enabled && (config.passkeyAuth.bootstrapRequired || config.passkeyAuth.ownerPasskeySetupRequired || (config.passkeyAuth.passkeyRequired && !config.passkeyAuth.authenticated));
 }
 
 function Home({ projects }: { projects: Project[] }) {
@@ -83,8 +86,12 @@ function ActivityView({ projects }: { projects: Project[] }) {
 
 function KitchenSinkApp() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const refresh = useCallback(async () => setProjects(await api<Project[]>("/api/projects")), []);
-  useEffect(() => void refresh(), [refresh]);
+  const refresh = useCallback(async () => {
+    const config = await api<{ passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }>("/api/config");
+    if (needsAuthentication(config)) return;
+    setProjects(await api<Project[]>("/api/projects"));
+  }, []);
+  useEffect(() => void refresh().catch(() => undefined), [refresh]);
   useRealtimeRefresh({ resources: ["projects"], refresh: () => refresh() });
 
   const updateProjectStatus = useCallback(async (project: Project, status: Project["status"]) => {
@@ -103,7 +110,6 @@ function KitchenSinkApp() {
       type: "section",
       id: "projects",
       title: "Projects",
-      action: { id: "new", title: "New project", label: "New", route: { view: "new-project" } },
       children: projects.map((project) => ({
         type: "item",
         id: project.id,
@@ -140,7 +146,6 @@ function KitchenSinkApp() {
       sidebar={{
         topActions: [
           { id: "activity", title: "Activity", icon: "↯", route: { view: "activity" } },
-          { id: "new", title: "New project", icon: "+", route: { view: "new-project" } },
         ],
         getNodes: ({ search }) => {
           if (!search.trim()) return sidebarNodes;
@@ -159,9 +164,12 @@ function KitchenSinkApp() {
       }}
       header={{
         getActions: ({ route }) => {
-          if (route.view !== "project") return [];
+          if (route.view !== "project") return [{ id: "new-project", label: "New project", onAction: () => { window.location.hash = "#/new-project"; } }];
           const project = projects.find((item) => item.id === route.projectId);
-          return project ? getProjectActions(project) : [];
+          return [
+            { id: "new-project", label: "New project", onAction: () => { window.location.hash = "#/new-project"; } },
+            ...(project ? getProjectActions(project) : []),
+          ];
         },
       }}
       settings={{
@@ -169,11 +177,18 @@ function KitchenSinkApp() {
           {
             id: "coverage",
             title: "Coverage",
+            scope: "user",
             rows: [
               {
                 id: "framework-coverage",
                 title: "Framework coverage",
                 description: `Projects: ${projects.length}. Public route, protected CRUD, realtime, device auth, API keys and passkeys are enabled.`,
+              },
+              {
+                id: "admin-route",
+                title: "Admin route",
+                scope: "admin",
+                description: "/api/admin/summary demonstrates app-owned admin-only APIs with ctx.requireAdmin().",
               },
             ],
           },
@@ -183,4 +198,4 @@ function KitchenSinkApp() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<KitchenSinkApp />);
+renderWebApp(<KitchenSinkApp />);

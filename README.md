@@ -1,10 +1,10 @@
 # @pablozaiden/webapp
 
-Opinionated Bun + React framework for single-server TypeScript webapps: one Bun process serves the React UI, API routes, passkey auth, API keys, device auth, realtime websocket state, settings, binary builds and Docker images.
+Opinionated Bun + React framework for single-server TypeScript webapps: one Bun process serves the React UI, API routes, multi-user passkey auth, user-owned API keys, device auth, realtime websocket state, scoped settings, binary builds and Docker images.
 
 ## Quick start
 
-Use one of the examples while the package is private:
+Use one of the examples during framework development:
 
 ```bash
 bun install
@@ -19,7 +19,7 @@ Both examples run with Bun native hot reload through `bun --hot`, with no standa
 | Export | Use |
 | --- | --- |
 | `@pablozaiden/webapp/server` | `createWebAppServer`, route helpers, responses, SQLite store |
-| `@pablozaiden/webapp/web` | `WebAppRoot`, sidebar types, UI controls, realtime hooks |
+| `@pablozaiden/webapp/web` | `WebAppRoot`, `renderWebApp`, sidebar types, UI controls, realtime hooks |
 | `@pablozaiden/webapp/contracts` | Shared auth/config/device/API-key types |
 | `@pablozaiden/webapp/build` | Bun single-binary compile helper |
 

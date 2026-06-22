@@ -233,6 +233,40 @@ export function CodeValue({ value, label, copyLabel = "Copy" }: { value: string;
   );
 }
 
+export function Dialog({
+  title,
+  description,
+  children,
+  actions,
+  onClose,
+  className = "",
+}: {
+  title: string;
+  description?: ReactNode;
+  children?: ReactNode;
+  actions?: ReactNode;
+  onClose?: () => void;
+  className?: string;
+}) {
+  return (
+    <div className={`wapp-dialog ${className}`} role="dialog" aria-modal="true" aria-label={title}>
+      <div className="wapp-dialog-title">
+        <div>
+          <h2>{title}</h2>
+          {description ? <p>{description}</p> : null}
+        </div>
+        {onClose ? <button type="button" className="wapp-dialog-close" aria-label="Close dialog" onClick={onClose}>×</button> : null}
+      </div>
+      <div className="wapp-dialog-body">
+        {children}
+      </div>
+      <div className="wapp-dialog-actions">
+        {actions}
+      </div>
+    </div>
+  );
+}
+
 export function ConfirmDialog({
   open,
   title,
@@ -264,19 +298,18 @@ export function ConfirmDialog({
   if (!open) return null;
   return createPortal(
     <div className="wapp-dialog-backdrop" role="presentation">
-      <div className="wapp-dialog" role="dialog" aria-modal="true" aria-label={title}>
-        <div className="wapp-dialog-title">
-          <h2>{title}</h2>
-          <button type="button" className="wapp-dialog-close" aria-label="Close dialog" onClick={onCancel}>×</button>
-        </div>
-        <div className="wapp-dialog-body">
-          <p>{message}</p>
-        </div>
-        <div className="wapp-dialog-actions">
+      <Dialog
+        title={title}
+        onClose={onCancel}
+        actions={(
+          <>
           <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
           <Button type="button" variant={danger ? "danger" : "primary"} onClick={onConfirm}>{confirmLabel}</Button>
-        </div>
-      </div>
+          </>
+        )}
+      >
+        <p>{message}</p>
+      </Dialog>
     </div>,
     document.body,
   );

@@ -70,5 +70,4 @@ jobs:
           wait_for_health 3302
           wait_for_health 3301
           curl --fail --silent http://127.0.0.1:3302/api/public/ping >/dev/null
-          curl --fail --silent http://127.0.0.1:3301/api/sections >/dev/null
-
+          curl --fail --silent http://127.0.0.1:3301/api/public/ping >/dev/null

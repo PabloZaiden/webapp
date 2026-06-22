@@ -1,15 +1,34 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync } from "node:fs";
+import { Database } from "bun:sqlite";
 import { RealtimeBus, createWebAppServer, defineRoutes, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
 import { createApiKey } from "../src/server/auth/api-keys";
 import { readRuntimeConfig } from "../src/server/runtime-config";
+import type { UserRecord, WebAppStore } from "../src/server/auth/store";
 
 function testStore(name: string) {
   return sqliteWebAppStore({ dataDir: `.cache/tests/${name}-${crypto.randomUUID()}` });
 }
 
-function configuredPasskey() {
+function configuredUser(store: WebAppStore, username = "owner", role: UserRecord["role"] = "owner"): UserRecord {
+  const now = new Date().toISOString();
+  const user = {
+    id: crypto.randomUUID(),
+    username,
+    role,
+    authVersion: 1,
+    passkeyConfigured: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  store.createUser(user);
+  return user;
+}
+
+function configuredPasskey(userId: string) {
   return {
     id: crypto.randomUUID(),
+    userId,
     name: "Test passkey",
     credentialId: crypto.randomUUID(),
     publicKey: new Uint8Array([1, 2, 3]) as Uint8Array<ArrayBuffer>,
@@ -20,6 +39,10 @@ function configuredPasskey() {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+}
+
+function currentUser(user: UserRecord) {
+  return { id: user.id, username: user.username, role: user.role, isOwner: user.role === "owner", isAdmin: user.role === "owner" || user.role === "admin" };
 }
 
 async function responseJson<T>(response: Response | undefined): Promise<T> {
@@ -45,6 +68,19 @@ describe("server security defaults", () => {
     });
   });
 
+  test("realtime user targets only deliver to the authenticated user socket", () => {
+    const bus = new RealtimeBus<ResourceRealtimeEvent>();
+    const ownerMessages: string[] = [];
+    const aliceMessages: string[] = [];
+    bus.add({ data: { userId: "owner" }, send: (payload: string) => ownerMessages.push(payload) } as never);
+    bus.add({ data: { userId: "alice" }, send: (payload: string) => aliceMessages.push(payload) } as never);
+
+    bus.publishEntityChanged("projects", "alpha", { target: { userId: "alice" } });
+
+    expect(ownerMessages).toHaveLength(0);
+    expect(aliceMessages).toHaveLength(1);
+  });
+
   test("config exposes passkey bootstrap and disabled states", async () => {
     const enabledApp = createWebAppServer({
       appName: "Test",
@@ -67,6 +103,140 @@ describe("server security defaults", () => {
     });
     const disabledConfig = await responseJson<{ passkeyAuth: { enabled: boolean; authenticated: boolean } }>(await disabledApp.handleRequest(new Request("http://localhost/api/config")));
     expect(disabledConfig.passkeyAuth).toMatchObject({ enabled: false, authenticated: true });
+  });
+
+  test("emergency bypass still requires owner bootstrap when no owner exists", async () => {
+    const previous = process.env["TEST_EMPTY_BYPASS_DISABLE_PASSKEY"];
+    process.env["TEST_EMPTY_BYPASS_DISABLE_PASSKEY"] = "true";
+    try {
+      const app = createWebAppServer({
+        appName: "Test",
+        envPrefix: "TEST_EMPTY_BYPASS",
+        index: "<html></html>",
+        store: testStore("empty-bypass-config"),
+        auth: { passkeys: true },
+        routes: defineRoutes({}),
+      });
+      const config = await responseJson<{ passkeyAuth: { bootstrapRequired: boolean; authenticated: boolean; passkeyDisabled: boolean } }>(await app.handleRequest(new Request("http://localhost/api/config")));
+      expect(config.passkeyAuth).toMatchObject({ bootstrapRequired: true, authenticated: false, passkeyDisabled: true });
+    } finally {
+      if (previous === undefined) {
+        delete process.env["TEST_EMPTY_BYPASS_DISABLE_PASSKEY"];
+      } else {
+        process.env["TEST_EMPTY_BYPASS_DISABLE_PASSKEY"] = previous;
+      }
+    }
+  });
+
+  test("passkey setup rejects IP hosts with a clear auth error", async () => {
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_IP_PASSKEY",
+      index: "<html></html>",
+      store: testStore("ip-passkey"),
+      auth: { passkeys: true },
+      routes: defineRoutes({}),
+    });
+
+    const response = await app.handleRequest(new Request("http://127.0.0.1/api/passkey-auth/bootstrap/options", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "owner" }),
+    }));
+    const body = await responseJson<{ error: string; message: string }>(response);
+
+    expect(response?.status).toBe(400);
+    expect(body.error).toBe("invalid_passkey_host");
+    expect(body.message).toContain("hostname");
+  });
+
+  test("sqlite store migrates legacy single-user data to owner-owned records", () => {
+    const dataDir = `.cache/tests/legacy-single-user-${crypto.randomUUID()}`;
+    mkdirSync(dataDir, { recursive: true });
+    const db = new Database(`${dataDir}/webapp.sqlite`);
+    const now = new Date().toISOString();
+    db.exec(`
+      CREATE TABLE webapp_preferences (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE webapp_passkeys (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        credential_id TEXT NOT NULL UNIQUE,
+        public_key BLOB NOT NULL,
+        counter INTEGER NOT NULL,
+        device_type TEXT NOT NULL,
+        backed_up INTEGER NOT NULL,
+        transports TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_used_at TEXT
+      );
+      CREATE TABLE webapp_api_keys (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        prefix TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        scopes TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT,
+        expires_at TEXT
+      );
+      CREATE TABLE webapp_device_auth_requests (
+        device_code_hash TEXT PRIMARY KEY,
+        user_code TEXT NOT NULL UNIQUE,
+        client_id TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+      CREATE TABLE webapp_refresh_sessions (
+        id TEXT PRIMARY KEY,
+        family_id TEXT NOT NULL,
+        client_id TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        refresh_token_hash TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        last_used_at TEXT,
+        revoked_at TEXT
+      );
+    `);
+    db.query("INSERT INTO webapp_preferences (key, value, updated_at) VALUES (?, ?, ?)").run("passkey.secret", "secret", now);
+    db.query("INSERT INTO webapp_preferences (key, value, updated_at) VALUES (?, ?, ?)").run("theme", "dark", now);
+    db.query(`
+      INSERT INTO webapp_passkeys
+      (id, name, credential_id, public_key, counter, device_type, backed_up, transports, created_at, updated_at, last_used_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("passkey-id", "Primary passkey", "credential-id", new Uint8Array([1, 2, 3]), 4, "singleDevice", 1, JSON.stringify(["internal"]), now, now, now);
+    db.query("INSERT INTO webapp_api_keys (id, name, prefix, token_hash, scopes, created_at, last_used_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("api-key-id", "Legacy key", "wapp", "token-hash", JSON.stringify(["*"]), now, now, null);
+    db.query("INSERT INTO webapp_device_auth_requests (device_code_hash, user_code, client_id, scope, status, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("device-hash", "ABCD-EFGH", "cli", "todos:read", "approved", now, now, now);
+    db.query("INSERT INTO webapp_refresh_sessions (id, family_id, client_id, scope, refresh_token_hash, created_at, updated_at, expires_at, last_used_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("refresh-id", "family-id", "cli", "todos:read", "refresh-hash", now, now, now, null, null);
+    db.close();
+
+    const store = sqliteWebAppStore({ dataDir });
+    store.initialize();
+    const owner = store.getOwnerUser();
+
+    expect(owner?.username).toBe("owner");
+    expect(owner?.passkeyConfigured).toBe(true);
+    expect(store.getPreference("passkey.secret")).toBe("secret");
+    expect(store.getThemePreference(owner!.id)).toBe("dark");
+    expect(store.listPasskeys(owner!.id)).toHaveLength(1);
+    expect(store.listApiKeys(owner!.id)).toHaveLength(1);
+    expect(store.getDeviceAuthByUserCode("ABCD-EFGH")?.approvedByUserId).toBe(owner!.id);
+    expect(store.listRefreshSessions(owner!.id)).toHaveLength(1);
+
+    store.initialize();
+    expect(store.countUsers()).toBe(1);
   });
 
   test("runtime config names invalid prefixed log level variables", () => {
@@ -118,7 +288,8 @@ describe("server security defaults", () => {
   test("protected routes reject anonymous requests after passkey bootstrap", async () => {
     const store = testStore("reject-anon");
     store.initialize();
-    store.savePasskey(configuredPasskey());
+    const user = configuredUser(store);
+    store.savePasskey(configuredPasskey(user.id));
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST",
@@ -135,11 +306,143 @@ describe("server security defaults", () => {
     expect(response?.status).toBe(401);
   });
 
+  test("route auth helpers return auth errors instead of server errors", async () => {
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST",
+      index: "<html></html>",
+      store: testStore("route-helper-auth-error"),
+      routes: defineRoutes({
+        "/api/current-user": {
+          GET: (_req, ctx) => jsonResponse({ username: ctx.requireUser().username }),
+        },
+      }),
+    });
+
+    const response = await app.handleRequest(new Request("http://localhost/api/current-user"));
+    expect(response?.status).toBe(401);
+    expect(await response?.json()).toMatchObject({ error: "authentication_required" });
+  });
+
+  test("route handler generic errors return sanitized server errors", async () => {
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_ROUTE_ERROR",
+      index: "<html></html>",
+      store: testStore("route-handler-error"),
+      auth: { passkeys: false },
+      routes: defineRoutes({
+        "/api/boom": {
+          auth: "public",
+          GET: () => {
+            throw new Error("secret database detail");
+          },
+        },
+      }),
+    });
+
+    const loggedErrors: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => loggedErrors.push(args.map(String).join(" "));
+    let response: Response | undefined;
+    try {
+      response = await app.handleRequest(new Request("http://localhost/api/boom"));
+    } finally {
+      console.error = originalError;
+    }
+    const body = await responseJson<{ error: string; message: string }>(response);
+
+    expect(response?.status).toBe(500);
+    expect(body).toEqual({ error: "request_failed", message: "Request failed" });
+    expect(loggedErrors.some((message) => message.includes("secret database detail"))).toBe(true);
+  });
+
+  test("declarative route auth enforces admin and owner roles", async () => {
+    const store = testStore("declarative-route-auth");
+    store.initialize();
+    const owner = configuredUser(store);
+    const alice = configuredUser(store, "alice", "user");
+    const aliceKey = createApiKey(store, currentUser(alice), { name: "alice key", scopes: ["*"] });
+    const ownerKey = createApiKey(store, currentUser(owner), { name: "owner key", scopes: ["*"] });
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_ROUTE_AUTH",
+      index: "<html></html>",
+      store,
+      auth: { apiKeys: true },
+      routes: defineRoutes({
+        "/api/admin-only": {
+          auth: "admin",
+          GET: () => jsonResponse({ ok: true }),
+        },
+        "/api/owner-only": {
+          auth: "owner",
+          GET: () => jsonResponse({ ok: true }),
+        },
+      }),
+    });
+
+    const userAdmin = await app.handleRequest(new Request("http://localhost/api/admin-only", {
+      headers: { authorization: `Bearer ${aliceKey.token}` },
+    }));
+    expect(userAdmin?.status).toBe(403);
+
+    const ownerAdmin = await app.handleRequest(new Request("http://localhost/api/admin-only", {
+      headers: { authorization: `Bearer ${ownerKey.token}` },
+    }));
+    expect(ownerAdmin?.status).toBe(200);
+
+    const userOwner = await app.handleRequest(new Request("http://localhost/api/owner-only", {
+      headers: { authorization: `Bearer ${aliceKey.token}` },
+    }));
+    expect(userOwner?.status).toBe(403);
+  });
+
+  test("owned resource helpers keep user data self-only", async () => {
+    const store = testStore("owned-resource-helpers");
+    store.initialize();
+    const owner = configuredUser(store);
+    const alice = configuredUser(store, "alice", "user");
+    const aliceKey = createApiKey(store, currentUser(alice), { name: "alice key", scopes: ["*"] });
+    const records = [
+      { id: "owner-record", userId: owner.id, value: "owner" },
+      { id: "alice-record", userId: alice.id, value: "alice" },
+    ];
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_OWNED",
+      index: "<html></html>",
+      store,
+      auth: { apiKeys: true },
+      routes: defineRoutes({
+        "/api/records": {
+          auth: "user",
+          GET: (_req, ctx) => jsonResponse(ctx.filterOwned(records)),
+        },
+        "/api/records/:id": {
+          auth: "user",
+          GET: (_req, ctx) => jsonResponse(ctx.requireOwned(records.find((record) => record.id === ctx.params.id))),
+        },
+      }),
+    });
+
+    const listed = await responseJson<Array<{ id: string }>>(await app.handleRequest(new Request("http://localhost/api/records", {
+      headers: { authorization: `Bearer ${aliceKey.token}` },
+    })));
+    expect(listed.map((record) => record.id)).toEqual(["alice-record"]);
+
+    const otherUserRecord = await app.handleRequest(new Request("http://localhost/api/records/owner-record", {
+      headers: { authorization: `Bearer ${aliceKey.token}` },
+    }));
+    expect(otherUserRecord?.status).toBe(404);
+  });
+
   test("API key POST works without Origin or Referer", async () => {
     const store = testStore("api-key-no-origin");
     store.initialize();
-    store.savePasskey(configuredPasskey());
-    const { token } = createApiKey(store, { name: "test", scopes: ["write"] });
+    const user = configuredUser(store);
+    store.savePasskey(configuredPasskey(user.id));
+    const { token } = createApiKey(store, currentUser(user), { name: "test", scopes: ["write"] });
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST",
@@ -164,8 +467,9 @@ describe("server security defaults", () => {
   test("API key missing scope is rejected", async () => {
     const store = testStore("api-key-scope");
     store.initialize();
-    store.savePasskey(configuredPasskey());
-    const { token } = createApiKey(store, { name: "test", scopes: ["read"] });
+    const user = configuredUser(store);
+    store.savePasskey(configuredPasskey(user.id));
+    const { token } = createApiKey(store, currentUser(user), { name: "test", scopes: ["read"] });
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST",
@@ -188,46 +492,152 @@ describe("server security defaults", () => {
   });
 
   test("API keys can be created, listed and deleted through built-in routes", async () => {
+    const previous = process.env["TEST_API_KEY_CRUD_DISABLE_PASSKEY"];
+    process.env["TEST_API_KEY_CRUD_DISABLE_PASSKEY"] = "true";
     const store = testStore("api-key-crud");
+    store.initialize();
+    configuredUser(store);
     const app = createWebAppServer({
       appName: "Test",
-      envPrefix: "TEST",
+      envPrefix: "TEST_API_KEY_CRUD",
       index: "<html></html>",
       store,
       auth: { apiKeys: true },
       routes: defineRoutes({}),
     });
 
-    const created = await responseJson<{ key: { id: string } }>(await app.handleRequest(new Request("http://localhost/api/api-keys", {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: "http://localhost" },
-      body: JSON.stringify({ name: "Browser key", scopes: ["*"] }),
+    try {
+      const created = await responseJson<{ key: { id: string } }>(await app.handleRequest(new Request("http://localhost/api/api-keys", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: JSON.stringify({ name: "Browser key", scopes: ["*"] }),
+      })));
+      expect(created.key.id).toBeTruthy();
+
+      const listed = await responseJson<Array<{ id: string }>>(await app.handleRequest(new Request("http://localhost/api/api-keys")));
+      expect(listed.map((key) => key.id)).toContain(created.key.id);
+
+      const deleted = await app.handleRequest(new Request(`http://localhost/api/api-keys/${created.key.id}`, {
+        method: "DELETE",
+        headers: { origin: "http://localhost" },
+      }));
+      expect(deleted?.status).toBe(200);
+
+      const deletedAgain = await app.handleRequest(new Request(`http://localhost/api/api-keys/${created.key.id}`, {
+        method: "DELETE",
+        headers: { origin: "http://localhost" },
+      }));
+      expect(deletedAgain?.status).toBe(200);
+
+      const afterDelete = await responseJson<Array<{ id: string }>>(await app.handleRequest(new Request("http://localhost/api/api-keys")));
+      expect(afterDelete.map((key) => key.id)).not.toContain(created.key.id);
+    } finally {
+      if (previous === undefined) {
+        delete process.env["TEST_API_KEY_CRUD_DISABLE_PASSKEY"];
+      } else {
+        process.env["TEST_API_KEY_CRUD_DISABLE_PASSKEY"] = previous;
+      }
+    }
+  });
+
+  test("admins can create, reset, promote and delete users but not delete owner", async () => {
+    const previous = process.env["TEST_USERS_DISABLE_PASSKEY"];
+    process.env["TEST_USERS_DISABLE_PASSKEY"] = "true";
+    const store = testStore("users-admin");
+    store.initialize();
+    const owner = configuredUser(store);
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_USERS",
+      index: "<html></html>",
+      store,
+      routes: defineRoutes({}),
+    });
+
+    try {
+      const created = await responseJson<{ user: { id: string; username: string; role: string }; setupLink: { url: string } }>(await app.handleRequest(new Request("http://localhost/api/users", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: JSON.stringify({ username: "Alice", role: "user" }),
+      })));
+      expect(created.user).toMatchObject({ username: "alice", role: "user" });
+      expect(created.setupLink.url).toContain("/setup?token=");
+
+      const promoted = await responseJson<{ role: string }>(await app.handleRequest(new Request(`http://localhost/api/users/${created.user.id}/role`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: JSON.stringify({ role: "admin" }),
+      })));
+      expect(promoted.role).toBe("admin");
+
+      const reset = await responseJson<{ setupLink: { url: string } }>(await app.handleRequest(new Request(`http://localhost/api/users/${created.user.id}/reset`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: "{}",
+      })));
+      expect(reset.setupLink.url).toContain("/setup?token=");
+
+      const resetOwner = await app.handleRequest(new Request(`http://localhost/api/users/${owner.id}/reset`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: "{}",
+      }));
+      expect(resetOwner?.status).toBe(409);
+
+      const deleteOwner = await app.handleRequest(new Request(`http://localhost/api/users/${owner.id}`, {
+        method: "DELETE",
+        headers: { origin: "http://localhost" },
+      }));
+      expect(deleteOwner?.status).toBe(409);
+
+      const deleted = await app.handleRequest(new Request(`http://localhost/api/users/${created.user.id}`, {
+        method: "DELETE",
+        headers: { origin: "http://localhost" },
+      }));
+      expect(deleted?.status).toBe(200);
+    } finally {
+      if (previous === undefined) {
+        delete process.env["TEST_USERS_DISABLE_PASSKEY"];
+      } else {
+        process.env["TEST_USERS_DISABLE_PASSKEY"] = previous;
+      }
+    }
+  });
+
+  test("API keys are scoped to the authenticated user", async () => {
+    const store = testStore("api-key-self-only");
+    store.initialize();
+    const owner = configuredUser(store);
+    const alice = configuredUser(store, "alice", "user");
+    const ownerKey = createApiKey(store, currentUser(owner), { name: "owner key", scopes: ["*"] });
+    const aliceKey = createApiKey(store, currentUser(alice), { name: "alice key", scopes: ["*"] });
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_API_KEY_SELF",
+      index: "<html></html>",
+      store,
+      auth: { apiKeys: true },
+      routes: defineRoutes({}),
+    });
+
+    const listed = await responseJson<Array<{ id: string }>>(await app.handleRequest(new Request("http://localhost/api/api-keys", {
+      headers: { authorization: `Bearer ${aliceKey.token}` },
     })));
-    expect(created.key.id).toBeTruthy();
+    expect(listed.map((key) => key.id)).toEqual([aliceKey.key.id]);
 
-    const listed = await responseJson<Array<{ id: string }>>(await app.handleRequest(new Request("http://localhost/api/api-keys")));
-    expect(listed.map((key) => key.id)).toContain(created.key.id);
-
-    const deleted = await app.handleRequest(new Request(`http://localhost/api/api-keys/${created.key.id}`, {
+    const deleteOwnerAsAlice = await app.handleRequest(new Request(`http://localhost/api/api-keys/${ownerKey.key.id}`, {
       method: "DELETE",
-      headers: { origin: "http://localhost" },
+      headers: { authorization: `Bearer ${aliceKey.token}`, origin: "http://localhost" },
     }));
-    expect(deleted?.status).toBe(200);
-
-    const deletedAgain = await app.handleRequest(new Request(`http://localhost/api/api-keys/${created.key.id}`, {
-      method: "DELETE",
-      headers: { origin: "http://localhost" },
-    }));
-    expect(deletedAgain?.status).toBe(200);
-
-    const afterDelete = await responseJson<Array<{ id: string }>>(await app.handleRequest(new Request("http://localhost/api/api-keys")));
-    expect(afterDelete.map((key) => key.id)).not.toContain(created.key.id);
+    expect(deleteOwnerAsAlice?.status).toBe(200);
+    expect(store.listApiKeys(owner.id).map((key) => key.id)).toContain(ownerKey.key.id);
   });
 
   test("public routes remain public even after passkey bootstrap", async () => {
     const store = testStore("public");
     store.initialize();
-    store.savePasskey(configuredPasskey());
+    const user = configuredUser(store);
+    store.savePasskey(configuredPasskey(user.id));
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST",
@@ -247,10 +657,14 @@ describe("server security defaults", () => {
   });
 
   test("device flow issues one-use code, bearer access and rotated refresh tokens", async () => {
+    const previous = process.env["TEST_DEVICE_FLOW_DISABLE_PASSKEY"];
+    process.env["TEST_DEVICE_FLOW_DISABLE_PASSKEY"] = "true";
     const store = testStore("device-flow");
+    store.initialize();
+    configuredUser(store);
     const app = createWebAppServer({
       appName: "Test",
-      envPrefix: "TEST",
+      envPrefix: "TEST_DEVICE_FLOW",
       index: "<html></html>",
       store,
       auth: { deviceAuth: true },
@@ -262,7 +676,8 @@ describe("server security defaults", () => {
       }),
     });
 
-    const device = await responseJson<{ device_code: string; user_code: string }>(await app.handleRequest(new Request("http://localhost/api/auth/device", {
+    try {
+      const device = await responseJson<{ device_code: string; user_code: string }>(await app.handleRequest(new Request("http://localhost/api/auth/device", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ client_id: "test-cli", scope: "write" }),
@@ -321,5 +736,12 @@ describe("server security defaults", () => {
     }));
     expect(staleRefresh?.status).toBe(400);
     expect(await staleRefresh?.json()).toMatchObject({ error: "invalid_grant" });
+    } finally {
+      if (previous === undefined) {
+        delete process.env["TEST_DEVICE_FLOW_DISABLE_PASSKEY"];
+      } else {
+        process.env["TEST_DEVICE_FLOW_DISABLE_PASSKEY"] = previous;
+      }
+    }
   });
 });

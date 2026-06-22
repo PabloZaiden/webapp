@@ -19,7 +19,7 @@ Use these first:
 | `Toolbar` | Page title/actions inside main content |
 | `Panel` | Cards/sections; use `actions` for a top-right menu/action area |
 | `ActionMenu` | Three-line action menu for secondary surfaces; entity-level menus should usually be exposed through `WebAppRoot.header.getActions` so they render in the fixed title bar |
-| `Button` / `IconButton` | Actions |
+| `Button` / `IconButton` | Form submission and true inline controls; prefer action menus for entity/app commands |
 | `Badge` | Status/count labels |
 | `EntityHeader` | Main-content entity title/description/actions |
 | `DataList` / `DataListRow` | Lists with title, description, metadata, badge and actions |
@@ -43,13 +43,17 @@ Generated screenshots live in `artifacts/screenshots`:
 | `notes-desktop-light.png` | Realistic app, desktop shell |
 | `notes-settings-desktop-light.png` | Framework settings |
 | `notes-mobile-light.png` | Mobile shell |
+| `notes-mobile-sidebar-light.png` | Mobile drawer/sidebar |
 | `notes-desktop-dark.png` | Dark mode |
 | `kitchen-desktop-light.png` | Kitchen sink desktop |
 | `kitchen-mobile-light.png` | Kitchen sink mobile |
 | `kitchen-sidebar-collapsed-light.png` | Collapsed sidebar title bar |
 | `kitchen-context-menu-light.png` | Sidebar context menu |
 | `kitchen-dialog-dark.png` | Confirm dialog overlay |
+| `kitchen-device-light.png` | Device auth approval flow |
 
 Use `bun run screenshots` to regenerate these captures with Playwright. Browser automation and screenshot capture must stay Playwright-based and cross-platform; do not hard-code local Chrome or OS-specific browser paths.
 
 Use these captures as the manual visual baseline before changing shell, sidebar, settings or dialog styles.
+
+Prefer the framework action-menu pattern for app commands. Actions such as New task, New note, New project, archive, delete, or state transitions should live in `SidebarNode.actions` and/or `WebAppRoot.header.getActions` so they appear behind the three-line title-bar/item action menus. Use discrete buttons mainly for form submission or inline controls that cannot reasonably live in an action menu.

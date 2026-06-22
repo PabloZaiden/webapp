@@ -70,7 +70,7 @@ export function readRuntimeConfig(input: {
   return {
     appName: input.appName,
     envPrefix,
-    host: readEnv(envPrefix, "HOST") || "127.0.0.1",
+    host: readEnv(envPrefix, "HOST") || "localhost",
     port: parsePort(readEnv(envPrefix, "PORT"), envName(envPrefix, "PORT")),
     dataDir: readEnv(envPrefix, "DATA_DIR") || "./data",
     logLevel,

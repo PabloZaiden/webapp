@@ -444,6 +444,9 @@ textarea::placeholder {
 }
 
 .wapp-panel {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   border: 1px solid var(--wapp-border-soft);
   border-radius: 1.5rem;
   background: var(--wapp-surface);
@@ -550,6 +553,10 @@ textarea::placeholder {
   margin-bottom: 1rem;
 }
 
+.wapp-entity-header > div:first-child {
+  min-width: 0;
+}
+
 .wapp-entity-header h2 {
   margin: 0;
   font-size: 1.125rem;
@@ -580,12 +587,15 @@ textarea::placeholder {
 }
 
 .wapp-data-list {
+  max-width: 100%;
+  box-sizing: border-box;
   overflow: hidden;
   border: 1px solid var(--wapp-border-soft);
   border-radius: 0.875rem;
 }
 
 .wapp-data-list-row {
+  box-sizing: border-box;
   width: 100%;
   display: flex;
   align-items: center;
@@ -695,6 +705,14 @@ textarea::placeholder {
 .wapp-auth-screen .wapp-panel {
   width: min(28rem, 100%);
   background: var(--wapp-surface);
+}
+
+.wapp-auth-dialog {
+  width: min(28rem, calc(100vw - 2rem));
+}
+
+.wapp-auth-dialog .wapp-dialog-body:empty {
+  display: none;
 }
 
 .wapp-button {
@@ -1014,6 +1032,17 @@ textarea::placeholder {
   font-size: 0.8125rem;
 }
 
+.wapp-inline-select {
+  min-height: 2.375rem;
+  border: 1px solid var(--wapp-border);
+  border-radius: 0.375rem;
+  background: var(--wapp-surface);
+  color: var(--wapp-text);
+  box-shadow: var(--wapp-shadow);
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
 .wapp-field textarea {
   min-height: 8rem;
   resize: vertical;
@@ -1086,6 +1115,12 @@ textarea::placeholder {
   justify-content: space-between;
   gap: 1rem;
   padding: 0.75rem;
+}
+
+.wapp-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
 }
 
 .wapp-list-row + .wapp-list-row {
@@ -1180,16 +1215,22 @@ textarea::placeholder {
 
 .wapp-dialog-title {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
   border-bottom: 1px solid var(--wapp-border);
-  padding: 1rem 1.5rem;
+  padding: 1rem 1.5rem 0.75rem;
 }
 
 .wapp-dialog h2 {
   margin: 0;
   font-size: 1.125rem;
+}
+
+.wapp-dialog-title p {
+  margin: 0.25rem 0 0;
+  color: var(--wapp-muted);
+  line-height: 1.35;
 }
 
 .wapp-dialog-close {
@@ -1274,6 +1315,28 @@ textarea::placeholder {
 
   .wapp-main-content {
     padding: 1rem;
+    overflow-x: hidden;
+  }
+
+  .wapp-panel-header,
+  .wapp-entity-header {
+    flex-wrap: wrap;
+  }
+
+  .wapp-panel-actions,
+  .wapp-entity-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .wapp-data-list-row {
+    gap: 0.5rem;
+  }
+
+  .wapp-data-list-row-meta,
+  .wapp-data-list-row-badge,
+  .wapp-data-list-row-actions {
+    min-width: 0;
   }
 
   .wapp-mobile-only {

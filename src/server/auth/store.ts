@@ -1,7 +1,26 @@
-import type { ApiKeySummary, LogLevelName, ThemePreference } from "../../contracts";
+import type { ApiKeySummary, AuditEventSummary, LogLevelName, ThemePreference, WebAppUserRole, WebAppUserSummary } from "../../contracts";
+
+export interface UserRecord extends WebAppUserSummary {
+  authVersion: number;
+  disabledAt?: string;
+}
+
+export interface UserSetupLinkRecord {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  kind: "invite" | "reset" | "owner-reset";
+  createdByUserId?: string;
+  createdAt: string;
+  expiresAt: string;
+  consumedAt?: string;
+}
+
+export interface AuditEventRecord extends AuditEventSummary {}
 
 export interface StoredPasskey {
   id: string;
+  userId: string;
   name: string;
   credentialId: string;
   publicKey: Uint8Array<ArrayBuffer>;
@@ -15,6 +34,7 @@ export interface StoredPasskey {
 }
 
 export interface ApiKeyRecord extends ApiKeySummary {
+  userId: string;
   tokenHash: string;
 }
 
@@ -24,6 +44,7 @@ export interface DeviceAuthRequestRecord {
   clientId: string;
   scope: string;
   status: "pending" | "approved" | "denied" | "consumed";
+  approvedByUserId?: string;
   createdAt: string;
   updatedAt: string;
   expiresAt: string;
@@ -31,6 +52,7 @@ export interface DeviceAuthRequestRecord {
 
 export interface RefreshSessionRecord {
   id: string;
+  userId: string;
   familyId: string;
   clientId: string;
   scope: string;
@@ -52,31 +74,52 @@ export interface SigningKeyRecord {
 
 export interface WebAppStore {
   initialize(): void;
-  getPreference(key: string): string | undefined;
-  setPreference(key: string, value: string): void;
-  deletePreference(key: string): void;
+  getPreference(key: string, userId?: string): string | undefined;
+  setPreference(key: string, value: string, userId?: string): void;
+  deletePreference(key: string, userId?: string): void;
 
-  getThemePreference(): ThemePreference | undefined;
-  setThemePreference(value: ThemePreference): void;
+  getThemePreference(userId?: string): ThemePreference | undefined;
+  setThemePreference(value: ThemePreference, userId?: string): void;
   getLogLevelPreference(): LogLevelName | undefined;
   setLogLevelPreference(value: LogLevelName): void;
 
-  listPasskeys(): StoredPasskey[];
+  countUsers(): number;
+  listUsers(): UserRecord[];
+  createUser(user: UserRecord): void;
+  getUserById(id: string): UserRecord | undefined;
+  getUserByUsername(username: string): UserRecord | undefined;
+  getOwnerUser(): UserRecord | undefined;
+  setUserRole(id: string, role: WebAppUserRole, updatedAt: string): boolean;
+  markUserLogin(id: string, lastLoginAt: string): void;
+  incrementUserAuthVersion(id: string, updatedAt: string): void;
+  deleteUser(id: string): boolean;
+
+  createSetupLink(record: UserSetupLinkRecord): void;
+  getSetupLinkByTokenHash(tokenHash: string): UserSetupLinkRecord | undefined;
+  consumeSetupLink(id: string, consumedAt: string): void;
+  deletePendingSetupLinksForUser(userId: string, nowIso: string): void;
+
+  saveAuditEvent(record: AuditEventRecord): void;
+  listAuditEvents(limit?: number): AuditEventRecord[];
+
+  listPasskeys(userId?: string): StoredPasskey[];
+  getPasskeyByUserId(userId: string): StoredPasskey | undefined;
   getPasskeyByCredentialId(credentialId: string): StoredPasskey | undefined;
   savePasskey(passkey: StoredPasskey): void;
   updatePasskeyUsage(credentialId: string, counter: number, lastUsedAt: string): void;
-  deleteAllPasskeys(): void;
+  deletePasskeysForUser(userId: string): void;
 
-  listApiKeys(): ApiKeyRecord[];
+  listApiKeys(userId?: string): ApiKeyRecord[];
   getApiKeyByHash(tokenHash: string): ApiKeyRecord | undefined;
   saveApiKey(record: ApiKeyRecord): void;
   touchApiKey(id: string, lastUsedAt: string): void;
-  deleteApiKey(id: string): boolean;
+  deleteApiKey(id: string, userId?: string): boolean;
+  deleteApiKeysForUser(userId: string): void;
 
   saveDeviceAuthRequest(record: DeviceAuthRequestRecord): void;
   getDeviceAuthByUserCode(userCode: string): DeviceAuthRequestRecord | undefined;
   getDeviceAuthByDeviceCodeHash(deviceCodeHash: string): DeviceAuthRequestRecord | undefined;
-  updateDeviceAuthStatus(userCode: string, status: DeviceAuthRequestRecord["status"], updatedAt: string): void;
+  updateDeviceAuthStatus(userCode: string, status: DeviceAuthRequestRecord["status"], updatedAt: string, approvedByUserId?: string): void;
   deleteExpiredDeviceAuthRequests(nowIso: string): void;
 
   getSigningKey(): SigningKeyRecord | undefined;
@@ -84,8 +127,9 @@ export interface WebAppStore {
 
   saveRefreshSession(record: RefreshSessionRecord): void;
   getRefreshSessionByHash(refreshTokenHash: string): RefreshSessionRecord | undefined;
-  listRefreshSessions(): RefreshSessionRecord[];
+  listRefreshSessions(userId?: string): RefreshSessionRecord[];
   rotateRefreshSession(oldHash: string, next: RefreshSessionRecord, nowIso: string): RefreshSessionRecord | undefined;
-  revokeRefreshSession(id: string, revokedAt: string): boolean;
+  revokeRefreshSession(id: string, revokedAt: string, userId?: string): boolean;
   revokeRefreshFamily(familyId: string, revokedAt: string): void;
+  revokeRefreshSessionsForUser(userId: string, revokedAt: string): void;
 }
