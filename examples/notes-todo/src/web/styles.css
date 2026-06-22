@@ -1,0 +1,65 @@
+.notes-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
+.notes-grid .wapp-panel:last-child {
+  grid-column: 1 / -1;
+}
+
+.notes-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.notes-row,
+.notes-check-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+}
+
+.notes-row:hover,
+.notes-check-row:hover {
+  background: color-mix(in srgb, var(--wapp-muted), transparent 92%);
+}
+
+.notes-row small,
+.notes-check-row small,
+.notes-muted {
+  display: block;
+  color: var(--wapp-muted);
+  font-size: 0.8125rem;
+}
+
+.notes-check-row {
+  justify-content: flex-start;
+}
+
+.notes-check-row input {
+  width: 1rem;
+  height: 1rem;
+}
+
+.notes-inline-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.notes-stat {
+  font-size: 2rem;
+  font-weight: 800;
+}
+
+@media (max-width: 900px) {
+  .notes-grid,
+  .notes-inline-form {
+    grid-template-columns: 1fr;
+  }
+}

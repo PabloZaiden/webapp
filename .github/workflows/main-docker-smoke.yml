@@ -1,0 +1,74 @@
+name: Main Docker Smoke
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  docker-smoke:
+    name: Docker Smoke Test Examples
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Linux example binaries
+        run: |
+          bun run --cwd examples/kitchen-sink build --target=bun-linux-x64
+          bun run --cwd examples/notes-todo build --target=bun-linux-x64
+
+      - name: Build Docker images
+        run: |
+          docker build \
+            -f examples/kitchen-sink/Dockerfile \
+            --build-arg APP_BINARY=examples/kitchen-sink/dist/kitchen-sink-linux-x64 \
+            -t webapp-kitchen-sink:ci .
+          docker build \
+            -f examples/notes-todo/Dockerfile \
+            --build-arg APP_BINARY=examples/notes-todo/dist/notes-todo-linux-x64 \
+            -t webapp-notes-todo:ci .
+
+      - name: Smoke test Docker containers
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          wait_for_health() {
+            local port="$1"
+            for _ in {1..60}; do
+              if curl --fail --silent "http://127.0.0.1:${port}/api/health" >/dev/null; then
+                return 0
+              fi
+              sleep 0.5
+            done
+            echo "Container on port ${port} did not become healthy" >&2
+            return 1
+          }
+
+          docker run -d --name webapp-kitchen-sink -p 3402:8080 -e KITCHEN_SINK_DISABLE_PASSKEY=true webapp-kitchen-sink:ci
+          docker run -d --name webapp-notes-todo -p 3401:8080 -e NOTES_TODO_DISABLE_PASSKEY=true webapp-notes-todo:ci
+
+          cleanup() {
+            docker logs webapp-kitchen-sink || true
+            docker logs webapp-notes-todo || true
+            docker rm -f webapp-kitchen-sink webapp-notes-todo >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          wait_for_health 3402
+          wait_for_health 3401
+          curl --fail --silent http://127.0.0.1:3402/api/public/ping >/dev/null
+          curl --fail --silent http://127.0.0.1:3401/api/sections >/dev/null
+

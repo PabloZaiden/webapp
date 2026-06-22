@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "types": ["bun"],
+    "ignoreDeprecations": "6.0",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@pablozaiden/webapp/server": ["src/server/index.ts"],
+      "@pablozaiden/webapp/web": ["src/web/index.ts"],
+      "@pablozaiden/webapp/contracts": ["src/contracts/index.ts"],
+      "@pablozaiden/webapp/build": ["src/build/index.ts"]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "examples/**/*.ts",
+    "examples/**/*.tsx",
+    "tests/**/*.ts"
+  ]
+}

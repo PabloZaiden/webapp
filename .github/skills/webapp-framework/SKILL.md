@@ -1,0 +1,110 @@
+# Webapp framework skill
+
+Use this skill when building or migrating an app to `@pablozaiden/webapp`.
+
+## Rules
+
+- Treat the app as one Bun server that serves React, API routes and websockets together.
+- Do not add Vite, a standalone client dev server, or `WEB_DIST_DIR`.
+- Use `bun --hot src/index.ts serve` for dev.
+- Keep generated apps and tooling cross-platform across macOS and Linux on arm64 and x86-64.
+- Use Playwright for all browser automation and screenshots; do not hard-code Chrome, browser executable paths, or OS-specific browser automation.
+- Configure env through a single uppercase `envPrefix`; read framework env as `{PREFIX}_...`.
+- Prefer the framework shell, settings and auth conventions when in doubt.
+- Make public endpoints explicit with `auth: "public", sameOrigin: "never"`.
+- Do not disable same-origin except for deliberate non-browser routes.
+- Use scopes for API keys and device bearer tokens.
+- Keep settings framework-owned; add app-specific settings as custom sections.
+- Use `WebAppRoot`, `SidebarNode` and framework UI primitives before custom shell/layout code.
+- For entity actions, define one `ActionMenuItem[]` builder and reuse it in `SidebarNode.actions` and `WebAppRoot.header.getActions`; the visible three-line menu belongs in the framework title bar.
+- Mark route-backed sidebar entities with `pinnable: true` instead of building app-owned Pinned sections; the framework injects Pin/Unpin and persists pins in localStorage.
+- For live updates, prefer `ctx.realtime.publishEntityChanged(resource, id)` / `publishChanged(resource)` and `useRealtimeRefresh({ resources, refresh })` over custom websocket wiring.
+- Prefer `EntityHeader`, `DataList`, `DataListRow`, `DangerZone`, `LoadingState`, `ErrorState`, `FormGroup`, `FormActions`, and `CodeValue` for main content before custom CSS.
+- Prefer structured `settings.sections[].rows` for settings; keep `render` only as an escape hatch.
+- When creating a production-ready app, add the Dockerfile and GitHub Actions from `docs/github-actions.md`: PR build/test/dev-smoke/Docker-smoke, main GHCR Docker image, binary release, and Docker release.
+
+## Minimum server shape
+
+```ts
+import webIndex from "./index.html";
+import { createWebAppServer, defineRoutes } from "@pablozaiden/webapp/server";
+
+const app = createWebAppServer({
+  appName: "Example",
+  envPrefix: "EXAMPLE",
+  index: webIndex,
+  auth: { passkeys: true, apiKeys: true, deviceAuth: true },
+  routes: defineRoutes({}),
+});
+
+await app.runFromCli();
+```
+
+## Minimum UI shape
+
+```tsx
+<WebAppRoot
+  appName="Example"
+  homeRoute={{ view: "home" }}
+  sidebar={{ getNodes: () => [{ type: "section", id: "main", title: "Main", children: [] }] }}
+  routes={{ home: <Home /> }}
+/>
+```
+
+Always import framework styles explicitly from the frontend entrypoint:
+
+```ts
+import "@pablozaiden/webapp/web/styles.css";
+```
+
+Use the framework-owned action menu for entity actions:
+
+```tsx
+const actions = buildProjectActions(project);
+
+const node = { type: "item", id: project.id, title: project.name, route: { view: "project", projectId: project.id }, actions, pinnable: true };
+
+<WebAppRoot
+  header={{
+    getActions: ({ route }) => route.view === "project" ? buildProjectActionsForRoute(route) : [],
+  }}
+/>
+```
+
+Use the declarative realtime helpers:
+
+```ts
+ctx.realtime.publishEntityChanged("todos", todo.id);
+```
+
+```tsx
+useRealtimeRefresh({ resources: ["todos"], refresh });
+```
+
+Use structured settings rows:
+
+```tsx
+settings={{
+  sections: [{
+    id: "sync",
+    title: "Sync",
+    rows: [{ id: "status", title: "Status", description: "Connected" }],
+  }],
+}}
+```
+
+## Validation checklist
+
+Run targeted tests, `bun run tsc`, example binary builds, app health checks, and `bun run screenshots`. Use `docs/auth-validation.md` for manual passkey/API-key/device-auth validation. If Docker base images can be pulled, build and run the example containers and check `/api/health`.
+
+## CI/CD checklist for generated apps
+
+Use `docs/github-actions.md` as the source of truth. At minimum, generated apps should include:
+
+- A root `Dockerfile` that builds with `oven/bun`, copies the standalone binary into a slim runtime image, runs as a non-root user, and healthchecks `/api/health`.
+- `.github/workflows/pr.yml` with install, build, test, Bun dev-server smoke checks, and Docker image smoke checks.
+- `.github/workflows/docker-main.yml` to publish `ghcr.io/<owner>/<repo>:main` after merges to `main` and smoke-test the container.
+- `.github/workflows/binary-release.yml` using `pablozaiden/installer/.github/workflows/reusable-binary-release.yml`.
+- `.github/workflows/docker-release.yml` to publish semver GHCR images on published GitHub releases.
+
+Replace `my-app` and `MY_APP` with the app binary name and `envPrefix`. Keep CI-only auth escape hatches such as `MY_APP_DISABLE_PASSKEY=true` out of production runtime defaults.
