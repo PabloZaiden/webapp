@@ -2,7 +2,22 @@
   "name": "@pablozaiden/webapp",
   "version": "0.0.0-development",
   "description": "Opinionated Bun + React webapp framework for single-server apps",
+  "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PabloZaiden/webapp.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "files": [
+    "src",
+    "docs",
+    "README.md",
+    "package.json"
+  ],
   "workspaces": [
     "examples/*"
   ],

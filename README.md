@@ -23,4 +23,4 @@ Both examples run with Bun native hot reload through `bun --hot`, with no standa
 | `@pablozaiden/webapp/contracts` | Shared auth/config/device/API-key types |
 | `@pablozaiden/webapp/build` | Bun single-binary compile helper |
 
-See `docs/getting-started.md` for the minimum app shape and `examples/notes-todo` for a realistic app. Use `bun run screenshots` for reproducible manual visual captures.
+See `docs/getting-started.md` for the minimum app shape and `examples/notes-todo` for a realistic app. Use `bun run screenshots` for reproducible manual visual captures. Release/publishing details are in `docs/release.md`.

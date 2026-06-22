@@ -1,6 +1,11 @@
 node_modules/
 .cache/
 data/
+dist/
 examples/*/data/
+examples/*/dist/*
+!examples/*/dist/
+!examples/*/dist/*-linux-x64
+!examples/*/dist/*-linux-arm64
 .git/
 .DS_Store
