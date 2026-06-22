@@ -45,3 +45,5 @@ ENV MY_APP_DATA_DIR=/data
 ```
 
 The framework has no external frontend asset directory, so the compiled binary contains the server and Bun HTML import graph.
+
+For full application CI/CD templates, including a production Dockerfile, PR checks, GHCR publishing on `main`, binary releases and Docker release images, see `docs/github-actions.md`.

@@ -58,3 +58,5 @@ The app configures an uppercase `envPrefix`; the framework reads only variables 
 | `{PREFIX}_DISABLE_SAME_ORIGIN_CHECK` | unset | Development/testing escape hatch |
 | `{PREFIX}_PUBLIC_BASE_URL` | request origin | External URL for device auth links |
 | `{PREFIX}_AUTH_ISSUER` | `urn:{prefix}:webapp` | JWT issuer override |
+
+For CI/CD setup in apps built with the framework, use `docs/github-actions.md`. It includes copy-paste GitHub Actions and a production Dockerfile template.
