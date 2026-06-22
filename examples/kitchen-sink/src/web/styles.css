@@ -1,0 +1,37 @@
+.sink-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.sink-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.sink-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+}
+
+.sink-row:hover {
+  background: color-mix(in srgb, var(--wapp-muted), transparent 92%);
+}
+
+.sink-row small,
+.sink-muted {
+  display: block;
+  color: var(--wapp-muted);
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 900px) {
+  .sink-inline {
+    grid-template-columns: 1fr;
+  }
+}

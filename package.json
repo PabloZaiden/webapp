@@ -1,0 +1,45 @@
+{
+  "name": "@pablozaiden/webapp",
+  "version": "0.0.0-development",
+  "description": "Opinionated Bun + React webapp framework for single-server apps",
+  "type": "module",
+  "workspaces": [
+    "examples/*"
+  ],
+  "exports": {
+    "./server": "./src/server/index.ts",
+    "./web": "./src/web/index.ts",
+    "./web/styles.css": "./src/web/styles.css",
+    "./contracts": "./src/contracts/index.ts",
+    "./build": "./src/build/index.ts"
+  },
+  "scripts": {
+    "dev": "bun run --cwd examples/notes-todo dev",
+    "dev:kitchen-sink": "bun run --cwd examples/kitchen-sink dev",
+    "dev:notes-todo": "bun run --cwd examples/notes-todo dev",
+    "build": "bun run tsc && bun run --cwd examples/kitchen-sink build && bun run --cwd examples/notes-todo build",
+    "build:kitchen-sink": "bun run --cwd examples/kitchen-sink build",
+    "build:notes-todo": "bun run --cwd examples/notes-todo build",
+    "test": "bun test",
+    "tsc": "mkdir -p .cache/tsc && bunx tsc --noEmit --pretty false --incremental --tsBuildInfoFile .cache/tsc/build.tsbuildinfo",
+    "screenshots": "bun tests/capture-screenshots.ts"
+  },
+  "dependencies": {
+    "@simplewebauthn/browser": "13.3.0",
+    "@simplewebauthn/server": "13.3.1",
+    "jose": "6.2.3",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "tailwindcss": "4.3.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "20.10.3",
+    "@testing-library/react": "16.3.2",
+    "@types/bun": "1.3.14",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "playwright-core": "1.61.0",
+    "typescript": "6.0.3"
+  }
+}

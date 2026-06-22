@@ -1,0 +1,186 @@
+import { createRoot } from "react-dom/client";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Badge, Button, EmptyState, Panel, TextField, WebAppRoot, useRealtimeRefresh, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
+import "@pablozaiden/webapp/web/styles.css";
+import "./styles.css";
+
+interface Project {
+  id: string;
+  name: string;
+  status: "idle" | "running" | "failed";
+  updatedAt: string;
+}
+
+async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(path, { ...init, headers: { "content-type": "application/json", ...init.headers } });
+  if (!response.ok) throw new Error(await response.text());
+  return await response.json() as T;
+}
+
+function Home({ projects }: { projects: Project[] }) {
+  return (
+    <div className="sink-stack">
+      <Panel title="Projects" description="Protected CRUD + realtime updates.">
+        {projects.length ? projects.map((project) => (
+          <div className="sink-row" key={project.id}>
+            <span><strong>{project.name}</strong><small>{project.updatedAt}</small></span>
+            <Badge variant={project.status === "failed" ? "error" : project.status === "running" ? "info" : "default"}>{project.status}</Badge>
+          </div>
+        )) : <EmptyState title="No projects" />}
+      </Panel>
+    </div>
+  );
+}
+
+function NewProjectView({ refresh }: { refresh: () => Promise<void> }) {
+  const [name, setName] = useState("");
+  async function createProject() {
+    if (!name.trim()) return;
+    await api("/api/projects", { method: "POST", body: JSON.stringify({ name }) });
+    setName("");
+    await refresh();
+  }
+  return (
+    <div className="sink-stack">
+      <Panel title="Create project" description="Framework coverage example.">
+        <div className="sink-inline">
+          <TextField label="Project name" value={name} onChange={(event) => setName(event.currentTarget.value)} />
+          <Button type="button" variant="primary" onClick={() => void createProject()}>Create</Button>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function ProjectView({ route, projects }: { route: WebAppRoute; projects: Project[] }) {
+  const project = projects.find((item) => item.id === route.projectId);
+  if (!project) return <EmptyState title="Project not found" />;
+  return (
+    <Panel title={project.name} description="Project detail view with common panel styling.">
+      <p>Status: <Badge variant={project.status === "running" ? "info" : "default"}>{project.status}</Badge></p>
+      <p className="sink-muted">Updated {project.updatedAt}</p>
+    </Panel>
+  );
+}
+
+function ActivityView({ projects }: { projects: Project[] }) {
+  const running = projects.filter((project) => project.status === "running").length;
+  const failed = projects.filter((project) => project.status === "failed").length;
+  return (
+    <div className="sink-stack">
+      <Panel title="Activity" description="Realtime and route coverage checks.">
+        <div className="sink-row"><span><strong>Projects</strong><small>Total configured projects</small></span><Badge variant="default">{projects.length}</Badge></div>
+        <div className="sink-row"><span><strong>Running</strong><small>Projects with active status</small></span><Badge variant="info">{running}</Badge></div>
+        <div className="sink-row"><span><strong>Failed</strong><small>Projects with failure status</small></span><Badge variant={failed ? "error" : "default"}>{failed}</Badge></div>
+      </Panel>
+      <Panel title="Diagnostics">
+        <div className="sink-row"><span><strong>Public ping</strong><small>/api/public/ping</small></span><Badge variant="success">public</Badge></div>
+        <div className="sink-row"><span><strong>Webhook route</strong><small>/api/webhooks/:source/:token</small></span><Badge variant="warning">public POST</Badge></div>
+      </Panel>
+    </div>
+  );
+}
+
+function KitchenSinkApp() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const refresh = useCallback(async () => setProjects(await api<Project[]>("/api/projects")), []);
+  useEffect(() => void refresh(), [refresh]);
+  useRealtimeRefresh({ resources: ["projects"], refresh: () => refresh() });
+
+  const updateProjectStatus = useCallback(async (project: Project, status: Project["status"]) => {
+    await api(`/api/projects/${project.id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+    await refresh();
+  }, [refresh]);
+
+  const getProjectActions = useCallback((project: Project): ActionMenuItem[] => [
+    { id: "mark-running", label: "Mark running", disabled: project.status === "running", onAction: () => void updateProjectStatus(project, "running") },
+    { id: "mark-idle", label: "Mark idle", disabled: project.status === "idle", onAction: () => void updateProjectStatus(project, "idle") },
+    { id: "mark-failed", label: "Mark failed", destructive: true, disabled: project.status === "failed", onAction: () => void updateProjectStatus(project, "failed") },
+  ], [updateProjectStatus]);
+
+  const sidebarNodes = useMemo<SidebarNode[]>(() => [
+    {
+      type: "section",
+      id: "projects",
+      title: "Projects",
+      action: { id: "new", title: "New project", label: "New", route: { view: "new-project" } },
+      children: projects.map((project) => ({
+        type: "item",
+        id: project.id,
+        title: project.name,
+        subtitle: project.updatedAt,
+        route: { view: "project", projectId: project.id },
+        pinnable: true,
+        badge: project.status,
+        badgeVariant: project.status === "failed" ? "error" : project.status === "running" ? "info" : "default",
+        actions: getProjectActions(project),
+        children: [
+          { type: "item", id: `${project.id}:runs`, title: "Runs", badge: project.status === "running" ? "1" : "0" },
+          { type: "item", id: `${project.id}:settings`, title: "Settings" },
+        ],
+      })),
+    },
+    {
+      type: "section",
+      id: "diagnostics",
+      title: "Diagnostics",
+      defaultCollapsed: true,
+      children: [
+        { type: "item", id: "activity", title: "Activity", subtitle: "Realtime checks", route: { view: "activity" } },
+        { type: "item", id: "public-ping", title: "Public ping", subtitle: "/api/public/ping", route: { view: "activity" } },
+        { type: "item", id: "webhooks", title: "Webhook route", subtitle: "/api/webhooks/:source/:token", route: { view: "activity" } },
+      ],
+    },
+  ], [getProjectActions, projects]);
+
+  return (
+    <WebAppRoot
+      appName="Kitchen Sink"
+      homeRoute={{ view: "home" }}
+      sidebar={{
+        topActions: [
+          { id: "activity", title: "Activity", icon: "↯", route: { view: "activity" } },
+          { id: "new", title: "New project", icon: "+", route: { view: "new-project" } },
+        ],
+        getNodes: ({ search }) => {
+          if (!search.trim()) return sidebarNodes;
+          const q = search.toLowerCase();
+          return sidebarNodes.map((section) => ({
+            ...section,
+            children: section.children?.filter((child) => child.title.toLowerCase().includes(q)),
+          }));
+        },
+      }}
+      routes={{
+        home: <Home projects={projects} />,
+        "new-project": <NewProjectView refresh={refresh} />,
+        activity: <ActivityView projects={projects} />,
+        project: (route) => <ProjectView route={route} projects={projects} />,
+      }}
+      header={{
+        getActions: ({ route }) => {
+          if (route.view !== "project") return [];
+          const project = projects.find((item) => item.id === route.projectId);
+          return project ? getProjectActions(project) : [];
+        },
+      }}
+      settings={{
+        sections: [
+          {
+            id: "coverage",
+            title: "Coverage",
+            rows: [
+              {
+                id: "framework-coverage",
+                title: "Framework coverage",
+                description: `Projects: ${projects.length}. Public route, protected CRUD, realtime, device auth, API keys and passkeys are enabled.`,
+              },
+            ],
+          },
+        ],
+      }}
+    />
+  );
+}
+
+createRoot(document.getElementById("root")!).render(<KitchenSinkApp />);

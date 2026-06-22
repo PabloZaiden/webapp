@@ -1,0 +1,15 @@
+{
+  "name": "@pablozaiden/webapp-kitchen-sink-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "KITCHEN_SINK_DATA_DIR=data KITCHEN_SINK_PORT=3202 bun --hot src/index.ts serve",
+    "start": "NODE_ENV=production bun src/index.ts serve",
+    "build": "bun src/build.ts"
+  },
+  "dependencies": {
+    "@pablozaiden/webapp": "file:../..",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  }
+}

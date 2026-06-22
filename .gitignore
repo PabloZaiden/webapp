@@ -1,0 +1,8 @@
+node_modules/
+.cache/
+data/
+dist/
+examples/*/data/
+examples/*/dist/
+.DS_Store
+

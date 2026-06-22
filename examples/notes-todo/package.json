@@ -1,0 +1,15 @@
+{
+  "name": "@pablozaiden/webapp-notes-todo-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "NOTES_TODO_DATA_DIR=data NOTES_TODO_PORT=3201 bun --hot src/index.ts serve",
+    "start": "NODE_ENV=production bun src/index.ts serve",
+    "build": "bun src/build.ts"
+  },
+  "dependencies": {
+    "@pablozaiden/webapp": "file:../..",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  }
+}
