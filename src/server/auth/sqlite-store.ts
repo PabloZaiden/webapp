@@ -30,7 +30,7 @@ function json<T>(value: unknown, fallback: T): T {
 }
 
 export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string } = {}): WebAppStore {
-  const dataDir = options.dataDir ?? process.env["WEBAPP_DATA_DIR"] ?? "./data";
+  const dataDir = options.dataDir ?? "./data";
   const dbPath = join(dataDir, options.fileName ?? "webapp.sqlite");
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
@@ -139,7 +139,6 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
       createdAt: text(row["created_at"]),
       lastUsedAt: optionalText(row["last_used_at"]),
       expiresAt: optionalText(row["expires_at"]),
-      revokedAt: optionalText(row["revoked_at"]),
     };
   }
 

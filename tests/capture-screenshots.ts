@@ -1,13 +1,11 @@
 import { mkdirSync, rmSync } from "node:fs";
-import { chromium, type Page } from "playwright-core";
+import { chromium, type Page } from "playwright";
 
 const outDir = "artifacts/screenshots";
 const dataRoot = ".cache/screenshots";
 mkdirSync(outDir, { recursive: true });
 rmSync(dataRoot, { recursive: true, force: true });
 mkdirSync(dataRoot, { recursive: true });
-
-const executablePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 type ServerProcess = ReturnType<typeof Bun.spawn>;
 
@@ -56,7 +54,7 @@ try {
     body: JSON.stringify({ client_id: "screenshot-cli", scope: "read" }),
   }).then((response) => response.json()) as { verification_uri_complete: string };
 
-  const browser = await chromium.launch({ executablePath, headless: true });
+  const browser = await chromium.launch({ headless: true });
   try {
     const desktopLight = await browser.newPage({ viewport: { width: 1440, height: 920 }, colorScheme: "light" });
     await desktopLight.goto("http://127.0.0.1:3301/", { waitUntil: "domcontentloaded" });

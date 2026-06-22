@@ -336,7 +336,7 @@ function SidebarTree({ nodes, route, navigate, level = 0 }: { nodes: SidebarNode
           return (
             <section className="wapp-sidebar-section" key={node.id}>
               <div className="wapp-sidebar-section-title" style={{ marginLeft: level ? `${level * 0.375}rem` : undefined }}>
-                <button type="button" onClick={() => setCollapsed((current) => ({ ...current, [node.id]: !isCollapsed }))}>
+                <button type="button" aria-expanded={!isCollapsed} aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${node.title}`} onClick={() => setCollapsed((current) => ({ ...current, [node.id]: !isCollapsed }))}>
                   <span>{isCollapsed ? "▶" : "▼"}</span>{node.title}
                 </button>
                 {node.action ? <button type="button" className="wapp-sidebar-action" onClick={node.action.onAction ?? (() => node.action?.route && navigate(node.action.route))}>{node.action.label ?? "New"}</button> : null}
@@ -349,7 +349,7 @@ function SidebarTree({ nodes, route, navigate, level = 0 }: { nodes: SidebarNode
         const active = node.route?.view === route.view && Object.entries(node.route).every(([key, value]) => key === "view" || route[key] === value);
         return (
           <div className={`wapp-sidebar-item-wrap ${hasChildren ? "has-toggle" : ""}`} key={node.id} style={{ marginLeft: level ? `${level * 0.375}rem` : undefined }}>
-            {hasChildren ? <button type="button" className="wapp-tree-toggle" onClick={() => setCollapsed((current) => ({ ...current, [node.id]: !isCollapsed }))}>{isCollapsed ? "▶" : "▼"}</button> : null}
+            {hasChildren ? <button type="button" className="wapp-tree-toggle" aria-expanded={!isCollapsed} aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${node.title}`} onClick={() => setCollapsed((current) => ({ ...current, [node.id]: !isCollapsed }))}>{isCollapsed ? "▶" : "▼"}</button> : null}
             <button
               type="button"
               className={`wapp-sidebar-item ${active ? "active" : ""}`}

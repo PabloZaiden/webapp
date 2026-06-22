@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { RealtimeBus, createWebAppServer, defineRoutes, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
 import { createApiKey } from "../src/server/auth/api-keys";
+import { readRuntimeConfig } from "../src/server/runtime-config";
 
 function testStore(name: string) {
   return sqliteWebAppStore({ dataDir: `.cache/tests/${name}-${crypto.randomUUID()}` });
@@ -66,6 +67,52 @@ describe("server security defaults", () => {
     });
     const disabledConfig = await responseJson<{ passkeyAuth: { enabled: boolean; authenticated: boolean } }>(await disabledApp.handleRequest(new Request("http://localhost/api/config")));
     expect(disabledConfig.passkeyAuth).toMatchObject({ enabled: false, authenticated: true });
+  });
+
+  test("runtime config names invalid prefixed log level variables", () => {
+    const previous = process.env["TEST_LOG_LEVEL"];
+    process.env["TEST_LOG_LEVEL"] = "verbose";
+    try {
+      expect(() => readRuntimeConfig({ appName: "Test", envPrefix: "TEST" })).toThrow("TEST_LOG_LEVEL");
+    } finally {
+      if (previous === undefined) {
+        delete process.env["TEST_LOG_LEVEL"];
+      } else {
+        process.env["TEST_LOG_LEVEL"] = previous;
+      }
+    }
+  });
+
+  test("started server keeps device page disabled when device auth is disabled", async () => {
+    const portPrevious = process.env["TEST_DEVICE_ROUTE_PORT"];
+    const hostPrevious = process.env["TEST_DEVICE_ROUTE_HOST"];
+    process.env["TEST_DEVICE_ROUTE_PORT"] = "0";
+    process.env["TEST_DEVICE_ROUTE_HOST"] = "127.0.0.1";
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_DEVICE_ROUTE",
+      index: "<html></html>",
+      store: testStore("device-route-disabled"),
+      auth: { deviceAuth: false },
+      routes: defineRoutes({}),
+    });
+    const server = app.start();
+    try {
+      const response = await fetch(new URL("/device", server.url));
+      expect(response.status).toBe(404);
+    } finally {
+      server.stop(true);
+      if (portPrevious === undefined) {
+        delete process.env["TEST_DEVICE_ROUTE_PORT"];
+      } else {
+        process.env["TEST_DEVICE_ROUTE_PORT"] = portPrevious;
+      }
+      if (hostPrevious === undefined) {
+        delete process.env["TEST_DEVICE_ROUTE_HOST"];
+      } else {
+        process.env["TEST_DEVICE_ROUTE_HOST"] = hostPrevious;
+      }
+    }
   });
 
   test("protected routes reject anonymous requests after passkey bootstrap", async () => {

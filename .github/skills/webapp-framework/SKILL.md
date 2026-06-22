@@ -7,6 +7,8 @@ Use this skill when building or migrating an app to `@pablozaiden/webapp`.
 - Treat the app as one Bun server that serves React, API routes and websockets together.
 - Do not add Vite, a standalone client dev server, or `WEB_DIST_DIR`.
 - Use `bun --hot src/index.ts serve` for dev.
+- Keep generated apps and tooling cross-platform across macOS and Linux on arm64 and x86-64.
+- Use Playwright for all browser automation and screenshots; do not hard-code Chrome, browser executable paths, or OS-specific browser automation.
 - Configure env through a single uppercase `envPrefix`; read framework env as `{PREFIX}_...`.
 - Prefer the framework shell, settings and auth conventions when in doubt.
 - Make public endpoints explicit with `auth: "public", sameOrigin: "never"`.

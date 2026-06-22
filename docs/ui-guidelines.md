@@ -50,4 +50,6 @@ Generated screenshots live in `artifacts/screenshots`:
 | `kitchen-context-menu-light.png` | Sidebar context menu |
 | `kitchen-dialog-dark.png` | Confirm dialog overlay |
 
+Use `bun run screenshots` to regenerate these captures with Playwright. Browser automation and screenshot capture must stay Playwright-based and cross-platform; do not hard-code local Chrome or OS-specific browser paths.
+
 Use these captures as the manual visual baseline before changing shell, sidebar, settings or dialog styles.

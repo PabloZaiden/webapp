@@ -49,12 +49,12 @@ function parsePort(raw: string | undefined, name: string): number {
   return port;
 }
 
-function parseLogLevel(raw: string | undefined, fallback: LogLevelName): LogLevelName {
+function parseLogLevel(raw: string | undefined, fallback: LogLevelName, name: string): LogLevelName {
   if (!raw) {
     return fallback;
   }
   if (!LOG_LEVELS.has(raw)) {
-    throw new Error(`LOG_LEVEL must be one of trace, debug, info, warn, error; received "${raw}"`);
+    throw new Error(`${name} must be one of trace, debug, info, warn, error; received "${raw}"`);
   }
   return raw as LogLevelName;
 }
@@ -66,7 +66,7 @@ export function readRuntimeConfig(input: {
 }): RuntimeConfig {
   const envPrefix = assertEnvPrefix(input.envPrefix);
   const logLevelRaw = readEnv(envPrefix, "LOG_LEVEL");
-  const logLevel = parseLogLevel(logLevelRaw, input.defaultLogLevel ?? "info");
+  const logLevel = parseLogLevel(logLevelRaw, input.defaultLogLevel ?? "info", envName(envPrefix, "LOG_LEVEL"));
   return {
     appName: input.appName,
     envPrefix,

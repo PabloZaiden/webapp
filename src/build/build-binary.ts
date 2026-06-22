@@ -1,3 +1,6 @@
+import { chmodSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+
 export type BunCompileTarget =
   | "bun-linux-x64"
   | "bun-linux-arm64"
@@ -18,7 +21,7 @@ export function getBunCompileTargetFromArgs(argv = Bun.argv): BunCompileTarget |
 }
 
 export async function buildWebAppBinary(options: BuildWebAppBinaryOptions): Promise<void> {
-  await Bun.$`mkdir -p ${options.outfile.split("/").slice(0, -1).join("/") || "."}`;
+  mkdirSync(dirname(options.outfile), { recursive: true });
   const result = await Bun.build({
     entrypoints: [options.entrypoint],
     target: "bun",
@@ -33,7 +36,7 @@ export async function buildWebAppBinary(options: BuildWebAppBinaryOptions): Prom
     }
     throw new Error("Binary build failed");
   }
-  if (!options.target?.startsWith("bun-windows")) {
-    await Bun.$`chmod +x ${options.outfile}`;
+  if (process.platform !== "win32" && !options.target?.startsWith("bun-windows")) {
+    chmodSync(options.outfile, 0o755);
   }
 }

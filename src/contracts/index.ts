@@ -18,7 +18,6 @@ export interface ApiKeySummary {
   createdAt: string;
   lastUsedAt?: string;
   expiresAt?: string;
-  revokedAt?: string;
 }
 
 export interface CreatedApiKeyResponse {

@@ -115,6 +115,10 @@ function htmlResponse(index: unknown): Response {
   return index as Response;
 }
 
+function canRespondWithIndex(index: unknown): boolean {
+  return index instanceof Response || typeof index === "string" || index instanceof Blob;
+}
+
 function scopesFromBearer(claims: { scope: string }): string[] {
   return claims.scope.split(/\s+/).filter(Boolean);
 }
@@ -393,14 +397,15 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   }
 
   function start(): Server<WebSocketData> {
+    const dynamicHandler = (req: Request, server: Server<WebSocketData>) => handleRequest(req, server);
     const server = Bun.serve<WebSocketData>({
       hostname: config.host,
       port: config.port,
       routes: {
-        "/api/*": (req: Request, server: Server<WebSocketData>) => handleRequest(req, server),
-        "/.well-known/*": (req: Request, server: Server<WebSocketData>) => handleRequest(req, server),
-        "/device": input.index as never,
-        "/*": input.index as never,
+        "/api/*": dynamicHandler,
+        "/.well-known/*": dynamicHandler,
+        "/device": dynamicHandler,
+        "/*": canRespondWithIndex(input.index) ? dynamicHandler : input.index as never,
       },
       websocket: {
         open(socket) {
