@@ -1,6 +1,6 @@
 # Webapp framework skill
 
-Use this skill when building or migrating an app to `@pablozaiden/webapp`.
+Use this skill when building an app with `@pablozaiden/webapp`.
 
 ## Rules
 
@@ -11,14 +11,18 @@ Use this skill when building or migrating an app to `@pablozaiden/webapp`.
 - Use Playwright for all browser automation and screenshots; do not hard-code Chrome, browser executable paths, or OS-specific browser automation.
 - Configure env through a single uppercase `envPrefix`; read framework env as `{PREFIX}_...`.
 - Prefer the framework shell, settings and auth conventions when in doubt.
+- Frontend entrypoints should use `renderWebApp(<App />)` from `@pablozaiden/webapp/web`, not `ReactDOMClient.createRoot(...)`, so hot reload reuses the existing React root.
+- Treat apps as multi-user by default. App data should include an owner/current-user id unless the route is deliberately public or global-admin.
+- In server routes prefer declarative `auth: "user"`, `auth: "admin"` or `auth: "owner"` and use `ctx.requireUser()`, `ctx.requireAdmin()`, `ctx.requireOwner()`, `ctx.assertUser(userId)`, `ctx.filterOwned(records)` and `ctx.requireOwned(record)` instead of ad-hoc auth checks.
 - Make public endpoints explicit with `auth: "public", sameOrigin: "never"`.
 - Do not disable same-origin except for deliberate non-browser routes.
 - Use scopes for API keys and device bearer tokens.
-- Keep settings framework-owned; add app-specific settings as custom sections.
+- Keep settings framework-owned; add app-specific settings as custom sections with `scope: "user"`, `"admin"` or `"owner"`.
 - Use `WebAppRoot`, `SidebarNode` and framework UI primitives before custom shell/layout code.
 - For entity actions, define one `ActionMenuItem[]` builder and reuse it in `SidebarNode.actions` and `WebAppRoot.header.getActions`; the visible three-line menu belongs in the framework title bar.
+- Put app actions like New task, New note or New project in the title-bar/sidebar item action menus instead of discrete main-content buttons whenever possible. Keep discrete buttons for form submission and truly primary inline controls.
 - Mark route-backed sidebar entities with `pinnable: true` instead of building app-owned Pinned sections; the framework injects Pin/Unpin and persists pins in localStorage.
-- For live updates, prefer `ctx.realtime.publishEntityChanged(resource, id)` / `publishChanged(resource)` and `useRealtimeRefresh({ resources, refresh })` over custom websocket wiring.
+- For user-owned live updates, prefer `ctx.userRealtime.publishEntityChanged(resource, id)` / `publishChanged(resource)` and `useRealtimeRefresh({ resources, refresh })` over custom websocket wiring. Use global `ctx.realtime` only for public/global-admin events or server-validated non-user scopes.
 - Prefer `EntityHeader`, `DataList`, `DataListRow`, `DangerZone`, `LoadingState`, `ErrorState`, `FormGroup`, `FormActions`, and `CodeValue` for main content before custom CSS.
 - Prefer structured `settings.sections[].rows` for settings; keep `render` only as an escape hatch.
 - When creating a production-ready app, add the Dockerfile and GitHub Actions from `docs/github-actions.md`: PR build/test/dev-smoke/Docker-smoke, main GHCR Docker image, binary release, and Docker release.
@@ -43,12 +47,16 @@ await app.runFromCli();
 ## Minimum UI shape
 
 ```tsx
-<WebAppRoot
-  appName="Example"
-  homeRoute={{ view: "home" }}
-  sidebar={{ getNodes: () => [{ type: "section", id: "main", title: "Main", children: [] }] }}
-  routes={{ home: <Home /> }}
-/>
+import { WebAppRoot, renderWebApp } from "@pablozaiden/webapp/web";
+
+renderWebApp(
+  <WebAppRoot
+    appName="Example"
+    homeRoute={{ view: "home" }}
+    sidebar={{ getNodes: () => [{ type: "section", id: "main", title: "Main", children: [] }] }}
+    routes={{ home: <Home /> }}
+  />,
+);
 ```
 
 Always import framework styles explicitly from the frontend entrypoint:
@@ -74,7 +82,7 @@ const node = { type: "item", id: project.id, title: project.name, route: { view:
 Use the declarative realtime helpers:
 
 ```ts
-ctx.realtime.publishEntityChanged("todos", todo.id);
+ctx.userRealtime.publishEntityChanged("todos", todo.id);
 ```
 
 ```tsx
@@ -88,9 +96,23 @@ settings={{
   sections: [{
     id: "sync",
     title: "Sync",
+    scope: "user",
     rows: [{ id: "status", title: "Status", description: "Connected" }],
   }],
 }}
+```
+
+Use user-owned routes:
+
+```ts
+GET: (_req, ctx) => {
+  return jsonResponse(ctx.filterOwned(items));
+}
+
+PATCH: (_req, ctx) => {
+  const item = ctx.requireOwned(items.find((candidate) => candidate.id === ctx.params.id));
+  return jsonResponse(item);
+}
 ```
 
 ## Validation checklist

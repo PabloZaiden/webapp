@@ -2,12 +2,60 @@ export type LogLevelName = "trace" | "debug" | "info" | "warn" | "error";
 
 export type ThemePreference = "system" | "light" | "dark";
 
+export type WebAppUserRole = "owner" | "admin" | "user";
+
+export interface CurrentUser {
+  id: string;
+  username: string;
+  role: WebAppUserRole;
+  isOwner: boolean;
+  isAdmin: boolean;
+}
+
+export interface WebAppUserSummary {
+  id: string;
+  username: string;
+  role: WebAppUserRole;
+  passkeyConfigured: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt?: string;
+}
+
+export interface UserSetupLinkResponse {
+  url: string;
+  expiresAt: string;
+}
+
+export interface CreatedUserResponse {
+  user: WebAppUserSummary;
+  setupLink: UserSetupLinkResponse;
+}
+
+export interface UserSetupDetails {
+  username: string;
+  role: WebAppUserRole;
+  kind: "invite" | "reset";
+  expiresAt: string;
+}
+
+export interface AuditEventSummary {
+  id: string;
+  eventType: string;
+  actorUserId?: string;
+  targetUserId?: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface PasskeyAuthStatusResponse {
   enabled: boolean;
   passkeyConfigured: boolean;
   passkeyDisabled: boolean;
   passkeyRequired: boolean;
   authenticated: boolean;
+  bootstrapRequired: boolean;
+  ownerPasskeySetupRequired: boolean;
 }
 
 export interface ApiKeySummary {
@@ -66,7 +114,12 @@ export interface AuthSessionSummary {
 export interface WebAppConfigResponse {
   appName: string;
   version: string;
+  currentUser?: CurrentUser;
   passkeyAuth: PasskeyAuthStatusResponse;
+  userManagement: {
+    enabled: boolean;
+    canManageUsers: boolean;
+  };
   logLevel: {
     level: LogLevelName;
     fromEnv: boolean;

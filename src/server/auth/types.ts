@@ -1,5 +1,9 @@
+import type { CurrentUser } from "../../contracts";
+
 export interface AccessTokenClaims {
   sub: string;
+  username?: string;
+  role?: string;
   jti: string;
   sid: string;
   clientId: string;
@@ -8,9 +12,9 @@ export interface AccessTokenClaims {
 
 export type AuthenticatedRequestState =
   | { kind: "anonymous" }
-  | { kind: "passkey"; passkeyId?: string }
-  | { kind: "api-key"; apiKeyId: string; scopes: string[] }
-  | { kind: "bearer"; claims: AccessTokenClaims };
+  | { kind: "passkey"; user: CurrentUser; passkeyId?: string }
+  | { kind: "api-key"; user: CurrentUser; apiKeyId: string; scopes: string[] }
+  | { kind: "bearer"; user: CurrentUser; claims: AccessTokenClaims };
 
 export class AuthError extends Error {
   code: string;

@@ -1,6 +1,6 @@
 # GitHub Actions for framework apps
 
-Use these templates for applications built with `@pablozaiden/webapp`. They follow the same deployment pattern as the reference apps:
+Use these templates for applications built with `@pablozaiden/webapp`. They follow the framework deployment pattern:
 
 1. Pull requests install, build, test and smoke-test the Bun dev server.
 2. Merges to `main` publish a `main` Docker image to GHCR.
@@ -30,6 +30,8 @@ The templates assume these package scripts:
 ```
 
 If the app uses TypeScript typechecking separately, add a `tsc` script and call it from the PR workflow before tests.
+
+The smoke templates only hit health/static/public endpoints. `MY_APP_DISABLE_PASSKEY=true` authenticates as the existing owner when one exists; it does not create an owner in an empty data directory. If a smoke test needs protected app APIs, seed a test owner in `MY_APP_DATA_DIR` first or add a deliberate public smoke endpoint.
 
 ## Dockerfile
 
@@ -255,11 +257,11 @@ jobs:
         id: image
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push Docker image
+      - name: Build Docker image
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
         with:
           context: .
-          push: true
+          push: false
           load: true
           tags: ${{ steps.image.outputs.name }}:main
           cache-from: type=gha
@@ -286,6 +288,9 @@ jobs:
 
           test "$(docker inspect --format='{{.State.Health.Status}}' my-app-main-smoke)" = "healthy"
           curl -fsS http://127.0.0.1:8080/api/health >/dev/null
+
+      - name: Push Docker image
+        run: docker push ${{ steps.image.outputs.name }}:main
 ```
 
 ## Binary release workflow

@@ -7,12 +7,13 @@ import {
   type CryptoKey,
   type JWK,
 } from "jose";
-import type { AuthSessionSummary, DeviceAuthorizationResponse, DeviceVerificationDetails, TokenResponse } from "../../contracts";
+import type { AuthSessionSummary, CurrentUser, DeviceAuthorizationResponse, DeviceVerificationDetails, TokenResponse } from "../../contracts";
 import type { RuntimeConfig } from "../runtime-config";
 import type { RefreshSessionRecord, WebAppStore } from "./store";
 import { addSeconds, isExpired, nowIso, randomToken, sha256 } from "./crypto";
 import { getRequestOriginInfo } from "./request-origin";
 import { AuthError, type AccessTokenClaims } from "./types";
+import { toCurrentUser } from "./users";
 
 const ACCESS_TOKEN_TTL_SECONDS = 60 * 10;
 const REFRESH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -87,6 +88,7 @@ function issuer(config: RuntimeConfig): string {
 
 async function issueAccessToken(store: WebAppStore, config: RuntimeConfig, input: {
   sessionId: string;
+  user: CurrentUser;
   clientId: string;
   scope: string;
 }): Promise<{ accessToken: string; jti: string }> {
@@ -96,9 +98,11 @@ async function issueAccessToken(store: WebAppStore, config: RuntimeConfig, input
     sid: input.sessionId,
     clientId: input.clientId,
     scope: input.scope,
+    username: input.user.username,
+    role: input.user.role,
   })
     .setProtectedHeader({ alg: key.alg, kid: key.kid })
-    .setSubject(`${config.envPrefix.toLowerCase()}-user`)
+    .setSubject(input.user.id)
     .setJti(jti)
     .setIssuer(issuer(config))
     .setAudience(`${config.envPrefix.toLowerCase()}-api`)
@@ -161,7 +165,7 @@ export function getDeviceVerificationDetails(store: WebAppStore, userCode: strin
   };
 }
 
-export function approveDevice(store: WebAppStore, userCode: string): DeviceVerificationDetails {
+export function approveDevice(store: WebAppStore, userCode: string, userId: string): DeviceVerificationDetails {
   const record = store.getDeviceAuthByUserCode(userCode);
   if (!record || isExpired(record.expiresAt)) {
     throw new AuthError("invalid_user_code", "Device authorization code is invalid or expired", 404);
@@ -169,7 +173,7 @@ export function approveDevice(store: WebAppStore, userCode: string): DeviceVerif
   if (record.status !== "pending" && record.status !== "approved") {
     throw new AuthError("invalid_request", "Device authorization can no longer be approved", 400);
   }
-  store.updateDeviceAuthStatus(userCode, "approved", nowIso());
+  store.updateDeviceAuthStatus(userCode, "approved", nowIso(), userId);
   return getDeviceVerificationDetails(store, userCode, false);
 }
 
@@ -182,7 +186,7 @@ export function denyDevice(store: WebAppStore, userCode: string): DeviceVerifica
   return getDeviceVerificationDetails(store, userCode, false);
 }
 
-function createRefreshRecord(clientId: string, scope: string, familyId: string = crypto.randomUUID()): { token: string; record: RefreshSessionRecord } {
+function createRefreshRecord(userId: string, clientId: string, scope: string, familyId: string = crypto.randomUUID()): { token: string; record: RefreshSessionRecord } {
   const token = randomToken(32);
   const createdAt = nowIso();
   const id = crypto.randomUUID();
@@ -190,6 +194,7 @@ function createRefreshRecord(clientId: string, scope: string, familyId: string =
     token,
     record: {
       id,
+      userId,
       familyId,
       clientId,
       scope,
@@ -221,10 +226,19 @@ export async function exchangeDeviceCode(store: WebAppStore, config: RuntimeConf
   if (record.status === "consumed") {
     throw new AuthError("invalid_grant", "Device code has already been used", 400);
   }
-  const refresh = createRefreshRecord(record.clientId, record.scope);
+  if (!record.approvedByUserId) {
+    throw new AuthError("invalid_grant", "Device authorization was not approved by a user", 400);
+  }
+  const userRecord = store.getUserById(record.approvedByUserId);
+  if (!userRecord) {
+    throw new AuthError("invalid_grant", "Approving user no longer exists", 400);
+  }
+  const user = toCurrentUser(userRecord);
+  const refresh = createRefreshRecord(user.id, record.clientId, record.scope);
   store.saveRefreshSession(refresh.record);
   const access = await issueAccessToken(store, config, {
     sessionId: refresh.record.id,
+    user,
     clientId: record.clientId,
     scope: record.scope,
   });
@@ -248,13 +262,20 @@ export async function exchangeRefreshToken(store: WebAppStore, config: RuntimeCo
   if (clientId && clientId !== session.clientId) {
     throw new AuthError("invalid_client", "client_id does not match refresh session", 400);
   }
-  const next = createRefreshRecord(session.clientId, session.scope, session.familyId);
+  const userRecord = store.getUserById(session.userId);
+  if (!userRecord) {
+    store.revokeRefreshFamily(session.familyId, nowIso());
+    throw new AuthError("invalid_grant", "Refresh token user no longer exists", 400);
+  }
+  const user = toCurrentUser(userRecord);
+  const next = createRefreshRecord(session.userId, session.clientId, session.scope, session.familyId);
   const rotated = store.rotateRefreshSession(hash, next.record, nowIso());
   if (!rotated) {
     throw new AuthError("invalid_grant", "Refresh token is invalid", 400);
   }
   const access = await issueAccessToken(store, config, {
     sessionId: next.record.id,
+    user,
     clientId: next.record.clientId,
     scope: next.record.scope,
   });
@@ -270,6 +291,8 @@ export async function verifyAccessToken(store: WebAppStore, config: RuntimeConfi
   const payload = result.payload;
   return {
     sub: payload.sub ?? "",
+    username: typeof payload["username"] === "string" ? payload["username"] : undefined,
+    role: typeof payload["role"] === "string" ? payload["role"] : undefined,
     jti: payload.jti ?? "",
     sid: String(payload["sid"] ?? ""),
     clientId: String(payload["clientId"] ?? ""),
@@ -277,8 +300,8 @@ export async function verifyAccessToken(store: WebAppStore, config: RuntimeConfi
   };
 }
 
-export function listAuthSessions(store: WebAppStore): AuthSessionSummary[] {
-  return store.listRefreshSessions().map((session) => ({
+export function listAuthSessions(store: WebAppStore, userId: string): AuthSessionSummary[] {
+  return store.listRefreshSessions(userId).map((session) => ({
     id: session.id,
     clientId: session.clientId,
     scope: session.scope,
@@ -291,8 +314,8 @@ export function listAuthSessions(store: WebAppStore): AuthSessionSummary[] {
   }));
 }
 
-export function revokeAuthSession(store: WebAppStore, id: string): boolean {
-  return store.revokeRefreshSession(id, nowIso());
+export function revokeAuthSession(store: WebAppStore, userId: string, id: string): boolean {
+  return store.revokeRefreshSession(id, nowIso(), userId);
 }
 
 export function revokeRefreshToken(store: WebAppStore, refreshToken: string): boolean {

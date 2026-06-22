@@ -1,5 +1,5 @@
 import type { Server } from "bun";
-import type { ApiKeySummary, LogLevelName, ThemePreference, WebAppConfigResponse } from "../contracts";
+import type { CurrentUser, LogLevelName, ThemePreference, WebAppConfigResponse, WebAppUserRole } from "../contracts";
 import { authenticateApiKey, assertScopes, createApiKey, deleteApiKey, listApiKeys } from "./auth/api-keys";
 import {
   approveDevice,
@@ -17,11 +17,16 @@ import {
 } from "./auth/device-auth";
 import {
   beginAuthentication,
-  beginRegistration,
+  beginBootstrapRegistration,
+  beginOwnerPasskeySetup,
+  beginSetupRegistration,
   completeAuthentication,
-  completeRegistration,
+  completeBootstrapRegistration,
+  completeOwnerPasskeySetup,
+  completeSetupRegistration,
   deletePasskey,
-  hasPasskeySession,
+  getPasskeySessionUser,
+  getSetupDetails,
   isPasskeyAuthRequired,
   logoutHeaders,
   passkeyStatus,
@@ -29,10 +34,12 @@ import {
 import { sqliteWebAppStore } from "./auth/sqlite-store";
 import type { WebAppStore } from "./auth/store";
 import { AuthError, type AuthenticatedRequestState } from "./auth/types";
+import { audit, assertValidUsername, createSetupLinkRecord, createUserRecord, summarizeUser } from "./auth/users";
+import { nowIso, randomToken } from "./auth/crypto";
 import { createLogger, setLogLevel } from "./logger";
 import { createRealtimeBus, type RealtimeBus, type WebSocketData } from "./realtime/bus";
 import { readRuntimeConfig, safeRuntimeConfig, type RuntimeConfig } from "./runtime-config";
-import { matchRoute, type RouteTable } from "./routes";
+import { matchRoute, type RouteAuth, type RouteTable, type UserIdSelector, type UserOwnedResource, type UserScopedRealtimePublisher } from "./routes";
 import { checkSameOrigin } from "./same-origin";
 import { errorResponse, jsonResponse, methodNotAllowed, notFound, parseJson, successResponse, withSecurityHeaders } from "./responses";
 
@@ -115,12 +122,112 @@ function htmlResponse(index: unknown): Response {
   return index as Response;
 }
 
+function secureDynamicResponse(response: Response): Response {
+  return response instanceof Response ? withSecurityHeaders(response) : response;
+}
+
 function canRespondWithIndex(index: unknown): boolean {
   return index instanceof Response || typeof index === "string" || index instanceof Blob;
 }
 
 function scopesFromBearer(claims: { scope: string }): string[] {
   return claims.scope.split(/\s+/).filter(Boolean);
+}
+
+function currentUser(auth: AuthenticatedRequestState): CurrentUser | undefined {
+  return auth.kind === "anonymous" ? undefined : auth.user;
+}
+
+function requireUser(auth: AuthenticatedRequestState): CurrentUser {
+  const user = currentUser(auth);
+  if (!user) {
+    throw new AuthError("authentication_required", "Authentication is required", 401);
+  }
+  return user;
+}
+
+function requireAdmin(auth: AuthenticatedRequestState): CurrentUser {
+  const user = requireUser(auth);
+  if (!user.isAdmin) {
+    throw new AuthError("admin_required", "Admin permissions are required", 403);
+  }
+  return user;
+}
+
+function requireOwner(auth: AuthenticatedRequestState): CurrentUser {
+  const user = requireUser(auth);
+  if (!user.isOwner) {
+    throw new AuthError("owner_required", "Owner permissions are required", 403);
+  }
+  return user;
+}
+
+function assertUser(auth: AuthenticatedRequestState, userId: string): CurrentUser {
+  const user = requireUser(auth);
+  if (user.id !== userId) {
+    throw new AuthError("forbidden", "You cannot access another user's resource", 403);
+  }
+  return user;
+}
+
+function ownedUserId<TResource>(resource: TResource, getUserId?: UserIdSelector<TResource>): string | undefined {
+  if (getUserId) {
+    return getUserId(resource);
+  }
+  if (typeof resource === "object" && resource !== null && "userId" in resource && typeof resource.userId === "string") {
+    return resource.userId;
+  }
+  throw new AuthError("route_misconfigured", "Owned resource helpers require a string userId field or a getUserId selector", 500);
+}
+
+function requireOwned<TResource extends UserOwnedResource>(auth: AuthenticatedRequestState, resource: TResource | null | undefined): TResource;
+function requireOwned<TResource>(auth: AuthenticatedRequestState, resource: TResource | null | undefined, getUserId: UserIdSelector<TResource>): TResource;
+function requireOwned<TResource>(auth: AuthenticatedRequestState, resource: TResource | null | undefined, getUserId?: UserIdSelector<TResource>): TResource {
+  const user = requireUser(auth);
+  const resourceUserId = resource ? ownedUserId(resource, getUserId) : undefined;
+  if (!resource || resourceUserId !== user.id) {
+    throw new AuthError("not_found", "Resource not found", 404);
+  }
+  return resource;
+}
+
+function filterOwned<TResource extends UserOwnedResource>(auth: AuthenticatedRequestState, resources: readonly TResource[]): TResource[];
+function filterOwned<TResource>(auth: AuthenticatedRequestState, resources: readonly TResource[], getUserId: UserIdSelector<TResource>): TResource[];
+function filterOwned<TResource>(auth: AuthenticatedRequestState, resources: readonly TResource[], getUserId?: UserIdSelector<TResource>): TResource[] {
+  const user = requireUser(auth);
+  return resources.filter((resource) => ownedUserId(resource, getUserId) === user.id);
+}
+
+function createFilterOwned(auth: AuthenticatedRequestState) {
+  function contextFilterOwned<TResource extends UserOwnedResource>(resources: readonly TResource[]): TResource[];
+  function contextFilterOwned<TResource>(resources: readonly TResource[], getUserId: UserIdSelector<TResource>): TResource[];
+  function contextFilterOwned<TResource>(resources: readonly TResource[], getUserId?: UserIdSelector<TResource>): TResource[] {
+    return filterOwned(auth, resources, getUserId as UserIdSelector<TResource>);
+  }
+  return contextFilterOwned;
+}
+
+function createRequireOwned(auth: AuthenticatedRequestState) {
+  function contextRequireOwned<TResource extends UserOwnedResource>(resource: TResource | null | undefined): TResource;
+  function contextRequireOwned<TResource>(resource: TResource | null | undefined, getUserId: UserIdSelector<TResource>): TResource;
+  function contextRequireOwned<TResource>(resource: TResource | null | undefined, getUserId?: UserIdSelector<TResource>): TResource {
+    return requireOwned(auth, resource, getUserId as UserIdSelector<TResource>);
+  }
+  return contextRequireOwned;
+}
+
+function requiresAuth(routeAuth: RouteAuth): boolean {
+  return routeAuth !== "public" && routeAuth !== "optional";
+}
+
+function enforceRouteAuth(routeAuth: RouteAuth, auth: AuthenticatedRequestState): void {
+  if (routeAuth === "user") {
+    requireUser(auth);
+  } else if (routeAuth === "admin") {
+    requireAdmin(auth);
+  } else if (routeAuth === "owner") {
+    requireOwner(auth);
+  }
 }
 
 export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<TEvent>): WebAppServer<TEvent> {
@@ -143,7 +250,16 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       if (deviceAuthEnabled) {
         try {
           const claims = await verifyAccessToken(store, config, token);
-          return { kind: "bearer", claims };
+          const user = store.getUserById(claims.sub);
+          if (user) {
+            return { kind: "bearer", claims, user: {
+              id: user.id,
+              username: user.username,
+              role: user.role,
+              isOwner: user.role === "owner",
+              isAdmin: user.role === "owner" || user.role === "admin",
+            } };
+          }
         } catch {
           // Fall through to API keys. Both use Bearer by design.
         }
@@ -156,22 +272,34 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       }
       return errorResponse(401, "invalid_token", "Bearer token is invalid");
     }
+    if (passkeysEnabled) {
+      const user = getPasskeySessionUser(req, store, config);
+      if (user) {
+        return { kind: "passkey", user };
+      }
+    }
     if (passkeysEnabled && isPasskeyAuthRequired(store, config)) {
-      if (!hasPasskeySession(req, store)) {
+      const user = getPasskeySessionUser(req, store, config);
+      if (!user) {
         return required ? errorResponse(401, "authentication_required", "Passkey authentication is required", undefined, {
           headers: { "x-webapp-passkey-required": "true" },
         }) : { kind: "anonymous" };
       }
-      return { kind: "passkey" };
     }
     return { kind: "anonymous" };
   }
 
   function configResponse(req: Request): WebAppConfigResponse {
+    const user = passkeysEnabled ? getPasskeySessionUser(req, store, config) : undefined;
     return {
       appName: config.appName,
       version,
+      currentUser: user,
       passkeyAuth: passkeyStatus(req, store, config, passkeysEnabled),
+      userManagement: {
+        enabled: passkeysEnabled,
+        canManageUsers: Boolean(user?.isAdmin),
+      },
       logLevel: {
         level: (config.logLevelFromEnv ? config.logLevel : store.getLogLevelPreference() ?? config.logLevel) as LogLevelName,
         fromEnv: config.logLevelFromEnv,
@@ -179,6 +307,29 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       apiKeys: { enabled: Boolean(apiKeysEnabled) },
       deviceAuth: { enabled: Boolean(deviceAuthEnabled) },
     };
+  }
+
+  function setupUrl(req: Request, token: string): string {
+    const url = new URL(req.url);
+    url.pathname = "/setup";
+    url.search = `?token=${encodeURIComponent(token)}`;
+    url.hash = "";
+    return url.toString();
+  }
+
+  function createSetupLink(req: Request, userId: string, kind: "invite" | "reset" | "owner-reset", actorUserId?: string) {
+    const token = randomToken(32);
+    const record = createSetupLinkRecord({ userId, token, kind, createdByUserId: actorUserId });
+    store.createSetupLink(record);
+    return { url: setupUrl(req, token), expiresAt: record.expiresAt };
+  }
+
+  function ensureAdmin(auth: AuthenticatedRequestState): CurrentUser {
+    return requireAdmin(auth);
+  }
+
+  function sanitizeRole(role: WebAppUserRole | undefined): WebAppUserRole {
+    return role === "admin" ? "admin" : "user";
   }
 
   async function handleBuiltIn(req: Request, server?: Server<WebSocketData>): Promise<Response | undefined> {
@@ -198,18 +349,41 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         if (originFailure) return originFailure;
         if (!server) return errorResponse(400, "websocket_unavailable", "WebSocket server is unavailable");
         const filters = Object.fromEntries(url.searchParams.entries());
-        const upgraded = server.upgrade(req, { data: { filters } });
+        const upgraded = server.upgrade(req, { data: { filters, userId: currentUser(auth)?.id } });
         return upgraded ? undefined : errorResponse(400, "websocket_upgrade_failed", "WebSocket upgrade failed");
       }
       if (path === "/api/passkey-auth/status" && req.method === "GET") {
         return jsonResponse(passkeyStatus(req, store, config, passkeysEnabled));
       }
-      if (passkeysEnabled && path === "/api/passkey-auth/registration/options" && req.method === "POST") {
-        const result = await beginRegistration(req, store, config);
+      if (passkeysEnabled && path === "/api/passkey-auth/bootstrap/options" && req.method === "POST") {
+        const body = await parseJson<{ username?: string }>(req);
+        const result = await beginBootstrapRegistration(req, store, config, body.username ?? "");
         return addHeaders(jsonResponse(result.options), result.headers);
       }
-      if (passkeysEnabled && path === "/api/passkey-auth/registration/verify" && req.method === "POST") {
-        const headers = await completeRegistration(req, store, config, await parseJson(req));
+      if (passkeysEnabled && path === "/api/passkey-auth/bootstrap/verify" && req.method === "POST") {
+        const headers = await completeBootstrapRegistration(req, store, config, await parseJson(req));
+        return addHeaders(successResponse(), headers);
+      }
+      if (passkeysEnabled && path === "/api/passkey-auth/owner-setup/options" && req.method === "POST") {
+        const result = await beginOwnerPasskeySetup(req, store, config);
+        return addHeaders(jsonResponse(result.options), result.headers);
+      }
+      if (passkeysEnabled && path === "/api/passkey-auth/owner-setup/verify" && req.method === "POST") {
+        const headers = await completeOwnerPasskeySetup(req, store, config, await parseJson(req));
+        return addHeaders(successResponse(), headers);
+      }
+      if (passkeysEnabled && path === "/api/user-setup" && req.method === "GET") {
+        const token = url.searchParams.get("token") ?? "";
+        return jsonResponse(getSetupDetails(store, token));
+      }
+      if (passkeysEnabled && path === "/api/user-setup/options" && req.method === "POST") {
+        const body = await parseJson<{ token?: string }>(req);
+        const result = await beginSetupRegistration(req, store, config, body.token ?? "");
+        return addHeaders(jsonResponse(result.options), result.headers);
+      }
+      if (passkeysEnabled && path === "/api/user-setup/verify" && req.method === "POST") {
+        const body = await parseJson<{ token?: string; response?: unknown }>(req);
+        const headers = await completeSetupRegistration(req, store, config, body.token ?? "", body.response as never);
         return addHeaders(successResponse(), headers);
       }
       if (passkeysEnabled && path === "/api/passkey-auth/authentication/options" && req.method === "POST") {
@@ -228,19 +402,19 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         if (auth instanceof Response) return auth;
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
-        return addHeaders(successResponse(), deletePasskey(req, store, config));
+        return addHeaders(successResponse(), deletePasskey(req, store, config, requireUser(auth).id));
       }
       if (apiKeysEnabled && path === "/api/api-keys" && req.method === "GET") {
         const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
-        return jsonResponse(listApiKeys(store));
+        return jsonResponse(listApiKeys(store, requireUser(auth).id));
       }
       if (apiKeysEnabled && path === "/api/api-keys" && req.method === "POST") {
         const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
-        return jsonResponse(createApiKey(store, await parseJson(req)));
+        return jsonResponse(createApiKey(store, requireUser(auth), await parseJson(req)));
       }
       const apiKeyDelete = /^\/api\/api-keys\/([^/]+)$/.exec(path);
       if (apiKeysEnabled && apiKeyDelete && req.method === "DELETE") {
@@ -248,7 +422,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         if (auth instanceof Response) return auth;
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
-        deleteApiKey(store, decodeURIComponent(apiKeyDelete[1]!));
+        deleteApiKey(store, requireUser(auth).id, decodeURIComponent(apiKeyDelete[1]!));
         return successResponse();
       }
       if (deviceAuthEnabled && path === "/api/auth/device" && req.method === "POST") {
@@ -268,7 +442,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
         const body = await parseJson<{ userCode?: string; user_code?: string }>(req);
-        return jsonResponse(approveDevice(store, body.userCode ?? body.user_code ?? ""));
+        return jsonResponse(approveDevice(store, body.userCode ?? body.user_code ?? "", requireUser(auth).id));
       }
       if (deviceAuthEnabled && path === "/api/auth/device/deny" && req.method === "POST") {
         const auth = await authorize(req, true);
@@ -297,7 +471,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       if (deviceAuthEnabled && path === "/api/auth/sessions" && req.method === "GET") {
         const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
-        return jsonResponse(listAuthSessions(store));
+        return jsonResponse(listAuthSessions(store, requireUser(auth).id));
       }
       const sessionDelete = /^\/api\/auth\/sessions\/([^/]+)$/.exec(path);
       if (deviceAuthEnabled && sessionDelete && req.method === "DELETE") {
@@ -305,7 +479,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         if (auth instanceof Response) return auth;
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
-        return revokeAuthSession(store, decodeURIComponent(sessionDelete[1]!)) ? successResponse() : notFound();
+        return revokeAuthSession(store, requireUser(auth).id, decodeURIComponent(sessionDelete[1]!)) ? successResponse() : notFound();
       }
       if (deviceAuthEnabled && path === "/.well-known/jwks.json" && req.method === "GET") {
         return jsonResponse(await jwks(store));
@@ -313,23 +487,107 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       if (deviceAuthEnabled && path === "/.well-known/openid-configuration" && req.method === "GET") {
         return jsonResponse(discovery(req, config));
       }
+      if (passkeysEnabled && path === "/api/users" && req.method === "GET") {
+        const auth = await authorize(req, true);
+        if (auth instanceof Response) return auth;
+        ensureAdmin(auth);
+        return jsonResponse(store.listUsers().map(summarizeUser));
+      }
+      if (passkeysEnabled && path === "/api/users" && req.method === "POST") {
+        const auth = await authorize(req, true);
+        if (auth instanceof Response) return auth;
+        const actor = ensureAdmin(auth);
+        const originFailure = checkSameOrigin(req, config, auth, "mutations");
+        if (originFailure) return originFailure;
+        const body = await parseJson<{ username?: string; role?: WebAppUserRole }>(req);
+        const username = assertValidUsername(body.username ?? "");
+        if (store.getUserByUsername(username)) {
+          return errorResponse(409, "username_exists", "Username already exists");
+        }
+        const user = createUserRecord({ username, role: sanitizeRole(body.role) });
+        store.createUser(user);
+        const setupLink = createSetupLink(req, user.id, "invite", actor.id);
+        audit(store, { eventType: "user_created", actorUserId: actor.id, targetUserId: user.id, metadata: { role: user.role } });
+        return jsonResponse({ user: summarizeUser(store.getUserById(user.id) ?? user), setupLink }, { status: 201 });
+      }
+      const userRolePatch = /^\/api\/users\/([^/]+)\/role$/.exec(path);
+      if (passkeysEnabled && userRolePatch && req.method === "PATCH") {
+        const auth = await authorize(req, true);
+        if (auth instanceof Response) return auth;
+        const actor = ensureAdmin(auth);
+        const originFailure = checkSameOrigin(req, config, auth, "mutations");
+        if (originFailure) return originFailure;
+        const userId = decodeURIComponent(userRolePatch[1]!);
+        const target = store.getUserById(userId);
+        if (!target) return notFound();
+        if (target.role === "owner") return errorResponse(409, "owner_immutable", "Owner role cannot be changed");
+        const body = await parseJson<{ role?: WebAppUserRole }>(req);
+        const role = sanitizeRole(body.role);
+        store.setUserRole(userId, role, nowIso());
+        audit(store, { eventType: "user_role_changed", actorUserId: actor.id, targetUserId: userId, metadata: { role } });
+        return jsonResponse(summarizeUser(store.getUserById(userId) ?? target));
+      }
+      const userReset = /^\/api\/users\/([^/]+)\/reset$/.exec(path);
+      if (passkeysEnabled && userReset && req.method === "POST") {
+        const auth = await authorize(req, true);
+        if (auth instanceof Response) return auth;
+        const actor = ensureAdmin(auth);
+        const originFailure = checkSameOrigin(req, config, auth, "mutations");
+        if (originFailure) return originFailure;
+        const userId = decodeURIComponent(userReset[1]!);
+        const target = store.getUserById(userId);
+        if (!target) return notFound();
+        if (target.role === "owner") return errorResponse(409, "owner_immutable", "Owner cannot be reset");
+        const timestamp = nowIso();
+        store.deletePendingSetupLinksForUser(userId, timestamp);
+        store.deletePasskeysForUser(userId);
+        store.deleteApiKeysForUser(userId);
+        store.revokeRefreshSessionsForUser(userId, timestamp);
+        store.incrementUserAuthVersion(userId, timestamp);
+        const setupLink = createSetupLink(req, userId, "reset", actor.id);
+        audit(store, { eventType: "user_reset", actorUserId: actor.id, targetUserId: userId });
+        return jsonResponse({ user: summarizeUser(store.getUserById(userId) ?? target), setupLink });
+      }
+      const userDelete = /^\/api\/users\/([^/]+)$/.exec(path);
+      if (passkeysEnabled && userDelete && req.method === "DELETE") {
+        const auth = await authorize(req, true);
+        if (auth instanceof Response) return auth;
+        const actor = ensureAdmin(auth);
+        const originFailure = checkSameOrigin(req, config, auth, "mutations");
+        if (originFailure) return originFailure;
+        const userId = decodeURIComponent(userDelete[1]!);
+        const target = store.getUserById(userId);
+        if (!target) return notFound();
+        if (target.role === "owner") return errorResponse(409, "owner_immutable", "Owner cannot be deleted");
+        if (!store.deleteUser(userId)) return notFound();
+        audit(store, { eventType: "user_deleted", actorUserId: actor.id, metadata: { deletedUserId: userId, username: target.username } });
+        return successResponse();
+      }
+      if (passkeysEnabled && path === "/api/audit-events" && req.method === "GET") {
+        const auth = await authorize(req, true);
+        if (auth instanceof Response) return auth;
+        ensureAdmin(auth);
+        return jsonResponse(store.listAuditEvents(100));
+      }
       if (path === "/api/preferences/theme") {
         const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
+        const user = requireUser(auth);
         if (req.method === "GET") {
-          return jsonResponse({ theme: store.getThemePreference() ?? "system" });
+          return jsonResponse({ theme: store.getThemePreference(user.id) ?? "system" });
         }
         if (req.method === "PUT") {
           const originFailure = checkSameOrigin(req, config, auth, "mutations");
           if (originFailure) return originFailure;
           const body = await parseJson<{ theme: ThemePreference }>(req);
-          store.setThemePreference(body.theme);
+          store.setThemePreference(body.theme, user.id);
           return successResponse({ theme: body.theme });
         }
       }
       if (path === "/api/preferences/log-level") {
         const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
+        ensureAdmin(auth);
         if (req.method === "GET") {
           return jsonResponse({ level: store.getLogLevelPreference() ?? config.logLevel, fromEnv: config.logLevelFromEnv });
         }
@@ -346,6 +604,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       if (path === "/api/server/kill" && req.method === "POST") {
         const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
+        ensureAdmin(auth);
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
         setTimeout(() => process.exit(0), 100);
@@ -365,7 +624,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/.well-known/") || url.pathname === "/device") {
       const builtIn = await handleBuiltIn(req, server);
       if (builtIn) {
-        return withSecurityHeaders(builtIn);
+        return secureDynamicResponse(builtIn);
       }
       const matched = matchRoute(routes, url.pathname);
       if (!matched) {
@@ -375,23 +634,56 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       if (!handler) {
         return withSecurityHeaders(methodNotAllowed());
       }
-      const required = (matched.route.auth ?? "required") === "required";
+      const routeAuth = matched.route.auth ?? "required";
+      const required = requiresAuth(routeAuth);
       const auth = await authorize(req, required);
       if (auth instanceof Response) {
         return withSecurityHeaders(auth);
       }
       try {
-        if ((matched.route.auth ?? "required") !== "public" && (auth.kind === "api-key" || auth.kind === "bearer")) {
+        enforceRouteAuth(routeAuth, auth);
+        if (matched.route.userParam) {
+          const paramValue = matched.params[matched.route.userParam];
+          if (!paramValue) {
+            throw new AuthError("route_misconfigured", `Route userParam "${matched.route.userParam}" is missing from matched params`, 500);
+          }
+          assertUser(auth, paramValue);
+        }
+        if (routeAuth !== "public" && (auth.kind === "api-key" || auth.kind === "bearer")) {
           assertScopes(auth.kind === "api-key" ? auth.scopes : scopesFromBearer(auth.claims), matched.route.scopes ?? []);
         }
       } catch (error) {
         return withSecurityHeaders(authErrorResponse(error));
       }
+      const current = () => requireUser(auth);
+      const userRealtime = {
+        publishChanged: (resource, options = {}) => realtime.publishChanged(resource, { ...options, target: { ...options.target, userId: current().id } }),
+        publishEntityChanged: (resource, id, options = {}) => realtime.publishEntityChanged(resource, id, { ...options, target: { ...options.target, userId: current().id } }),
+        publishDeleted: (resource, id, options = {}) => realtime.publishDeleted(resource, id, { ...options, target: { ...options.target, userId: current().id } }),
+        publishSettingsChanged: (options = {}) => realtime.publishSettingsChanged({ ...options, target: { ...options.target, userId: current().id } }),
+      } satisfies UserScopedRealtimePublisher<TEvent>;
       const originFailure = checkSameOrigin(req, config, auth, matched.route.sameOrigin ?? "mutations");
       if (originFailure) {
         return withSecurityHeaders(originFailure);
       }
-      return withSecurityHeaders(await handler(req, { params: matched.params, auth, realtime, server }));
+      try {
+        return withSecurityHeaders(await handler(req, {
+          params: matched.params,
+          auth,
+          user: currentUser(auth),
+          requireUser: () => requireUser(auth),
+          requireAdmin: () => requireAdmin(auth),
+          requireOwner: () => requireOwner(auth),
+          assertUser: (userId) => assertUser(auth, userId),
+          filterOwned: createFilterOwned(auth),
+          requireOwned: createRequireOwned(auth),
+          realtime,
+          userRealtime,
+          server,
+        }));
+      } catch (error) {
+        return withSecurityHeaders(authErrorResponse(error));
+      }
     }
     return htmlResponse(input.index);
   }
@@ -404,7 +696,8 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       routes: {
         "/api/*": dynamicHandler,
         "/.well-known/*": dynamicHandler,
-        "/device": dynamicHandler,
+        "/device": deviceAuthEnabled && !canRespondWithIndex(input.index) ? input.index as never : dynamicHandler,
+        "/setup": passkeysEnabled && !canRespondWithIndex(input.index) ? input.index as never : dynamicHandler,
         "/*": canRespondWithIndex(input.index) ? dynamicHandler : input.index as never,
       },
       websocket: {

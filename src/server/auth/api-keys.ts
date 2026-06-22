@@ -1,4 +1,4 @@
-import type { ApiKeySummary, CreatedApiKeyResponse } from "../../contracts";
+import type { ApiKeySummary, CreatedApiKeyResponse, CurrentUser } from "../../contracts";
 import type { WebAppStore } from "./store";
 import { nowIso, randomToken, sha256, secureEqual, isExpired } from "./crypto";
 import { AuthError } from "./types";
@@ -15,15 +15,16 @@ function summarize(record: { tokenHash?: string } & ApiKeySummary): ApiKeySummar
   };
 }
 
-export function listApiKeys(store: WebAppStore): ApiKeySummary[] {
-  return store.listApiKeys().map(summarize);
+export function listApiKeys(store: WebAppStore, userId: string): ApiKeySummary[] {
+  return store.listApiKeys(userId).map(summarize);
 }
 
-export function createApiKey(store: WebAppStore, input: { name?: string; scopes?: string[]; prefix?: string; expiresAt?: string }): CreatedApiKeyResponse {
+export function createApiKey(store: WebAppStore, user: CurrentUser, input: { name?: string; scopes?: string[]; prefix?: string; expiresAt?: string }): CreatedApiKeyResponse {
   const prefix = input.prefix ?? "wapp";
   const token = `${prefix}_${randomToken(32)}`;
   const record = {
     id: crypto.randomUUID(),
+    userId: user.id,
     name: input.name?.trim() || "API key",
     prefix,
     tokenHash: sha256(token),
@@ -35,18 +36,22 @@ export function createApiKey(store: WebAppStore, input: { name?: string; scopes?
   return { key: summarize(record), token };
 }
 
-export function deleteApiKey(store: WebAppStore, id: string): boolean {
-  return store.deleteApiKey(id);
+export function deleteApiKey(store: WebAppStore, userId: string, id: string): boolean {
+  return store.deleteApiKey(id, userId);
 }
 
-export function authenticateApiKey(store: WebAppStore, token: string): { apiKeyId: string; scopes: string[] } | undefined {
+export function authenticateApiKey(store: WebAppStore, token: string): { user: CurrentUser; apiKeyId: string; scopes: string[] } | undefined {
   const tokenHash = sha256(token);
   const record = store.getApiKeyByHash(tokenHash);
   if (!record || !secureEqual(record.tokenHash, tokenHash) || (record.expiresAt && isExpired(record.expiresAt))) {
     return undefined;
   }
+  const user = store.getUserById(record.userId);
+  if (!user) {
+    return undefined;
+  }
   store.touchApiKey(record.id, nowIso());
-  return { apiKeyId: record.id, scopes: record.scopes };
+  return { user: { id: user.id, username: user.username, role: user.role, isOwner: user.role === "owner", isAdmin: user.role === "owner" || user.role === "admin" }, apiKeyId: record.id, scopes: record.scopes };
 }
 
 export function assertScopes(actual: string[], required: string[]): void {

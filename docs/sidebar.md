@@ -9,7 +9,7 @@
   sidebar={{
     topActions: [
       { id: "activity", title: "Activity", route: { view: "home" } },
-      { id: "new", title: "New item", route: { view: "new" } },
+      { id: "inbox", title: "Inbox", route: { view: "inbox" } },
     ],
     getNodes: ({ search }) => buildSidebarNodes(search),
   }}
@@ -29,7 +29,7 @@ Sidebar nodes support:
 | `type` | `section` or `item` |
 | `route` | Hash route object used by `WebAppRoot` |
 | `children` | Collapsible nesting |
-| `action` | Per-section/item action such as `New` |
+| `action` | Single inline per-section/item action; use sparingly and prefer `actions` menus when possible |
 | `actions` | Context menu items shown on sidebar right-click |
 | `pinnable` | Enables framework Pin/Unpin actions |
 | `pinId` | Stable pin identity when it should differ from `id` |
@@ -38,7 +38,7 @@ Sidebar nodes support:
 
 Search is intentionally app-defined: `getNodes({ search })` receives raw search text and returns the tree that should be rendered.
 
-Use `actions` when an entity needs a context menu in the sidebar. The same `ActionMenuItem[]` should also be returned from `header.getActions` for that entity route so right-click actions and the title-bar three-line menu stay consistent:
+Use `actions` when an entity needs commands in the sidebar. The same `ActionMenuItem[]` should also be returned from `header.getActions` for that entity route so right-click actions and the title-bar three-line menu stay consistent:
 
 ```tsx
 const actions = projectActions(project);

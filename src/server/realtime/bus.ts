@@ -2,6 +2,7 @@ import type { ServerWebSocket } from "bun";
 
 export interface WebSocketData {
   filters?: Record<string, string>;
+  userId?: string;
 }
 
 export type RealtimeAction = "created" | "updated" | "changed" | "deleted";
@@ -19,6 +20,7 @@ export type RealtimeTarget = {
   resource?: string;
   id?: string;
   scope?: string;
+  userId?: string;
 } & Record<string, string | undefined>;
 
 export interface RealtimePublishOptions {
@@ -31,8 +33,12 @@ export type RealtimeMessage<TEvent> =
   | { type: "ping" }
   | { type: "pong" };
 
-function targetMatches(filters: Record<string, string> | undefined, target: RealtimeTarget | undefined): boolean {
+function targetMatches(socket: ServerWebSocket<WebSocketData>, target: RealtimeTarget | undefined): boolean {
   if (!target) return true;
+  if (target.userId !== undefined && socket.data.userId !== target.userId) {
+    return false;
+  }
+  const filters = socket.data.filters;
   if (!filters) return true;
   for (const [key, value] of Object.entries(filters)) {
     if (value !== undefined && target[key] !== value) {
@@ -57,7 +63,7 @@ export class RealtimeBus<TEvent = unknown> {
     const publishOptions = typeof options === "function" ? { filter: options } : options;
     const payload = JSON.stringify({ type: "event", event } satisfies RealtimeMessage<TEvent>);
     for (const socket of this.sockets) {
-      if (targetMatches(socket.data.filters, publishOptions?.target) && (!publishOptions?.filter || publishOptions.filter(socket))) {
+      if (targetMatches(socket, publishOptions?.target) && (!publishOptions?.filter || publishOptions.filter(socket))) {
         socket.send(payload);
       }
     }
