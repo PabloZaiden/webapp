@@ -227,14 +227,14 @@ export function passkeyStatus(req: Request, store: WebAppStore, config: RuntimeC
   const users = store.countUsers();
   const owner = store.getOwnerUser();
   const passkeyConfigured = store.listPasskeys().length > 0;
-  const ownerPasskeySetupRequired = users > 0 && Boolean(owner && !owner.passkeyConfigured);
+  const ownerPasskeySetupRequired = enabled && !config.passkeyDisabled && users > 0 && Boolean(owner && !owner.passkeyConfigured);
   return {
     enabled,
     passkeyConfigured,
     passkeyDisabled: config.passkeyDisabled,
     passkeyRequired: enabled && users > 0 && !config.passkeyDisabled,
-    authenticated: !enabled || Boolean(getPasskeySessionUser(req, store, config)),
-    bootstrapRequired: enabled && users === 0,
+    authenticated: !enabled || config.passkeyDisabled || Boolean(getPasskeySessionUser(req, store, config)),
+    bootstrapRequired: enabled && !config.passkeyDisabled && users === 0,
     ownerPasskeySetupRequired,
   };
 }

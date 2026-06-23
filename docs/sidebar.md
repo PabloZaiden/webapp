@@ -36,7 +36,7 @@ Sidebar nodes support:
 | `badge` | Status/count label |
 | `defaultCollapsed` | Initial collapsed state |
 
-Search is intentionally app-defined: `getNodes({ search })` receives raw search text and returns the tree that should be rendered.
+Search is intentionally app-defined: `getNodes({ search })` receives raw search text and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
 
 Use `actions` when an entity needs commands in the sidebar. The same `ActionMenuItem[]` should also be returned from `header.getActions` for that entity route so right-click actions and the title-bar three-line menu stay consistent:
 

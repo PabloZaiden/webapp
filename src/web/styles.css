@@ -725,6 +725,7 @@ textarea::placeholder {
   font-size: 0.875rem;
   font-weight: 600;
   padding: 0.5rem 0.875rem;
+  white-space: nowrap;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
 }
 
@@ -978,6 +979,10 @@ textarea::placeholder {
   gap: 0.5rem;
 }
 
+.wapp-settings .wapp-row-actions {
+  flex: 0 0 auto;
+}
+
 .wapp-danger-zone {
   display: flex;
   align-items: flex-start;
@@ -1154,6 +1159,10 @@ textarea::placeholder {
   justify-content: space-between;
   gap: 1rem;
   padding: 0.75rem;
+}
+
+.wapp-list-row > span {
+  min-width: 0;
 }
 
 .wapp-grid-2 {
@@ -1393,5 +1402,23 @@ textarea::placeholder {
   .wapp-row-actions {
     justify-content: flex-start;
     margin-top: 0.75rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .wapp-settings .wapp-list-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 0.75rem;
+  }
+
+  .wapp-settings .wapp-list-row .wapp-row-actions {
+    justify-content: flex-start;
+    margin-top: 0;
+  }
+
+  .wapp-settings .wapp-row-actions .wapp-inline-select {
+    max-width: 100%;
   }
 }

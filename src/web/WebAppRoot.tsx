@@ -40,6 +40,7 @@ export interface WebAppRootProps {
   appName: string;
   homeRoute: WebAppRoute;
   sidebar: {
+    search?: boolean;
     topActions?: SidebarAction[];
     pinning?: false | {
       sectionTitle?: string;
@@ -876,10 +877,11 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, settin
   const [search, setSearch] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const sidebarSearchEnabled = sidebar.search !== false;
   const pinningEnabled = sidebar.pinning !== false;
   const sidebarPins = useSidebarPins(appName, sidebar.pinning ? sidebar.pinning.storageKey : undefined);
   const baseNodes = useMemo(() => sidebar.getNodes({ search: "" }), [sidebar]);
-  const filteredNodes = useMemo(() => sidebar.getNodes({ search }), [sidebar, search]);
+  const filteredNodes = useMemo(() => sidebar.getNodes({ search: sidebarSearchEnabled ? search : "" }), [sidebar, search, sidebarSearchEnabled]);
   const allPinnableItems = useMemo(() => flattenSidebarItems(baseNodes).filter((node) => node.pinnable && node.route), [baseNodes]);
   const currentPins = useMemo(() => {
     const byId = new Map(allPinnableItems.map((node) => [node.pinId ?? node.id, node]));
@@ -907,7 +909,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, settin
   }), [pinningActionFor]);
   const nodes = useMemo(() => {
     const augmented = augmentPinningActions(filteredNodes);
-    if (!pinningEnabled || search.trim() || currentPins.length === 0) return augmented;
+    if (!pinningEnabled || (sidebarSearchEnabled && search.trim()) || currentPins.length === 0) return augmented;
     const augmentedByPinId = new Map(flattenSidebarItems(augmentPinningActions(baseNodes)).map((node) => [node.pinId ?? node.id, node]));
     const pinnedChildren = currentPins.map((pin) => ({
       ...(augmentedByPinId.get(pin.id) ?? {
@@ -927,7 +929,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, settin
       { type: "section" as const, id: "framework:pinned", title: sidebar.pinning ? sidebar.pinning.sectionTitle ?? "Pinned" : "Pinned", children: pinnedChildren },
       ...augmented,
     ];
-  }, [augmentPinningActions, baseNodes, currentPins, filteredNodes, pinningEnabled, search, sidebar.pinning]);
+  }, [augmentPinningActions, baseNodes, currentPins, filteredNodes, pinningEnabled, search, sidebar.pinning, sidebarSearchEnabled]);
 
   useEffect(() => {
     if (!config?.currentUser) return;
@@ -988,7 +990,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, settin
           </div>
         </div>
         <div className="wapp-sidebar-scroll">
-          <label className="wapp-search"><span className="sr-only">Search</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" /></label>
+          {sidebarSearchEnabled ? <label className="wapp-search"><span className="sr-only">Search</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" /></label> : null}
           <SidebarTree nodes={nodes} route={route} navigate={(next) => { navigate(next); setSidebarOpen(false); }} />
         </div>
         <div className="wapp-sidebar-footer">v{effectiveVersion}<button type="button" aria-label="Reload" onClick={() => window.location.reload()}><Icon name="refresh" /></button></div>

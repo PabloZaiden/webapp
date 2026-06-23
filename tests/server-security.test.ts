@@ -105,7 +105,7 @@ describe("server security defaults", () => {
     expect(disabledConfig.passkeyAuth).toMatchObject({ enabled: false, authenticated: true });
   });
 
-  test("emergency bypass still requires owner bootstrap when no owner exists", async () => {
+  test("emergency bypass skips bootstrap and authenticates as local owner", async () => {
     const previous = process.env["TEST_EMPTY_BYPASS_DISABLE_PASSKEY"];
     process.env["TEST_EMPTY_BYPASS_DISABLE_PASSKEY"] = "true";
     try {
@@ -117,8 +117,9 @@ describe("server security defaults", () => {
         auth: { passkeys: true },
         routes: defineRoutes({}),
       });
-      const config = await responseJson<{ passkeyAuth: { bootstrapRequired: boolean; authenticated: boolean; passkeyDisabled: boolean } }>(await app.handleRequest(new Request("http://localhost/api/config")));
-      expect(config.passkeyAuth).toMatchObject({ bootstrapRequired: true, authenticated: false, passkeyDisabled: true });
+      const config = await responseJson<{ currentUser?: { username: string; isOwner: boolean }; passkeyAuth: { bootstrapRequired: boolean; authenticated: boolean; passkeyDisabled: boolean } }>(await app.handleRequest(new Request("http://localhost/api/config")));
+      expect(config.passkeyAuth).toMatchObject({ bootstrapRequired: false, authenticated: true, passkeyDisabled: true });
+      expect(config.currentUser).toMatchObject({ username: "admin", isOwner: true });
     } finally {
       if (previous === undefined) {
         delete process.env["TEST_EMPTY_BYPASS_DISABLE_PASSKEY"];

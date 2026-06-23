@@ -60,6 +60,9 @@ export interface WebAppServerConfig<TEvent = unknown> {
   realtime?: {
     path?: string;
   };
+  logLevel?: {
+    onChange?: (level: LogLevelName) => void;
+  };
 }
 
 export const WEBAPP_SOCKET_HANDLER = "webappSocketHandler";
@@ -90,6 +93,7 @@ export interface WebAppServer<TEvent = unknown> {
 }
 
 const log = createLogger("webapp:server");
+const LOG_LEVELS = new Set<LogLevelName>(["trace", "debug", "info", "warn", "error"]);
 
 function bearerToken(req: Request): string | undefined {
   const header = req.headers.get("authorization")?.trim();
@@ -175,6 +179,16 @@ function scopesFromBearer(claims: { scope: string }): string[] {
 
 function currentUser(auth: AuthenticatedRequestState): CurrentUser | undefined {
   return auth.kind === "anonymous" ? undefined : auth.user;
+}
+
+function toCurrentUserRecord(user: { id: string; username: string; role: "owner" | "admin" | "user" }): CurrentUser {
+  return {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    isOwner: user.role === "owner",
+    isAdmin: user.role === "owner" || user.role === "admin",
+  };
 }
 
 function requireUser(auth: AuthenticatedRequestState): CurrentUser {
@@ -274,7 +288,9 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const store = input.store ?? sqliteWebAppStore({ dataDir: config.dataDir });
   store.initialize();
   const savedLogLevel = store.getLogLevelPreference();
-  setLogLevel(config.logLevelFromEnv ? config.logLevel : savedLogLevel ?? config.logLevel);
+  const activeLogLevel = config.logLevelFromEnv ? config.logLevel : savedLogLevel ?? config.logLevel;
+  setLogLevel(activeLogLevel);
+  input.logLevel?.onChange?.(activeLogLevel);
   const realtime = createRealtimeBus<TEvent>();
   const version = input.version ?? "0.0.0-development";
   const wsPath = input.realtime?.path ?? "/api/ws";
@@ -284,6 +300,16 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const passkeysEnabled = input.auth?.passkeys !== false;
   const apiKeysEnabled = input.auth?.apiKeys ?? false;
   const deviceAuthEnabled = input.auth?.deviceAuth ?? false;
+
+  function disabledAuthOwner(): CurrentUser {
+    const existing = store.getOwnerUser();
+    if (existing) {
+      return toCurrentUserRecord(existing);
+    }
+    const owner = createUserRecord({ username: "admin", role: "owner" });
+    store.createUser(owner);
+    return toCurrentUserRecord(owner);
+  }
 
   async function authorize(req: Request, required: boolean): Promise<AuthenticatedRequestState | Response> {
     const token = bearerToken(req);
@@ -314,6 +340,9 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       return errorResponse(401, "invalid_token", "Bearer token is invalid");
     }
     if (passkeysEnabled) {
+      if (config.passkeyDisabled) {
+        return { kind: "passkey", user: disabledAuthOwner() };
+      }
       const user = getPasskeySessionUser(req, store, config);
       if (user) {
         return { kind: "passkey", user };
@@ -327,11 +356,16 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         }) : { kind: "anonymous" };
       }
     }
+    if (required && passkeysEnabled && !config.passkeyDisabled && store.countUsers() === 0) {
+      return errorResponse(401, "authentication_required", "Passkey authentication is required", undefined, {
+        headers: { "x-webapp-passkey-required": "true" },
+      });
+    }
     return { kind: "anonymous" };
   }
 
   function configResponse(req: Request): WebAppConfigResponse {
-    const user = passkeysEnabled ? getPasskeySessionUser(req, store, config) : undefined;
+    const user = passkeysEnabled && config.passkeyDisabled ? disabledAuthOwner() : passkeysEnabled ? getPasskeySessionUser(req, store, config) : undefined;
     return {
       appName: config.appName,
       version,
@@ -637,8 +671,12 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
           if (originFailure) return originFailure;
           if (config.logLevelFromEnv) return errorResponse(409, "log_level_from_env", "Log level is controlled by environment");
           const body = await parseJson<{ level: LogLevelName }>(req);
+          if (!LOG_LEVELS.has(body.level)) {
+            return errorResponse(400, "invalid_log_level", "Log level must be one of trace, debug, info, warn, error");
+          }
           store.setLogLevelPreference(body.level);
           setLogLevel(body.level);
+          input.logLevel?.onChange?.(body.level);
           return successResponse({ level: body.level });
         }
       }

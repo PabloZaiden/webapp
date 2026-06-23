@@ -22,8 +22,9 @@ Use this skill when building an app with `@pablozaiden/webapp`.
 - Use scopes for API keys and device bearer tokens.
 - Keep settings framework-owned; add app-specific settings as custom sections with `scope: "user"`, `"admin"` or `"owner"`.
 - Use `WebAppRoot`, `SidebarNode` and framework UI primitives before custom shell/layout code.
+- Set `sidebar.search: false` when the app has a small fixed navigation tree and should not show the framework sidebar search box.
 - For entity actions, define one `ActionMenuItem[]` builder and reuse it in `SidebarNode.actions` and `WebAppRoot.header.getActions`; the visible three-line menu belongs in the framework title bar.
-- Put app actions like New task, New note or New project in the title-bar/sidebar item action menus instead of discrete main-content buttons whenever possible. Keep discrete buttons for form submission and truly primary inline controls.
+- When a main-content view has multiple available actions, put them in the framework-provided title-bar three-line menu via `WebAppRoot.header.getActions` unless the user explicitly asks for a different placement. Keep discrete buttons for form submission and truly primary inline controls.
 - Mark route-backed sidebar entities with `pinnable: true` instead of building app-owned Pinned sections; the framework injects Pin/Unpin and persists pins in localStorage.
 - For user-owned live updates, prefer `ctx.userRealtime.publishEntityChanged(resource, id)` / `publishChanged(resource)` and `useRealtimeRefresh({ resources, refresh })` over custom websocket wiring. Use global `ctx.realtime` only for public/global-admin events or server-validated non-user scopes.
 - Use app-owned websocket upgrade handlers only for raw transports such as terminals, VNC or port-forward proxies; keep normal app state on framework realtime.
