@@ -11,6 +11,9 @@ const items: Array<{ id: string; userId: string; title: string }> = [];
 const routes = defineRoutes({
   "/api/items": {
     auth: "user",
+    description: "List or create items.",
+    cliPath: "items",
+    tags: ["items"],
     GET: (_req, ctx) => jsonResponse(ctx.filterOwned(items)),
     async POST(req, ctx) {
       const user = ctx.requireUser();
@@ -39,6 +42,17 @@ const app = createWebAppServer({
 
 await app.runFromCli();
 ```
+
+Apps should stay one app and one binary. Use subcommands for different modes:
+
+```bash
+my-app serve
+my-app version
+my-app api items
+my-app notify --message "optional app-owned command"
+```
+
+See `docs/cli.md` for framework CLI helpers and generic API command support.
 
 Frontend entrypoints should use `renderWebApp` so Bun/browser hot reload reuses the existing React root instead of calling `createRoot()` twice. Import the framework CSS explicitly so Bun hot reload observes style changes:
 

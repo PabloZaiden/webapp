@@ -22,7 +22,10 @@ Run the binary with the same CLI contract:
 ```bash
 MY_APP_PORT=3300 ./dist/my-app serve
 ./dist/my-app version
+./dist/my-app api items
 ```
+
+Keep server and CLI modes in the same binary. App-specific commands and framework-backed commands should be subcommands of that binary rather than separate executables.
 
 ## Docker
 

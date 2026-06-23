@@ -487,6 +487,7 @@ function UserManagement({ config }: { config: WebAppConfigResponse }) {
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<WebAppUserRole>("user");
   const [setupLink, setSetupLink] = useState<string>();
+  const [userToDelete, setUserToDelete] = useState<WebAppUserSummary>();
   const [error, setError] = useState<string>();
 
   const refreshUsers = useCallback(async () => {
@@ -535,6 +536,7 @@ function UserManagement({ config }: { config: WebAppConfigResponse }) {
     try {
       setError(undefined);
       await json(`/api/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
+      setUserToDelete(undefined);
       await refreshUsers();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -575,13 +577,59 @@ function UserManagement({ config }: { config: WebAppConfigResponse }) {
                 </select>
               ) : <Badge variant="success">Owner</Badge>}
               {user.role !== "owner" ? <Button type="button" onClick={() => void resetUser(user)}>Reset</Button> : null}
-              <Button type="button" variant="danger" disabled={user.role === "owner"} onClick={() => void deleteUser(user)}>Delete</Button>
+              <Button type="button" variant="danger" disabled={user.role === "owner"} onClick={() => setUserToDelete(user)}>Delete</Button>
             </div>
           </div>
         ))}
       </div>
+      <ConfirmDialog
+        open={Boolean(userToDelete)}
+        title="Delete user?"
+        message={userToDelete ? `This permanently deletes "${userToDelete.username}" and revokes their setup links, API keys, passkeys and device sessions.` : ""}
+        confirmLabel="Delete user"
+        danger
+        onCancel={() => setUserToDelete(undefined)}
+        onConfirm={() => userToDelete && void deleteUser(userToDelete)}
+      />
     </FormSection>
   );
+}
+
+const KILL_SERVER_COUNTDOWN_SECONDS = 15;
+
+function computeProgressPercent(countdown: number, total: number): number {
+  return total <= 0 ? 0 : (countdown / total) * 100;
+}
+
+function useCountdownReload(active: boolean, onComplete: () => void, durationSeconds = KILL_SERVER_COUNTDOWN_SECONDS): { countdown: number; progressPercent: number } {
+  const [countdown, setCountdown] = useState(durationSeconds);
+
+  useEffect(() => {
+    if (!active) {
+      setCountdown(durationSeconds);
+      return;
+    }
+
+    setCountdown(durationSeconds);
+    const interval = window.setInterval(() => {
+      setCountdown((previous) => {
+        const next = previous - 1;
+        if (next <= 0) {
+          window.clearInterval(interval);
+          onComplete();
+          return 0;
+        }
+        return next;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [active, durationSeconds, onComplete]);
+
+  return {
+    countdown,
+    progressPercent: computeProgressPercent(countdown, durationSeconds),
+  };
 }
 
 function SettingsView({ config, refresh, customSections, theme, setTheme }: { config: WebAppConfigResponse; refresh: () => Promise<void>; customSections: SettingsSection[]; theme: ThemePreference; setTheme: (theme: ThemePreference) => void }) {
@@ -589,9 +637,13 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
   const [authSessions, setAuthSessions] = useState<AuthSessionSummary[]>([]);
   const [createdToken, setCreatedToken] = useState<string>();
   const [apiKeyToDelete, setApiKeyToDelete] = useState<ApiKeySummary>();
+  const [authSessionToRevoke, setAuthSessionToRevoke] = useState<AuthSessionSummary>();
   const [confirmDeletePasskey, setConfirmDeletePasskey] = useState(false);
+  const [confirmKillServer, setConfirmKillServer] = useState(false);
   const [killRequested, setKillRequested] = useState(false);
   const [error, setError] = useState<string>();
+  const reloadPage = useCallback(() => window.location.reload(), []);
+  const { countdown, progressPercent } = useCountdownReload(killRequested, reloadPage);
 
   const refreshApiKeys = useCallback(async () => {
     if (config.apiKeys.enabled) {
@@ -648,10 +700,25 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
     await refresh();
   }
 
+  async function revokeAuthSession(session: AuthSessionSummary) {
+    try {
+      setError(undefined);
+      await json(`/api/auth/sessions/${session.id}`, { method: "DELETE" });
+      setAuthSessionToRevoke(undefined);
+      await refreshAuthSessions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async function killServer() {
+    setError(undefined);
+    setConfirmKillServer(false);
+    const response = await fetch("/api/server/kill", { method: "POST" });
+    if (!response.ok) {
+      throw new Error("Failed to kill server. Please try again.");
+    }
     setKillRequested(true);
-    await fetch("/api/server/kill", { method: "POST" });
-    setTimeout(() => window.location.reload(), 3500);
   }
 
   return (
@@ -729,7 +796,7 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
               {authSessions.length ? authSessions.map((session) => (
                 <div className="wapp-list-row" key={session.id}>
                   <span><strong>{session.clientId}</strong><small>{session.scope} · {session.active ? "active" : "inactive"} · {session.updatedAt}</small></span>
-                  <Button type="button" variant="danger" disabled={!session.active} onClick={() => void json(`/api/auth/sessions/${session.id}`, { method: "DELETE" }).then(refreshAuthSessions)}>Revoke</Button>
+                  <Button type="button" variant="danger" disabled={!session.active} onClick={() => setAuthSessionToRevoke(session)}>Revoke</Button>
                 </div>
               )) : <EmptyState title="No device sessions" />}
             </div>
@@ -741,8 +808,23 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
 
       {config.currentUser?.isAdmin ? (
         <FormSection title="Server operations">
-          {killRequested ? <p className="wapp-notice">Server is shutting down. Reloading soon...</p> : null}
-          <Button type="button" variant="danger" onClick={() => void killServer().catch((err) => setError(String(err)))}>Kill server</Button>
+          <div className="wapp-settings-row">
+            <div>
+              <strong>Kill server</strong>
+              <p>Stop the server process. If your deployment restarts it automatically, the app will come back after a moment.</p>
+              {killRequested ? (
+                <div className="wapp-shutdown-countdown" aria-live="polite">
+                  <div className="wapp-shutdown-message">Server is shutting down... Reloading in {countdown}s</div>
+                  <div className="wapp-shutdown-progress" aria-hidden="true">
+                    <div className="wapp-shutdown-progress-bar" style={{ width: `${progressPercent}%` }} />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <div className="wapp-row-actions">
+              <Button type="button" variant="danger" disabled={killRequested} onClick={() => setConfirmKillServer(true)}>Kill server</Button>
+            </div>
+          </div>
         </FormSection>
       ) : null}
 
@@ -765,6 +847,24 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
         onConfirm={() => apiKeyToDelete && void deleteKey(apiKeyToDelete.id)}
       />
       <ConfirmDialog open={confirmDeletePasskey} title="Delete passkey?" message="This removes the configured passkey and invalidates browser sessions." confirmLabel="Delete passkey" danger onCancel={() => setConfirmDeletePasskey(false)} onConfirm={() => void deleteConfiguredPasskey()} />
+      <ConfirmDialog
+        open={Boolean(authSessionToRevoke)}
+        title="Revoke device session?"
+        message={authSessionToRevoke ? `This revokes the active "${authSessionToRevoke.clientId}" refresh-token session.` : ""}
+        confirmLabel="Revoke session"
+        danger
+        onCancel={() => setAuthSessionToRevoke(undefined)}
+        onConfirm={() => authSessionToRevoke && void revokeAuthSession(authSessionToRevoke)}
+      />
+      <ConfirmDialog
+        open={confirmKillServer}
+        title="Kill server?"
+        message="Are you sure you want to kill the server?"
+        confirmLabel="Kill server"
+        danger
+        onCancel={() => setConfirmKillServer(false)}
+        onConfirm={() => void killServer().catch((err) => setError(String(err)))}
+      />
     </div>
   );
 }

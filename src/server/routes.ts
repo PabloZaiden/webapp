@@ -36,14 +36,24 @@ export interface RouteContext<TParams extends Record<string, string> = Record<st
 export type WebAppRouteHandler<TParams extends Record<string, string> = Record<string, string>, TEvent = unknown> = (
   req: Request,
   ctx: RouteContext<TParams, TEvent>,
-) => Response | Promise<Response>;
+) => Response | undefined | Promise<Response | undefined>;
+
+export interface RouteMetadata {
+  description?: string;
+  cliPath?: string;
+  tags?: string[];
+  requestSchema?: unknown;
+  querySchema?: unknown;
+  responseSchema?: unknown;
+  catalog?: boolean;
+}
 
 export type RouteDefinition<TEvent = unknown> = {
   auth?: RouteAuth;
   sameOrigin?: SameOriginMode;
   scopes?: string[];
   userParam?: string;
-} & Partial<Record<HttpMethod, WebAppRouteHandler<Record<string, string>, TEvent>>>;
+} & RouteMetadata & Partial<Record<HttpMethod, WebAppRouteHandler<Record<string, string>, TEvent>>>;
 
 export type RouteTable<TEvent = unknown> = Record<string, RouteDefinition<TEvent>>;
 

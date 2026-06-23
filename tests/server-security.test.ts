@@ -150,6 +150,60 @@ describe("server security defaults", () => {
     expect(body.message).toContain("hostname");
   });
 
+  test("public static routes are explicit and keep API 404 behavior", async () => {
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_PUBLIC_ROUTES",
+      index: "<html>index</html>",
+      store: testStore("public-routes"),
+      auth: { passkeys: false },
+      publicRoutes: {
+        "/manifest.webmanifest": {
+          headers: { "content-type": "application/manifest+json" },
+          GET: JSON.stringify({ name: "Test" }),
+        },
+      },
+      routes: defineRoutes({}),
+    });
+
+    const manifest = await app.handleRequest(new Request("http://localhost/manifest.webmanifest"));
+    const missingApi = await app.handleRequest(new Request("http://localhost/api/missing"));
+    const spa = await app.handleRequest(new Request("http://localhost/projects"));
+
+    expect(manifest?.headers.get("content-type")).toContain("application/manifest+json");
+    expect(await manifest?.json()).toEqual({ name: "Test" });
+    expect(missingApi?.status).toBe(404);
+    expect(await spa?.text()).toBe("<html>index</html>");
+  });
+
+  test("app routes can perform authenticated websocket upgrades", async () => {
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_UPGRADE_ROUTE",
+      index: "<html></html>",
+      store: testStore("upgrade-route"),
+      auth: { passkeys: false },
+      routes: defineRoutes({
+        "/terminal": {
+          auth: "public",
+          sameOrigin: "never",
+          GET: (_req, ctx) => ctx.server?.upgrade(_req, { data: { webappSocketHandler: "terminal" } }) ? undefined : new Response("failed", { status: 400 }),
+        },
+      }),
+    });
+    const upgrades: unknown[] = [];
+    const response = await app.handleRequest(new Request("http://localhost/terminal"), {
+      upgrade: (_req: Request, options?: unknown) => {
+        upgrades.push(options);
+        return true;
+      },
+    } as never);
+
+    expect(response).toBeUndefined();
+    expect(upgrades).toHaveLength(1);
+    expect(upgrades[0]).toMatchObject({ data: { webappSocketHandler: "terminal" } });
+  });
+
   test("sqlite store migrates legacy single-user data to owner-owned records", () => {
     const dataDir = `.cache/tests/legacy-single-user-${crypto.randomUUID()}`;
     mkdirSync(dataDir, { recursive: true });

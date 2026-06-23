@@ -1,4 +1,4 @@
-import type { Server } from "bun";
+import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import type { CurrentUser, LogLevelName, ThemePreference, WebAppConfigResponse, WebAppUserRole } from "../contracts";
 import { authenticateApiKey, assertScopes, createApiKey, deleteApiKey, listApiKeys } from "./auth/api-keys";
 import {
@@ -50,6 +50,8 @@ export interface WebAppServerConfig<TEvent = unknown> {
   version?: string;
   store?: WebAppStore;
   routes?: RouteTable<TEvent>;
+  publicRoutes?: Record<string, PublicRouteDefinition>;
+  websockets?: Record<string, Partial<WebSocketHandler<WebAppWebSocketData>>>;
   auth?: {
     passkeys?: boolean | { rpName?: string; userName?: string; userDisplayName?: string };
     apiKeys?: boolean;
@@ -59,6 +61,24 @@ export interface WebAppServerConfig<TEvent = unknown> {
     path?: string;
   };
 }
+
+export const WEBAPP_SOCKET_HANDLER = "webappSocketHandler";
+
+export type WebAppWebSocketData = WebSocketData & {
+  webappSocketHandler?: string;
+  [key: string]: unknown;
+};
+
+export type PublicRouteAsset = Response | Blob | ArrayBuffer | Uint8Array | string;
+export type PublicRouteHandler = (req: Request) => PublicRouteAsset | undefined | Promise<PublicRouteAsset | undefined>;
+export type PublicRouteValue = PublicRouteAsset | PublicRouteHandler;
+export type PublicRouteDefinition =
+  | PublicRouteValue
+  | {
+      GET?: PublicRouteValue;
+      HEAD?: PublicRouteValue;
+      headers?: HeadersInit;
+    };
 
 export interface WebAppServer<TEvent = unknown> {
   config: RuntimeConfig;
@@ -125,6 +145,20 @@ function htmlResponse(index: unknown): Response {
     return withSecurityHeaders(new Response(index));
   }
   return index as Response;
+}
+
+function publicAssetResponse(asset: PublicRouteAsset, extraHeaders?: HeadersInit): Response {
+  const response = asset instanceof Response
+    ? asset
+    : typeof asset === "string"
+      ? new Response(asset, { headers: { "content-type": "text/plain; charset=utf-8" } })
+      : new Response(asset as BodyInit);
+  if (extraHeaders) {
+    for (const [name, value] of new Headers(extraHeaders)) {
+      response.headers.set(name, value);
+    }
+  }
+  return withSecurityHeaders(response);
 }
 
 function secureDynamicResponse(response: Response): Response {
@@ -245,6 +279,8 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const version = input.version ?? "0.0.0-development";
   const wsPath = input.realtime?.path ?? "/api/ws";
   const routes = input.routes ?? {};
+  const publicRoutes = input.publicRoutes ?? {};
+  const appWebsockets = input.websockets ?? {};
   const passkeysEnabled = input.auth?.passkeys !== false;
   const apiKeysEnabled = input.auth?.apiKeys ?? false;
   const deviceAuthEnabled = input.auth?.deviceAuth ?? false;
@@ -624,78 +660,123 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     return undefined;
   }
 
-  async function handleRequest(req: Request, server?: Server<WebSocketData>): Promise<Response | undefined> {
+  async function handlePublicRoute(req: Request): Promise<Response | undefined> {
     const url = new URL(req.url);
+    const route = publicRoutes[url.pathname];
+    if (!route) {
+      return undefined;
+    }
+    const methodName = req.method === "HEAD" ? "HEAD" : req.method === "GET" ? "GET" : undefined;
+    if (!methodName) {
+      return methodNotAllowed();
+    }
+    const definition = typeof route === "object" && route !== null && !(route instanceof Response) && !(route instanceof Blob) && !(route instanceof ArrayBuffer) && !(route instanceof Uint8Array) && ("GET" in route || "HEAD" in route || "headers" in route)
+      ? route
+      : undefined;
+    const value = definition ? definition[methodName] ?? (methodName === "HEAD" ? definition.GET : undefined) : route as PublicRouteValue;
+    if (!value) {
+      return methodNotAllowed();
+    }
+    const asset = typeof value === "function" ? await value(req) : value;
+    if (!asset) {
+      return notFound();
+    }
+    const response = publicAssetResponse(asset, definition?.headers);
+    if (req.method === "HEAD") {
+      return new Response(null, { status: response.status, statusText: response.statusText, headers: response.headers });
+    }
+    return response;
+  }
+
+  async function handleMatchedRoute(req: Request, matched: NonNullable<ReturnType<typeof matchRoute<TEvent>>>, server?: Server<WebAppWebSocketData>): Promise<Response | undefined> {
+    const handler = matched.route[method(req) ?? "GET"];
+    if (!handler) {
+      return withSecurityHeaders(methodNotAllowed());
+    }
+    const routeAuth = matched.route.auth ?? "required";
+    const required = requiresAuth(routeAuth);
+    const auth = await authorize(req, required);
+    if (auth instanceof Response) {
+      return withSecurityHeaders(auth);
+    }
+    try {
+      enforceRouteAuth(routeAuth, auth);
+      if (matched.route.userParam) {
+        const paramValue = matched.params[matched.route.userParam];
+        if (!paramValue) {
+          throw new AuthError("route_misconfigured", `Route userParam "${matched.route.userParam}" is missing from matched params`, 500);
+        }
+        assertUser(auth, paramValue);
+      }
+      if (routeAuth !== "public" && (auth.kind === "api-key" || auth.kind === "bearer")) {
+        assertScopes(auth.kind === "api-key" ? auth.scopes : scopesFromBearer(auth.claims), matched.route.scopes ?? []);
+      }
+    } catch (error) {
+      return withSecurityHeaders(authErrorResponse(error));
+    }
+    const current = () => requireUser(auth);
+    const userRealtime = {
+      publishChanged: (resource, options = {}) => realtime.publishChanged(resource, { ...options, target: { ...options.target, userId: current().id } }),
+      publishEntityChanged: (resource, id, options = {}) => realtime.publishEntityChanged(resource, id, { ...options, target: { ...options.target, userId: current().id } }),
+      publishDeleted: (resource, id, options = {}) => realtime.publishDeleted(resource, id, { ...options, target: { ...options.target, userId: current().id } }),
+      publishSettingsChanged: (options = {}) => realtime.publishSettingsChanged({ ...options, target: { ...options.target, userId: current().id } }),
+    } satisfies UserScopedRealtimePublisher<TEvent>;
+    const originFailure = checkSameOrigin(req, config, auth, matched.route.sameOrigin ?? "mutations");
+    if (originFailure) {
+      return withSecurityHeaders(originFailure);
+    }
+    try {
+      const response = await handler(req, {
+        params: matched.params,
+        auth,
+        user: currentUser(auth),
+        requireUser: () => requireUser(auth),
+        requireAdmin: () => requireAdmin(auth),
+        requireOwner: () => requireOwner(auth),
+        assertUser: (userId) => assertUser(auth, userId),
+        filterOwned: createFilterOwned(auth),
+        requireOwned: createRequireOwned(auth),
+        realtime,
+        userRealtime,
+        server,
+      });
+      return response ? withSecurityHeaders(response) : undefined;
+    } catch (error) {
+      return withSecurityHeaders(routeHandlerErrorResponse(error));
+    }
+  }
+
+  async function handleRequest(req: Request, server?: Server<WebAppWebSocketData>): Promise<Response | undefined> {
+    const url = new URL(req.url);
+    const publicRoute = await handlePublicRoute(req);
+    if (publicRoute) {
+      return publicRoute;
+    }
+    const matched = matchRoute(routes, url.pathname);
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/.well-known/") || url.pathname === "/device") {
       const builtIn = await handleBuiltIn(req, server);
       if (builtIn) {
         return secureDynamicResponse(builtIn);
       }
-      const matched = matchRoute(routes, url.pathname);
       if (!matched) {
         return withSecurityHeaders(notFound());
       }
-      const handler = matched.route[method(req) ?? "GET"];
-      if (!handler) {
-        return withSecurityHeaders(methodNotAllowed());
-      }
-      const routeAuth = matched.route.auth ?? "required";
-      const required = requiresAuth(routeAuth);
-      const auth = await authorize(req, required);
-      if (auth instanceof Response) {
-        return withSecurityHeaders(auth);
-      }
-      try {
-        enforceRouteAuth(routeAuth, auth);
-        if (matched.route.userParam) {
-          const paramValue = matched.params[matched.route.userParam];
-          if (!paramValue) {
-            throw new AuthError("route_misconfigured", `Route userParam "${matched.route.userParam}" is missing from matched params`, 500);
-          }
-          assertUser(auth, paramValue);
-        }
-        if (routeAuth !== "public" && (auth.kind === "api-key" || auth.kind === "bearer")) {
-          assertScopes(auth.kind === "api-key" ? auth.scopes : scopesFromBearer(auth.claims), matched.route.scopes ?? []);
-        }
-      } catch (error) {
-        return withSecurityHeaders(authErrorResponse(error));
-      }
-      const current = () => requireUser(auth);
-      const userRealtime = {
-        publishChanged: (resource, options = {}) => realtime.publishChanged(resource, { ...options, target: { ...options.target, userId: current().id } }),
-        publishEntityChanged: (resource, id, options = {}) => realtime.publishEntityChanged(resource, id, { ...options, target: { ...options.target, userId: current().id } }),
-        publishDeleted: (resource, id, options = {}) => realtime.publishDeleted(resource, id, { ...options, target: { ...options.target, userId: current().id } }),
-        publishSettingsChanged: (options = {}) => realtime.publishSettingsChanged({ ...options, target: { ...options.target, userId: current().id } }),
-      } satisfies UserScopedRealtimePublisher<TEvent>;
-      const originFailure = checkSameOrigin(req, config, auth, matched.route.sameOrigin ?? "mutations");
-      if (originFailure) {
-        return withSecurityHeaders(originFailure);
-      }
-      try {
-        return withSecurityHeaders(await handler(req, {
-          params: matched.params,
-          auth,
-          user: currentUser(auth),
-          requireUser: () => requireUser(auth),
-          requireAdmin: () => requireAdmin(auth),
-          requireOwner: () => requireOwner(auth),
-          assertUser: (userId) => assertUser(auth, userId),
-          filterOwned: createFilterOwned(auth),
-          requireOwned: createRequireOwned(auth),
-          realtime,
-          userRealtime,
-          server,
-        }));
-      } catch (error) {
-        return withSecurityHeaders(routeHandlerErrorResponse(error));
-      }
+      return handleMatchedRoute(req, matched, server);
+    }
+    if (matched) {
+      return handleMatchedRoute(req, matched, server);
     }
     return htmlResponse(input.index);
   }
 
-  function start(): Server<WebSocketData> {
-    const dynamicHandler = (req: Request, server: Server<WebSocketData>) => handleRequest(req, server);
-    const server = Bun.serve<WebSocketData>({
+  function customHandler(socket: ServerWebSocket<WebAppWebSocketData>): Partial<WebSocketHandler<WebAppWebSocketData>> | undefined {
+    const handlerName = socket.data.webappSocketHandler;
+    return handlerName ? appWebsockets[handlerName] : undefined;
+  }
+
+  function start(): Server<WebAppWebSocketData> {
+    const dynamicHandler = (req: Request, server: Server<WebAppWebSocketData>) => handleRequest(req, server);
+    const server = Bun.serve<WebAppWebSocketData>({
       hostname: config.host,
       port: config.port,
       routes: {
@@ -707,15 +788,33 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       },
       websocket: {
         open(socket) {
+          const handler = customHandler(socket);
+          if (handler?.open) {
+            handler.open(socket);
+            return;
+          }
           realtime.add(socket);
         },
         message(socket, message) {
+          const handler = customHandler(socket);
+          if (handler?.message) {
+            handler.message(socket, message);
+            return;
+          }
           if (message === "ping") {
             socket.send(JSON.stringify({ type: "pong" }));
           }
         },
-        close(socket) {
+        close(socket, code, reason) {
+          const handler = customHandler(socket);
+          if (handler?.close) {
+            handler.close(socket, code, reason);
+            return;
+          }
           realtime.remove(socket);
+        },
+        drain(socket) {
+          customHandler(socket)?.drain?.(socket);
         },
       },
       development: config.development,
