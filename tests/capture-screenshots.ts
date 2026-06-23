@@ -66,6 +66,14 @@ async function waitForHealth(port: number): Promise<void> {
   throw new Error(`Server on ${port} did not become healthy`);
 }
 
+async function assertPublicRoute(port: number, path: string, contentType: string, expectedText: string): Promise<void> {
+  const response = await fetch(`http://localhost:${port}${path}`);
+  const body = await response.text();
+  if (!response.ok || !response.headers.get("content-type")?.includes(contentType) || !body.includes(expectedText)) {
+    throw new Error(`Public route ${path} on ${port} failed: ${response.status} ${response.headers.get("content-type")} ${body.slice(0, 120)}`);
+  }
+}
+
 async function capture(page: Page, name: string): Promise<void> {
   await page.waitForTimeout(350);
   await page.screenshot({ path: `${outDir}/${name}.png`, fullPage: true });
@@ -91,6 +99,13 @@ const kitchen = startExample("kitchen-sink", 3302);
 
 try {
   await Promise.all([waitForHealth(3301), waitForHealth(3302)]);
+  await Promise.all([
+    assertPublicRoute(3301, "/manifest.webmanifest", "application/manifest+json", "Notes TODO"),
+    assertPublicRoute(3301, "/public/onboarding.txt", "text/plain", "title-bar action menus"),
+    assertPublicRoute(3302, "/manifest.webmanifest", "application/manifest+json", "Kitchen Sink"),
+    assertPublicRoute(3302, "/public/diagnostics.json", "application/json", "\"publicRoute\":true"),
+    assertPublicRoute(3302, "/robots.txt", "text/plain", "User-agent"),
+  ]);
   const device = await fetch("http://localhost:3302/api/auth/device", {
     method: "POST",
     headers: { "content-type": "application/json" },

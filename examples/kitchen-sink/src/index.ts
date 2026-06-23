@@ -75,6 +75,32 @@ const routes = defineRoutes<Event>({
   },
 });
 
+const publicRoutes = {
+  "/manifest.webmanifest": {
+    headers: { "content-type": "application/manifest+json; charset=utf-8" },
+    GET: JSON.stringify({
+      name: "Kitchen Sink",
+      short_name: "Kitchen",
+      start_url: "/",
+      display: "standalone",
+      background_color: "#ffffff",
+      theme_color: "#111827",
+    }),
+  },
+  "/public/diagnostics.json": {
+    headers: { "content-type": "application/json; charset=utf-8" },
+    GET: () => JSON.stringify({
+      app: "kitchen-sink",
+      publicRoute: true,
+      version: typeof WEBAPP_VERSION === "string" ? WEBAPP_VERSION : "0.0.0-development",
+    }),
+  },
+  "/robots.txt": {
+    headers: { "content-type": "text/plain; charset=utf-8" },
+    GET: "User-agent: *\nDisallow:\n",
+  },
+};
+
 const app = createWebAppServer<Event>({
   appName: "Kitchen Sink",
   envPrefix: "KITCHEN_SINK",
@@ -83,6 +109,7 @@ const app = createWebAppServer<Event>({
   store,
   auth: { passkeys: true, apiKeys: true, deviceAuth: true },
   realtime: { path: "/api/ws" },
+  publicRoutes,
   routes,
 });
 

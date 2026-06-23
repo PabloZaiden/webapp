@@ -5,6 +5,7 @@ import { RealtimeBus, createWebAppServer, defineRoutes, jsonResponse, sqliteWebA
 import { createApiKey } from "../src/server/auth/api-keys";
 import { readRuntimeConfig } from "../src/server/runtime-config";
 import type { UserRecord, WebAppStore } from "../src/server/auth/store";
+import staticIndex from "./fixtures/static-index.html";
 
 function testStore(name: string) {
   return sqliteWebAppStore({ dataDir: `.cache/tests/${name}-${crypto.randomUUID()}` });
@@ -182,6 +183,48 @@ describe("server security defaults", () => {
     expect(missingPublic?.headers.get("x-frame-options")).toBe("DENY");
     expect(missingApi?.status).toBe(404);
     expect(await spa?.text()).toBe("<html>index</html>");
+  });
+
+  test("started server serves public routes before static index catchall", async () => {
+    const portPrevious = process.env["TEST_PUBLIC_STATIC_INDEX_PORT"];
+    const hostPrevious = process.env["TEST_PUBLIC_STATIC_INDEX_HOST"];
+    process.env["TEST_PUBLIC_STATIC_INDEX_PORT"] = "0";
+    process.env["TEST_PUBLIC_STATIC_INDEX_HOST"] = "127.0.0.1";
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_PUBLIC_STATIC_INDEX",
+      index: staticIndex,
+      store: testStore("public-static-index"),
+      auth: { passkeys: false },
+      publicRoutes: {
+        "/manifest.webmanifest": {
+          headers: { "content-type": "application/manifest+json" },
+          GET: JSON.stringify({ name: "Static Index Test" }),
+        },
+      },
+      routes: defineRoutes({}),
+    });
+    const server = app.start();
+    try {
+      const manifest = await fetch(new URL("/manifest.webmanifest", server.url));
+      const fallback = await fetch(new URL("/anything-else", server.url));
+
+      expect(manifest.headers.get("content-type")).toContain("application/manifest+json");
+      expect(await manifest.json()).toEqual({ name: "Static Index Test" });
+      expect(fallback.headers.get("content-type")).toContain("text/html");
+    } finally {
+      server.stop(true);
+      if (portPrevious === undefined) {
+        delete process.env["TEST_PUBLIC_STATIC_INDEX_PORT"];
+      } else {
+        process.env["TEST_PUBLIC_STATIC_INDEX_PORT"] = portPrevious;
+      }
+      if (hostPrevious === undefined) {
+        delete process.env["TEST_PUBLIC_STATIC_INDEX_HOST"];
+      } else {
+        process.env["TEST_PUBLIC_STATIC_INDEX_HOST"] = hostPrevious;
+      }
+    }
   });
 
   test("app routes can perform public websocket upgrades", async () => {

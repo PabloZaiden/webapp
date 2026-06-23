@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Badge, Button, EmptyState, Panel, TextField, WebAppRoot, renderWebApp, useRealtimeRefresh, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
+import { Badge, Button, EmptyState, Panel, TextField, WebAppRoot, renderWebApp, useCallback, useEffect, useMemo, useRealtimeRefresh, useState, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
 
@@ -79,6 +78,8 @@ function ActivityView({ projects }: { projects: Project[] }) {
       <Panel title="Diagnostics">
         <div className="sink-row"><span><strong>Public ping</strong><small>/api/public/ping</small></span><Badge variant="success">public</Badge></div>
         <div className="sink-row"><span><strong>Webhook route</strong><small>/api/webhooks/:source/:token</small></span><Badge variant="warning">public POST</Badge></div>
+        <div className="sink-row"><span><strong>Manifest</strong><small>/manifest.webmanifest via publicRoutes</small></span><Badge variant="info">static</Badge></div>
+        <div className="sink-row"><span><strong>Diagnostics JSON</strong><small>/public/diagnostics.json before SPA catchall</small></span><Badge variant="info">static</Badge></div>
       </Panel>
     </div>
   );
