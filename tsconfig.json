@@ -15,6 +15,7 @@
       "@pablozaiden/webapp/server": ["src/server/index.ts"],
       "@pablozaiden/webapp/web": ["src/web/index.ts"],
       "@pablozaiden/webapp/contracts": ["src/contracts/index.ts"],
+      "@pablozaiden/webapp/cli": ["src/cli/index.ts"],
       "@pablozaiden/webapp/build": ["src/build/index.ts"]
     }
   },

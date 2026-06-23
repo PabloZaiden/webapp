@@ -6,6 +6,9 @@ Use `createWebAppServer` with `defineRoutes`. Route patterns support exact path 
 const routes = defineRoutes<AppEvent>({
   "/api/projects": {
     auth: "user",
+    description: "List or create projects.",
+    cliPath: "projects",
+    tags: ["projects"],
     GET: (_req, ctx) => {
       return jsonResponse(ctx.filterOwned(projects));
     },
@@ -45,6 +48,18 @@ Route defaults are intentionally secure:
 
 Set `auth: "public", sameOrigin: "never"` only for deliberate unauthenticated endpoints such as health probes, webhooks or callback receivers.
 
+Route definitions can include optional metadata. This keeps the API route table as the single source of truth for handlers, CLI endpoint listing, schema output and docs:
+
+| Field | Meaning |
+| --- | --- |
+| `description` | Human-readable route description |
+| `cliPath` | CLI-friendly path; defaults to the API path without `/api/` |
+| `tags` | Grouping labels for docs/CLI |
+| `requestSchema`, `querySchema`, `responseSchema` | Optional schema objects for CLI/docs |
+| `catalog: false` | Exclude a route from generated catalogs |
+
+Use `createRouteCatalog(routes)` and `findRouteCatalogEntry(catalog, input)` to power app CLI commands without maintaining a second route catalog.
+
 Prefer explicit `auth: "user"`, `auth: "admin"` or `auth: "owner"` on app routes. They enforce the role before the handler runs, including API-key and device bearer requests.
 
 Route context is user-aware:
@@ -78,3 +93,38 @@ Built-in endpoints include:
 | `/api/preferences/theme`, `/api/preferences/log-level` | Settings persistence |
 | `/api/server/kill` | Authenticated server shutdown |
 | `/api/ws` | Realtime websocket by default |
+
+## Public/static routes
+
+Declare public non-API assets explicitly with `publicRoutes`:
+
+```ts
+createWebAppServer({
+  // ...
+  publicRoutes: {
+    "/manifest.webmanifest": {
+      headers: { "content-type": "application/manifest+json" },
+      GET: manifestJson,
+    },
+    "/service-worker": serviceWorker,
+  },
+});
+```
+
+Only declared public routes are served this way. Unknown `/api/*` paths still return `404`, while normal frontend paths still return the React index.
+
+## App-owned websocket upgrades
+
+Normal app state should use framework realtime. For raw transports such as terminals, VNC, or port-forward proxies, route handlers may call `ctx.server?.upgrade(...)` and return `undefined`:
+
+```ts
+"/api/terminal": {
+  auth: "user",
+  sameOrigin: "always",
+  GET: (req, ctx) => ctx.server?.upgrade(req, {
+    data: { webappSocketHandler: "terminal", sessionId: ctx.params.id },
+  }) ? undefined : new Response("Upgrade failed", { status: 400 }),
+}
+```
+
+Register matching handlers with `websockets`. Framework auth and same-origin checks run before the upgrade route handler.

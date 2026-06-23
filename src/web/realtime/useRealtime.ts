@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { appWebSocketUrl } from "../api-client";
 
 export type RealtimeStatus = "connecting" | "open" | "closed";
 export type RealtimeAction = "created" | "updated" | "changed" | "deleted";
@@ -71,8 +72,7 @@ export function useRealtime<TEvent>({
       for (const [key, value] of Object.entries(filters ?? {})) {
         if (value) params.set(key, value);
       }
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      socket = new WebSocket(`${protocol}//${window.location.host}${path}${params.size ? `?${params.toString()}` : ""}`);
+      socket = new WebSocket(appWebSocketUrl(`${path}${params.size ? `?${params.toString()}` : ""}`));
       setStatus("connecting");
       socket.onopen = () => {
         retryRef.current = 0;

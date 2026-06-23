@@ -26,6 +26,7 @@
     "./web": "./src/web/index.ts",
     "./web/styles.css": "./src/web/styles.css",
     "./contracts": "./src/contracts/index.ts",
+    "./cli": "./src/cli/index.ts",
     "./build": "./src/build/index.ts"
   },
   "scripts": {

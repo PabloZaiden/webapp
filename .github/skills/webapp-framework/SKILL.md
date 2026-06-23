@@ -7,13 +7,16 @@ Use this skill when building an app with `@pablozaiden/webapp`.
 - Treat the app as one Bun server that serves React, API routes and websockets together.
 - Do not add Vite, a standalone client dev server, or `WEB_DIST_DIR`.
 - Use `bun --hot src/index.ts serve` for dev.
+- Keep the product as one app and one binary with subcommands (`serve`, `version`, app-specific commands, and optional framework-backed `auth`/`api`/`schema` commands). Do not split web/server/CLI into separate apps or binaries unless there is a real package boundary.
 - Keep generated apps and tooling cross-platform across macOS and Linux on arm64 and x86-64.
 - Use Playwright for all browser automation and screenshots; do not hard-code Chrome, browser executable paths, or OS-specific browser automation.
+- When screenshots are captured to validate a visual change, review them against the specific goal; capture alone is not validation.
 - Configure env through a single uppercase `envPrefix`; read framework env as `{PREFIX}_...`.
 - Prefer the framework shell, settings and auth conventions when in doubt.
 - Frontend entrypoints should use `renderWebApp(<App />)` from `@pablozaiden/webapp/web`, not `ReactDOMClient.createRoot(...)`, so hot reload reuses the existing React root.
 - Treat apps as multi-user by default. App data should include an owner/current-user id unless the route is deliberately public or global-admin.
 - In server routes prefer declarative `auth: "user"`, `auth: "admin"` or `auth: "owner"` and use `ctx.requireUser()`, `ctx.requireAdmin()`, `ctx.requireOwner()`, `ctx.assertUser(userId)`, `ctx.filterOwned(records)` and `ctx.requireOwned(record)` instead of ad-hoc auth checks.
+- Add route metadata (`description`, `cliPath`, `tags`, schemas) directly to `defineRoutes` entries when an app needs CLI API discovery; use `createRouteCatalog` instead of maintaining a separate API catalog.
 - Make public endpoints explicit with `auth: "public", sameOrigin: "never"`.
 - Do not disable same-origin except for deliberate non-browser routes.
 - Use scopes for API keys and device bearer tokens.
@@ -23,8 +26,12 @@ Use this skill when building an app with `@pablozaiden/webapp`.
 - Put app actions like New task, New note or New project in the title-bar/sidebar item action menus instead of discrete main-content buttons whenever possible. Keep discrete buttons for form submission and truly primary inline controls.
 - Mark route-backed sidebar entities with `pinnable: true` instead of building app-owned Pinned sections; the framework injects Pin/Unpin and persists pins in localStorage.
 - For user-owned live updates, prefer `ctx.userRealtime.publishEntityChanged(resource, id)` / `publishChanged(resource)` and `useRealtimeRefresh({ resources, refresh })` over custom websocket wiring. Use global `ctx.realtime` only for public/global-admin events or server-validated non-user scopes.
+- Use app-owned websocket upgrade handlers only for raw transports such as terminals, VNC or port-forward proxies; keep normal app state on framework realtime.
 - Prefer `EntityHeader`, `DataList`, `DataListRow`, `DangerZone`, `LoadingState`, `ErrorState`, `FormGroup`, `FormActions`, and `CodeValue` for main content before custom CSS.
 - Prefer structured `settings.sections[].rows` for settings; keep `render` only as an escape hatch.
+- All destructive delete actions must show a framework `ConfirmDialog` before the mutation. Never wire Delete buttons directly to `DELETE` requests.
+- Server lifecycle actions such as kill/reboot must show confirmation first and then a 15-second shutdown countdown progress bar after a successful response.
+- Test user-visible functionality and behavior, not implementation details such as internal class names, DOM structure or component internals.
 - When creating a production-ready app, add the Dockerfile and GitHub Actions from `docs/github-actions.md`: PR build/test/dev-smoke/Docker-smoke, main GHCR Docker image, binary release, and Docker release.
 
 ## Minimum server shape
