@@ -55,7 +55,7 @@ export function createRouteCatalog<TEvent = unknown>(routes: RouteTable<TEvent>)
 }
 
 function normalizeApiPath(input: string): string {
-  const [path = ""] = input.trim().split(/[?#]/, 1);
+  const [path = ""] = input.trim().split(/[?#]/);
   if (!path) {
     throw new Error("API endpoint is required");
   }
@@ -72,8 +72,16 @@ function normalizeApiPath(input: string): string {
 }
 
 function normalizeCliPath(input: string): string {
-  const [path = ""] = input.trim().split(/[?#]/, 1);
+  const [path = ""] = input.trim().split(/[?#]/);
   return trimSlashes(path.startsWith("/api/") ? path.slice("/api/".length) : path);
+}
+
+function decodePathPart(value: string): string | undefined {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
 }
 
 function matchPattern(pattern: string, value: string): Record<string, string> | undefined {
@@ -87,7 +95,11 @@ function matchPattern(pattern: string, value: string): Record<string, string> | 
     const patternPart = patternParts[index]!;
     const valuePart = valueParts[index]!;
     if (patternPart.startsWith(":")) {
-      params[patternPart.slice(1)] = decodeURIComponent(valuePart);
+      const decoded = decodePathPart(valuePart);
+      if (decoded === undefined) {
+        return undefined;
+      }
+      params[patternPart.slice(1)] = decoded;
       continue;
     }
     if (patternPart !== valuePart) {

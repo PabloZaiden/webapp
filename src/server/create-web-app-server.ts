@@ -668,18 +668,18 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     }
     const methodName = req.method === "HEAD" ? "HEAD" : req.method === "GET" ? "GET" : undefined;
     if (!methodName) {
-      return methodNotAllowed();
+      return withSecurityHeaders(methodNotAllowed());
     }
     const definition = typeof route === "object" && route !== null && !(route instanceof Response) && !(route instanceof Blob) && !(route instanceof ArrayBuffer) && !(route instanceof Uint8Array) && ("GET" in route || "HEAD" in route || "headers" in route)
       ? route
       : undefined;
     const value = definition ? definition[methodName] ?? (methodName === "HEAD" ? definition.GET : undefined) : route as PublicRouteValue;
     if (!value) {
-      return methodNotAllowed();
+      return withSecurityHeaders(methodNotAllowed());
     }
     const asset = typeof value === "function" ? await value(req) : value;
     if (!asset) {
-      return notFound();
+      return withSecurityHeaders(notFound());
     }
     const response = publicAssetResponse(asset, definition?.headers);
     if (req.method === "HEAD") {

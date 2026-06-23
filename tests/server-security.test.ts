@@ -162,21 +162,28 @@ describe("server security defaults", () => {
           headers: { "content-type": "application/manifest+json" },
           GET: JSON.stringify({ name: "Test" }),
         },
+        "/missing-public": () => undefined,
       },
       routes: defineRoutes({}),
     });
 
     const manifest = await app.handleRequest(new Request("http://localhost/manifest.webmanifest"));
+    const manifestPost = await app.handleRequest(new Request("http://localhost/manifest.webmanifest", { method: "POST" }));
+    const missingPublic = await app.handleRequest(new Request("http://localhost/missing-public"));
     const missingApi = await app.handleRequest(new Request("http://localhost/api/missing"));
     const spa = await app.handleRequest(new Request("http://localhost/projects"));
 
     expect(manifest?.headers.get("content-type")).toContain("application/manifest+json");
     expect(await manifest?.json()).toEqual({ name: "Test" });
+    expect(manifestPost?.status).toBe(405);
+    expect(manifestPost?.headers.get("x-frame-options")).toBe("DENY");
+    expect(missingPublic?.status).toBe(404);
+    expect(missingPublic?.headers.get("x-frame-options")).toBe("DENY");
     expect(missingApi?.status).toBe(404);
     expect(await spa?.text()).toBe("<html>index</html>");
   });
 
-  test("app routes can perform authenticated websocket upgrades", async () => {
+  test("app routes can perform public websocket upgrades", async () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_UPGRADE_ROUTE",

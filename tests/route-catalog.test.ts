@@ -42,8 +42,13 @@ describe("route catalog", () => {
   test("matches exact API paths, CLI paths and parameterized entries", () => {
     const catalog = createRouteCatalog(routes);
 
-    expect(findRouteCatalogEntry(catalog, "/api/tasks")?.entry.path).toBe("/api/tasks");
+    expect(findRouteCatalogEntry(catalog, "/api/tasks?limit=10#section")?.entry.path).toBe("/api/tasks");
     expect(findRouteCatalogEntry(catalog, "task/123")).toMatchObject({
+      entry: { path: "/api/tasks/:id" },
+      path: "/api/tasks/123",
+      params: { id: "123" },
+    });
+    expect(findRouteCatalogEntry(catalog, "task/123?verbose=true#details")).toMatchObject({
       entry: { path: "/api/tasks/:id" },
       path: "/api/tasks/123",
       params: { id: "123" },
@@ -52,5 +57,6 @@ describe("route catalog", () => {
       entry: { path: "/api/tasks/:id" },
       params: { id: "abc" },
     });
+    expect(findRouteCatalogEntry(catalog, "task/%E0%A4%A")).toBeUndefined();
   });
 });

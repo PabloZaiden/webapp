@@ -72,7 +72,14 @@ async function requestJson(fetchFn: typeof fetch, url: string, init?: RequestIni
   headers.set("accept", "application/json");
   const response = await fetchFn(url, { ...init, headers });
   const text = await response.text();
-  return { response, body: text ? JSON.parse(text) as unknown : undefined };
+  if (!text) {
+    return { response, body: undefined };
+  }
+  try {
+    return { response, body: JSON.parse(text) as unknown };
+  } catch {
+    return { response, body: text };
+  }
 }
 
 function tokenError(body: unknown, status: number): string {
@@ -137,7 +144,7 @@ export async function runDeviceAuthCommand(input: {
 }): Promise<number> {
   const baseUrl = normalizeBaseUrl(input.baseUrl);
   const fetchFn = input.fetchFn ?? fetch;
-  const now = input.now?.() ?? new Date();
+  const now = input.now ?? (() => new Date());
   const out = input.out ?? console.log;
   const start = await requestJson(fetchFn, `${baseUrl}/api/auth/device`, {
     method: "POST",
@@ -161,7 +168,7 @@ export async function runDeviceAuthCommand(input: {
       }),
     });
     if (token.response.ok) {
-      await input.store.write(tokenCredentials(baseUrl, input.clientId, token.body as Record<string, unknown>, now));
+      await input.store.write(tokenCredentials(baseUrl, input.clientId, token.body as Record<string, unknown>, now()));
       out(`Authenticated with ${baseUrl}`);
       return 0;
     }
