@@ -814,10 +814,12 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
 
   function start(): Server<WebAppWebSocketData> {
     const dynamicHandler = (req: Request, server: Server<WebAppWebSocketData>) => handleRequest(req, server);
+    const publicRouteHandlers = Object.fromEntries(Object.keys(publicRoutes).map((path) => [path, dynamicHandler]));
     const server = Bun.serve<WebAppWebSocketData>({
       hostname: config.host,
       port: config.port,
       routes: {
+        ...publicRouteHandlers,
         "/api/*": dynamicHandler,
         "/.well-known/*": dynamicHandler,
         "/device": deviceAuthEnabled && !canRespondWithIndex(input.index) ? input.index as never : dynamicHandler,
