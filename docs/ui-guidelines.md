@@ -54,8 +54,8 @@ Generated screenshots live in `artifacts/screenshots`:
 
 Use `bun run screenshots` to regenerate these captures with Playwright. Browser automation and screenshot capture must stay Playwright-based and cross-platform; do not hard-code local Chrome or OS-specific browser paths.
 
-Use these captures as the manual visual baseline before changing shell, sidebar, settings or dialog styles.
+Use these captures as the manual visual baseline before changing shell, sidebar, settings or dialog styles. When screenshots are captured to validate a visual change, review them against the specific goal; capturing files without checking the result is not validation.
 
-All destructive delete actions must use the framework `ConfirmDialog` before calling the delete endpoint. Server lifecycle actions such as kill/reboot must also require confirmation and show the standard shutdown countdown progress bar after the request succeeds.
+All destructive delete actions must use the framework `ConfirmDialog` before calling the delete endpoint. Server lifecycle actions such as kill/reboot must also require confirmation and show the standard 15-second shutdown countdown progress bar after the request succeeds.
 
 Prefer the framework action-menu pattern for app commands. Actions such as New task, New note, New project, archive, delete, or state transitions should live in `SidebarNode.actions` and/or `WebAppRoot.header.getActions` so they appear behind the three-line title-bar/item action menus. Use discrete buttons mainly for form submission or inline controls that cannot reasonably live in an action menu.

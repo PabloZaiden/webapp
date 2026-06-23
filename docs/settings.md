@@ -11,6 +11,10 @@ Settings is framework-owned so apps stay consistent. It includes:
 - Admin server kill
 - Version/about
 
+Destructive actions in Settings use the framework `ConfirmDialog` before mutating. This includes deleting users, deleting API keys, deleting passkeys, revoking device-auth sessions, and killing the server.
+
+The server kill control follows the normal Settings row layout: explanation on the left, action on the right. After confirmation and a successful response, Settings shows a 15-second shutdown countdown progress bar that visibly drains before reloading the page.
+
 Apps can append structured custom sections:
 
 ```tsx

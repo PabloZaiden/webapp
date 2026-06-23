@@ -10,6 +10,7 @@ Use this skill when building an app with `@pablozaiden/webapp`.
 - Keep the product as one app and one binary with subcommands (`serve`, `version`, app-specific commands, and optional framework-backed `auth`/`api`/`schema` commands). Do not split web/server/CLI into separate apps or binaries unless there is a real package boundary.
 - Keep generated apps and tooling cross-platform across macOS and Linux on arm64 and x86-64.
 - Use Playwright for all browser automation and screenshots; do not hard-code Chrome, browser executable paths, or OS-specific browser automation.
+- When screenshots are captured to validate a visual change, review them against the specific goal; capture alone is not validation.
 - Configure env through a single uppercase `envPrefix`; read framework env as `{PREFIX}_...`.
 - Prefer the framework shell, settings and auth conventions when in doubt.
 - Frontend entrypoints should use `renderWebApp(<App />)` from `@pablozaiden/webapp/web`, not `ReactDOMClient.createRoot(...)`, so hot reload reuses the existing React root.
@@ -29,6 +30,8 @@ Use this skill when building an app with `@pablozaiden/webapp`.
 - Prefer `EntityHeader`, `DataList`, `DataListRow`, `DangerZone`, `LoadingState`, `ErrorState`, `FormGroup`, `FormActions`, and `CodeValue` for main content before custom CSS.
 - Prefer structured `settings.sections[].rows` for settings; keep `render` only as an escape hatch.
 - All destructive delete actions must show a framework `ConfirmDialog` before the mutation. Never wire Delete buttons directly to `DELETE` requests.
+- Server lifecycle actions such as kill/reboot must show confirmation first and then a 15-second shutdown countdown progress bar after a successful response.
+- Test user-visible functionality and behavior, not implementation details such as internal class names, DOM structure or component internals.
 - When creating a production-ready app, add the Dockerfile and GitHub Actions from `docs/github-actions.md`: PR build/test/dev-smoke/Docker-smoke, main GHCR Docker image, binary release, and Docker release.
 
 ## Minimum server shape
