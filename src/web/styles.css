@@ -1,6 +1,7 @@
 :root {
   color-scheme: light;
   --wapp-bg: #f3f4f6;
+  --wapp-shell-bg: rgb(249 250 251 / 0.95);
   --wapp-surface: #ffffff;
   --wapp-surface-muted: #f9fafb;
   --wapp-border: #d1d5db;
@@ -12,12 +13,13 @@
   --wapp-danger-bg: #991b1b;
   --wapp-primary: #111827;
   --wapp-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
 :root.dark {
   color-scheme: dark;
-  --wapp-bg: #171717;
+  --wapp-bg: #0a0a0a;
+  --wapp-shell-bg: rgb(23 23 23 / 0.95);
   --wapp-surface: #262626;
   --wapp-surface-muted: #171717;
   --wapp-border: #374151;
@@ -48,11 +50,13 @@ body {
   overflow: hidden;
 }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
 }
 
 input::placeholder,
@@ -89,13 +93,19 @@ textarea::placeholder {
 .wapp-sidebar {
   width: 20rem;
   min-width: 20rem;
+  min-height: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   border-right: 1px solid var(--wapp-border-soft);
-  background: color-mix(in srgb, var(--wapp-bg), var(--wapp-surface) 25%);
+  background: var(--wapp-shell-bg);
   backdrop-filter: blur(8px);
   transition: width 180ms ease, min-width 180ms ease, transform 180ms ease, opacity 180ms ease;
+}
+
+:root.dark .wapp-sidebar {
+  background: var(--wapp-shell-bg);
 }
 
 .wapp-shell.sidebar-collapsed .wapp-sidebar {
@@ -117,6 +127,11 @@ textarea::placeholder {
   background: var(--wapp-surface);
 }
 
+:root.dark .wapp-sidebar-header,
+:root.dark .wapp-main-header {
+  border-bottom-color: var(--wapp-border);
+}
+
 .wapp-sidebar-header {
   justify-content: space-between;
   padding: 0.5rem 1rem;
@@ -129,16 +144,22 @@ textarea::placeholder {
 
 .wapp-main-header-title {
   display: flex;
+  flex: 1 1 auto;
   min-width: 0;
   align-items: center;
   gap: 0.75rem;
+  overflow: hidden;
 }
 
 .wapp-main-header-actions {
   display: flex;
   flex: 0 0 auto;
+  min-width: max-content;
+  max-width: none;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.5rem;
+  overflow: visible;
 }
 
 .wapp-brand {
@@ -166,8 +187,10 @@ textarea::placeholder {
 
 .wapp-icon-button {
   display: inline-flex;
+  flex: 0 0 2.5rem;
   align-items: center;
   justify-content: center;
+  min-width: 2.5rem;
   width: 2.5rem;
   height: 2.5rem;
   border: 1px solid var(--wapp-border-soft);
@@ -190,14 +213,31 @@ textarea::placeholder {
 }
 
 .wapp-sidebar-top-button {
+  flex: 0 0 2.5rem;
+  min-width: 2.5rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-color: var(--wapp-border-soft);
+  background: #ffffff;
+  color: var(--wapp-muted);
+}
+
+.wapp-sidebar-top-button:hover,
+.wapp-sidebar-top-button.active {
+  border-color: var(--wapp-border);
+  background: #ffffff;
+  color: var(--wapp-text);
+}
+
+:root.dark .wapp-sidebar-top-button {
   border-color: #262626;
   background: #171717;
   color: #e5e7eb;
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.24);
 }
 
-.wapp-sidebar-top-button:hover,
-.wapp-sidebar-top-button.active {
+:root.dark .wapp-sidebar-top-button:hover,
+:root.dark .wapp-sidebar-top-button.active {
   border-color: #404040;
   background: #171717;
   color: #ffffff;
@@ -216,6 +256,7 @@ textarea::placeholder {
 .wapp-sidebar-scroll {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 1rem 0.75rem;
 }
 
@@ -238,19 +279,29 @@ textarea::placeholder {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--wapp-muted), transparent 70%);
 }
 
-.wapp-sidebar-section {
+.wapp-sidebar-section.top {
   margin-bottom: 1.5rem;
+}
+
+.wapp-sidebar-section.nested {
+  margin-bottom: 0.25rem;
 }
 
 .wapp-sidebar-section-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
 }
 
-.wapp-sidebar-section-title button:first-child {
+.wapp-sidebar-section.nested .wapp-sidebar-section-title {
+  margin-bottom: 0.25rem;
+}
+
+.wapp-sidebar-section-title button:first-child,
+.wapp-sidebar-section-label {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -266,7 +317,38 @@ textarea::placeholder {
   text-align: left;
 }
 
+.wapp-sidebar-section-title button:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 0.5rem;
+  margin-left: -0.5rem;
+  padding: 0.25rem 0.5rem;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.wapp-sidebar-section-title button:first-child:hover {
+  background: #f3f4f6;
+  color: var(--wapp-text);
+}
+
+:root.dark .wapp-sidebar-section-title button:first-child:hover {
+  background: rgb(38 38 38 / 0.8);
+}
+
+.wapp-sidebar-section-label {
+  cursor: default;
+}
+
+.wapp-sidebar-section.nested .wapp-sidebar-section-title button:first-child,
+.wapp-sidebar-section.nested .wapp-sidebar-section-label {
+  font-size: 0.6875rem;
+}
+
 .wapp-sidebar-action {
+  flex: 0 0 auto;
   border: 0;
   background: transparent;
   color: var(--wapp-muted);
@@ -293,6 +375,8 @@ textarea::placeholder {
 
 .wapp-sidebar-item-wrap {
   margin: 0.25rem 0;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .wapp-sidebar-item-wrap.has-toggle {
@@ -305,26 +389,30 @@ textarea::placeholder {
 .wapp-sidebar-item-wrap.has-toggle > .wapp-sidebar-item {
   width: auto;
   flex: 1;
+  min-width: 0;
 }
 
 .wapp-sidebar-children {
   flex-basis: 100%;
-  padding-left: 0.5rem;
+  min-width: 0;
+  padding-left: 0.375rem;
 }
 
 .wapp-sidebar-item {
   width: 100%;
-  min-height: 2.375rem;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.625rem;
   border: 1px solid transparent;
   border-radius: 0.75rem;
   background: transparent;
   color: var(--wapp-text);
   cursor: pointer;
-  padding: 0.4375rem 0.75rem 0.4375rem 0.25rem;
+  padding: 0.5rem 0.75rem 0.5rem 0.25rem;
   text-align: left;
 }
 
@@ -351,18 +439,33 @@ textarea::placeholder {
   color: #030712;
 }
 
+.wapp-sidebar-item > span:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
 .wapp-sidebar-item strong {
   display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
   font-size: 0.875rem;
   font-weight: 500;
-  line-height: 1.2;
+  line-height: 1.25rem;
 }
 
 .wapp-sidebar-item small {
   display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--wapp-muted);
   font-size: 0.75rem;
   margin-top: 0.125rem;
+  line-height: 1rem;
 }
 
 :root.dark .wapp-sidebar-item.active small {
@@ -375,9 +478,9 @@ textarea::placeholder {
   color: var(--wapp-muted);
   cursor: pointer;
   flex: 0 0 auto;
-  height: 2.375rem;
+  height: 2rem;
   width: 0.875rem;
-  margin: 0.1875rem 0 0 0;
+  margin: 0.25rem 0 0 0;
   border-radius: 0.5rem;
   font-size: 0.6875rem;
   line-height: 1;
@@ -397,8 +500,8 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 3rem;
-  padding: 0 1rem 1rem;
+  min-height: 2rem;
+  padding: 0.25rem 0.25rem 0;
   color: var(--wapp-muted-2);
   font-size: 0.75rem;
 }
@@ -430,16 +533,23 @@ textarea::placeholder {
 }
 
 .wapp-main-header h1 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin: 0;
   font-size: 1rem;
   font-weight: 700;
-  text-transform: capitalize;
+  text-transform: none;
 }
 
 .wapp-main-content {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overflow-x: hidden;
   padding: 1.5rem 2rem 2rem;
 }
 
@@ -716,6 +826,10 @@ textarea::placeholder {
 }
 
 .wapp-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
   min-height: 2.375rem;
   border: 1px solid var(--wapp-border);
   border-radius: 0.5rem;
@@ -727,6 +841,21 @@ textarea::placeholder {
   padding: 0.5rem 0.875rem;
   white-space: nowrap;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
+}
+
+.wapp-button-spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 999px;
+  animation: wapp-spin 0.7s linear infinite;
+}
+
+@keyframes wapp-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .wapp-button:hover:not(:disabled) {
@@ -776,6 +905,19 @@ textarea::placeholder {
   box-shadow: var(--wapp-shadow);
   cursor: pointer;
   transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.wapp-action-menu-trigger-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--wapp-fg);
+  box-shadow: none;
+}
+
+.wapp-action-menu-trigger-compact {
+  min-width: 2rem;
+  min-height: 2rem;
+  border-radius: 0.5rem;
 }
 
 .wapp-action-menu-trigger:hover:not(:disabled),
@@ -839,6 +981,10 @@ textarea::placeholder {
   color: var(--wapp-danger);
 }
 
+:root.dark .wapp-action-menu-item.danger {
+  color: var(--wapp-danger);
+}
+
 .wapp-action-menu-item.danger:hover:not(:disabled) {
   background: color-mix(in srgb, var(--wapp-danger-bg), transparent 88%);
 }
@@ -865,20 +1011,122 @@ textarea::placeholder {
   padding: 0.125rem 0.5rem;
 }
 
-.wapp-badge-success { color: #047857; }
-.wapp-badge-warning { color: #b45309; }
-.wapp-badge-error { color: var(--wapp-danger); }
-.wapp-badge-info { color: #2563eb; }
-.wapp-badge-disabled { color: var(--wapp-muted-2); }
+.wapp-sidebar-badge {
+  flex: 0 0 auto;
+  width: 0.625rem;
+  height: 0.625rem;
+  overflow: hidden;
+  padding: 0;
+  color: transparent;
+  font-size: 0;
+  line-height: 0;
+}
+
+.wapp-badge-success,
+.wapp-badge-completed {
+  background: rgb(220 252 231);
+  color: rgb(22 101 52);
+}
+.wapp-badge-warning,
+.wapp-badge-plan_ready {
+  background: rgb(254 243 199);
+  color: rgb(146 64 14);
+}
+.wapp-badge-error,
+.wapp-badge-failed {
+  background: rgb(254 226 226);
+  color: rgb(153 27 27);
+}
+.wapp-badge-info,
+.wapp-badge-running {
+  background: rgb(219 234 254);
+  color: rgb(30 64 175);
+}
+.wapp-badge-disabled,
+.wapp-badge-stopped,
+.wapp-badge-idle {
+  background: rgb(243 244 246);
+  color: rgb(31 41 55);
+}
+.wapp-badge-planning {
+  background: rgb(207 250 254);
+  color: rgb(21 94 117);
+}
+.wapp-badge-merged {
+  background: rgb(243 232 255);
+  color: rgb(107 33 168);
+}
+.wapp-badge-pushed {
+  background: rgb(224 231 255);
+  color: rgb(55 48 163);
+}
+.wapp-badge-deleted {
+  background: rgb(243 244 246);
+  color: rgb(107 114 128);
+}
+
+:root.dark .wapp-badge-success,
+:root.dark .wapp-badge-completed {
+  background: rgb(20 83 45);
+  color: rgb(134 239 172);
+}
+:root.dark .wapp-badge-warning,
+:root.dark .wapp-badge-plan_ready {
+  background: rgb(120 53 15);
+  color: rgb(252 211 77);
+}
+:root.dark .wapp-badge-error,
+:root.dark .wapp-badge-failed {
+  background: rgb(127 29 29);
+  color: rgb(252 165 165);
+}
+:root.dark .wapp-badge-info,
+:root.dark .wapp-badge-running,
+:root.dark .wapp-badge-planning,
+:root.dark .wapp-badge-merged,
+:root.dark .wapp-badge-pushed,
+:root.dark .wapp-badge-deleted {
+  background: rgb(38 38 38);
+}
+:root.dark .wapp-badge-info,
+:root.dark .wapp-badge-running {
+  color: rgb(147 197 253);
+}
+:root.dark .wapp-badge-planning {
+  color: rgb(103 232 249);
+}
+:root.dark .wapp-badge-merged {
+  color: rgb(216 180 254);
+}
+:root.dark .wapp-badge-pushed {
+  color: rgb(165 180 252);
+}
+:root.dark .wapp-badge-deleted {
+  color: rgb(107 114 128);
+}
+:root.dark .wapp-badge-disabled,
+:root.dark .wapp-badge-stopped,
+:root.dark .wapp-badge-idle {
+  background: rgb(64 64 64);
+  color: rgb(209 213 219);
+}
 
 .wapp-settings {
+  height: 100%;
+  overflow: auto;
   max-width: none;
+  background: var(--wapp-shell-bg);
+  padding: 1.5rem 2rem 2rem;
   font-size: 0.875rem;
 }
 
 .wapp-form-section {
   display: block;
   padding: 0;
+  margin-bottom: 2.5rem;
+}
+
+.wapp-custom-settings-section {
   margin-bottom: 2.5rem;
 }
 
@@ -1319,6 +1567,161 @@ textarea::placeholder {
   padding: 1rem 1.5rem;
 }
 
+.wapp-modal-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+.wapp-modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.wapp-modal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  max-height: calc(100dvh - 1.5rem);
+  overflow: hidden;
+  border: 1px solid var(--wapp-border);
+  border-radius: 0.5rem;
+  background: var(--wapp-surface);
+  box-shadow: 0 24px 55px rgb(0 0 0 / 0.38);
+  outline: none;
+}
+
+.wapp-modal-sm {
+  max-width: 24rem;
+}
+
+.wapp-modal-md {
+  max-width: 28rem;
+}
+
+.wapp-modal-lg {
+  max-width: 32rem;
+}
+
+.wapp-modal-xl {
+  max-width: 36rem;
+}
+
+.wapp-modal-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--wapp-border);
+  padding: 0.75rem 1rem;
+}
+
+.wapp-modal-title-block {
+  min-width: 0;
+  flex: 1;
+  padding-right: 0.5rem;
+}
+
+.wapp-modal-title-block h2 {
+  margin: 0;
+  color: var(--wapp-text);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.wapp-modal-title-block p {
+  margin: 0.25rem 0 0;
+  color: var(--wapp-muted);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.wapp-modal-close {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--wapp-muted);
+  cursor: pointer;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.wapp-modal-close:hover {
+  background: color-mix(in srgb, var(--wapp-muted), transparent 88%);
+  color: var(--wapp-text);
+}
+
+.wapp-modal-body {
+  min-width: 0;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0.75rem 1rem;
+}
+
+.wapp-modal-footer {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column-reverse;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  border-top: 1px solid var(--wapp-border);
+  padding: 0.75rem 1rem;
+}
+
+@media (min-width: 640px) {
+  .wapp-modal-layer {
+    padding: 1rem;
+  }
+
+  .wapp-modal {
+    max-height: calc(100dvh - 2.5rem);
+  }
+
+  .wapp-modal-header {
+    padding: 1rem 1.5rem;
+  }
+
+  .wapp-modal-title-block h2 {
+    font-size: 1.125rem;
+  }
+
+  .wapp-modal-title-block p {
+    font-size: 0.875rem;
+  }
+
+  .wapp-modal-body {
+    padding: 1rem 1.5rem;
+  }
+
+  .wapp-modal-footer {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+  }
+}
+
 .wapp-toolbar {
   display: flex;
   align-items: center;
@@ -1363,6 +1766,7 @@ textarea::placeholder {
 
   .wapp-main-content {
     padding: 1rem;
+    overflow: auto;
     overflow-x: hidden;
   }
 

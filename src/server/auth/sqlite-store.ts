@@ -6,7 +6,6 @@ import type {
   AuditEventRecord,
   DeviceAuthRequestRecord,
   RefreshSessionRecord,
-  SigningKeyRecord,
   StoredPasskey,
   UserRecord,
   UserSetupLinkRecord,

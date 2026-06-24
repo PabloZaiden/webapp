@@ -18,9 +18,9 @@ Use these first:
 | --- | --- |
 | `Toolbar` | Page title/actions inside main content |
 | `Panel` | Cards/sections; use `actions` for a top-right menu/action area |
-| `ActionMenu` | Three-line action menu for secondary surfaces; entity-level menus should usually be exposed through `WebAppRoot.header.getActions` so they render in the fixed title bar |
+| `ActionMenu` | Three-line action menu for secondary surfaces; entity-level shell menus should usually come from `SidebarNode.actions` so the framework renders them in the sidebar context menu and fixed title bar |
 | `Button` / `IconButton` | Form submission and true inline controls; prefer action menus for entity/app commands |
-| `Badge` | Status/count labels |
+| `Badge` | Status/count labels; sidebar badges render as compact colored dots to preserve sidebar width |
 | `EntityHeader` | Main-content entity title/description/actions |
 | `DataList` / `DataListRow` | Lists with title, description, metadata, badge and actions |
 | `TextField`, `TextAreaField`, `SelectField` | Forms |
@@ -32,7 +32,7 @@ Use these first:
 | `EmptyState` | Empty or missing content |
 | `ConfirmDialog` | Destructive confirmation |
 
-For entity actions, prefer the framework title bar: define one `ActionMenuItem[]` builder, attach it to `SidebarNode.actions` for right-click, and return the same actions from `WebAppRoot.header.getActions` for the selected route.
+For entity actions, prefer the framework title bar: define one `ActionMenuItem[]` builder and attach it to `SidebarNode.actions` for the route-backed node. The framework reuses those actions for both sidebar right-click and the active route title-bar menu. Use `WebAppRoot.header.getActions` only for additional actions not owned by a sidebar node.
 
 ## Visual validation captures
 
@@ -58,4 +58,8 @@ Use these captures as the manual visual baseline before changing shell, sidebar,
 
 All destructive delete actions must use the framework `ConfirmDialog` before calling the delete endpoint. Server lifecycle actions such as kill/reboot must also require confirmation and show the standard 15-second shutdown countdown progress bar after the request succeeds.
 
-Prefer the framework action-menu pattern for app commands. Actions such as New task, New note, New project, archive, delete, or state transitions should live in `SidebarNode.actions` and/or `WebAppRoot.header.getActions` so they appear behind the three-line title-bar/item action menus. Use discrete buttons mainly for form submission or inline controls that cannot reasonably live in an action menu.
+Framework dialogs and modal forms handle Enter as the primary/confirm action and Escape as cancel/close. Do not reimplement this keyboard behavior in app-local modal code.
+
+Prefer the framework action-menu pattern for app commands. Actions such as New task, New note, New project, archive, delete, or state transitions should live in `SidebarNode.actions` so they appear behind the three-line title-bar/item action menus. Destructive actions should be marked `destructive: true`; the framework also treats delete-labelled actions defensively, renders them red, and orders them last. Use discrete buttons mainly for form submission or inline controls that cannot reasonably live in an action menu.
+
+Headers and menus should be allowed to shrink safely: titles and subtitles truncate, while icon buttons and action buttons keep their shape and remain visible. Context menus are framework-positioned to stay inside the visible viewport.

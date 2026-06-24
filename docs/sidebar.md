@@ -30,15 +30,15 @@ Sidebar nodes support:
 | `route` | Hash route object used by `WebAppRoot` |
 | `children` | Collapsible nesting |
 | `action` | Single inline per-section/item action; use sparingly and prefer `actions` menus when possible |
-| `actions` | Context menu items shown on sidebar right-click |
+| `actions` | Entity action menu items shown on sidebar right-click and automatically in the active route title-bar menu |
 | `pinnable` | Enables framework Pin/Unpin actions |
 | `pinId` | Stable pin identity when it should differ from `id` |
-| `badge` | Status/count label |
+| `badge` | Status/count value; sidebar items render it as a compact status dot with accessible label/tooltip |
 | `defaultCollapsed` | Initial collapsed state |
 
 Search is intentionally app-defined: `getNodes({ search })` receives raw search text and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
 
-Use `actions` when an entity needs commands in the sidebar. The same `ActionMenuItem[]` should also be returned from `header.getActions` for that entity route so right-click actions and the title-bar three-line menu stay consistent:
+Use `actions` when an entity needs commands in the sidebar. `WebAppRoot` finds the active route-backed sidebar node and automatically renders its `ActionMenuItem[]` in the title-bar three-line menu, so the sidebar right-click menu and header menu stay consistent from one source of truth. Use `header.getActions` only for extra route-level actions that are not represented by the active sidebar node.
 
 ```tsx
 const actions = projectActions(project);
@@ -55,9 +55,6 @@ return {
   sidebar={{
     pinning: { sectionTitle: "Pinned" },
     getNodes,
-  }}
-  header={{
-    getActions: ({ route }) => route.view === "project" ? projectActionsForRoute(route) : [],
   }}
 />
 ```

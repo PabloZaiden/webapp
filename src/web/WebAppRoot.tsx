@@ -51,8 +51,10 @@ export interface WebAppRootProps {
   routes: Record<string, ReactNode | ((route: WebAppRoute) => ReactNode)>;
   header?: {
     renderTitle?: (ctx: HeaderContext) => ReactNode;
+    renderActions?: (ctx: HeaderContext) => ReactNode;
     getActions?: (ctx: HeaderContext) => ActionMenuItem[];
   };
+  onRouteChange?: (route: WebAppRoute) => void;
   settings?: {
     sections?: SettingsSection[];
   };
@@ -203,7 +205,7 @@ function Icon({ name }: { name: "settings" | "sidebar" | "plus" | "home" | "sear
   if (name === "plus") return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>;
   if (name === "bolt") return <svg {...common}><path d="m13 2-8 12h7l-1 8 8-12h-7l1-8Z" /></svg>;
   if (name === "chat") return <svg {...common}><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" /><path d="M8 9h8M8 13h5" /></svg>;
-  if (name === "code") return <svg {...common}><path d="m16 18 6-6-6-6M8 6l-6 6 6 6" /></svg>;
+  if (name === "code") return <svg {...common}><path d="M8 8 4 12l4 4M16 8l4 4-4 4M14 4l-4 16" /></svg>;
   if (name === "refresh") return <svg {...common}><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16M3 21v-5h5M3 12A9 9 0 0 1 18.5 5.7L21 8M21 3v5h-5" /></svg>;
   return <svg {...common}><path d="M4 10.5 12 4l8 6.5V20H5v-7h14" /></svg>;
 }
@@ -394,7 +396,18 @@ function DeviceVerificationScreen() {
   );
 }
 
-function SidebarTree({ nodes, route, navigate, level = 0 }: { nodes: SidebarNode[]; route: WebAppRoute; navigate: (route: WebAppRoute) => void; level?: number }) {
+type SidebarTreeParentKind = "root" | "section" | "item";
+
+function sidebarIndentStyle(level: number, parentKind: SidebarTreeParentKind): { marginLeft?: string } | undefined {
+  if (level <= 0) {
+    return undefined;
+  }
+  const baseIndentRem = level * 0.375;
+  const nestedSectionIndentRem = parentKind === "section" && level > 1 ? 0.875 : 0;
+  return { marginLeft: `${baseIndentRem + nestedSectionIndentRem}rem` };
+}
+
+function SidebarTree({ nodes, route, navigate, level = 0, parentKind = "root" }: { nodes: SidebarNode[]; route: WebAppRoute; navigate: (route: WebAppRoute) => void; level?: number; parentKind?: SidebarTreeParentKind }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ position: ContextMenuPosition; items: ActionMenuItem[]; title: string } | null>(null);
   return (
@@ -404,21 +417,25 @@ function SidebarTree({ nodes, route, navigate, level = 0 }: { nodes: SidebarNode
         const isCollapsed = collapsed[node.id] ?? node.defaultCollapsed ?? false;
         if (node.type === "section") {
           return (
-            <section className="wapp-sidebar-section" key={node.id}>
-              <div className="wapp-sidebar-section-title" style={{ marginLeft: level ? `${level * 0.375}rem` : undefined }}>
-                <button type="button" aria-expanded={!isCollapsed} aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${node.title}`} onClick={() => setCollapsed((current) => ({ ...current, [node.id]: !isCollapsed }))}>
-                  <span>{isCollapsed ? "▶" : "▼"}</span>{node.title}
-                </button>
-                {node.action ? <button type="button" className="wapp-sidebar-action" onClick={node.action.onAction ?? (() => node.action?.route && navigate(node.action.route))}>{node.action.label ?? "New"}</button> : null}
+            <section className={`wapp-sidebar-section ${level === 0 ? "top" : "nested"}`} key={node.id}>
+              <div className="wapp-sidebar-section-title" style={sidebarIndentStyle(level, parentKind)}>
+                {hasChildren ? (
+                  <button type="button" aria-expanded={!isCollapsed} aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${node.title}`} onClick={() => setCollapsed((current) => ({ ...current, [node.id]: !isCollapsed }))}>
+                    <span>{isCollapsed ? "▶" : "▼"}</span>{node.title}
+                  </button>
+                ) : (
+                  <div className="wapp-sidebar-section-label">{node.title}</div>
+                )}
+                {node.action ? <button type="button" className="wapp-sidebar-action" title={node.action.title} aria-label={node.action.title} onClick={node.action.onAction ?? (() => node.action?.route && navigate(node.action.route))}>{node.action.label ?? "New"}</button> : null}
               </div>
-              {!isCollapsed && node.children ? <SidebarTree nodes={node.children} route={route} navigate={navigate} level={level + 1} /> : null}
-              {!isCollapsed && !node.children?.length ? <div className="wapp-sidebar-empty">No items.</div> : null}
+              {!isCollapsed && hasChildren ? <SidebarTree nodes={node.children ?? []} route={route} navigate={navigate} level={level + 1} parentKind="section" /> : null}
+              {!isCollapsed && !hasChildren && level === 0 ? <div className="wapp-sidebar-empty">No items.</div> : null}
             </section>
           );
         }
         const active = node.route?.view === route.view && Object.entries(node.route).every(([key, value]) => key === "view" || route[key] === value);
         return (
-          <div className={`wapp-sidebar-item-wrap ${hasChildren ? "has-toggle" : ""}`} key={node.id} style={{ marginLeft: level ? `${level * 0.375}rem` : undefined }}>
+          <div className={`wapp-sidebar-item-wrap ${hasChildren ? "has-toggle" : ""}`} key={node.id} style={sidebarIndentStyle(level, parentKind)}>
             {hasChildren ? <button type="button" className="wapp-tree-toggle" aria-expanded={!isCollapsed} aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${node.title}`} onClick={() => setCollapsed((current) => ({ ...current, [node.id]: !isCollapsed }))}>{isCollapsed ? "▶" : "▼"}</button> : null}
             <button
               type="button"
@@ -434,9 +451,9 @@ function SidebarTree({ nodes, route, navigate, level = 0 }: { nodes: SidebarNode
                 <strong>{node.title}</strong>
                 {node.subtitle ? <small>{node.subtitle}</small> : null}
               </span>
-              {node.badge ? <Badge variant={node.badgeVariant}>{node.badge}</Badge> : null}
+              {node.badge ? <Badge variant={node.badgeVariant} className="wapp-sidebar-badge" title={node.badge} aria-label={node.badge}> </Badge> : null}
             </button>
-            {!isCollapsed && node.children ? <div className="wapp-sidebar-children"><SidebarTree nodes={node.children} route={route} navigate={navigate} level={level + 1} /></div> : null}
+            {!isCollapsed && node.children ? <div className="wapp-sidebar-children"><SidebarTree nodes={node.children} route={route} navigate={navigate} level={level + 1} parentKind="item" /></div> : null}
           </div>
         );
       })}
@@ -454,6 +471,10 @@ function renderSettingsActions(actions: SettingsRow["actions"]): ReactNode {
 }
 
 function StructuredSettingsSection({ section }: { section: SettingsSection }) {
+  if (!section.rows?.length && section.render) {
+    return <section className="wapp-custom-settings-section">{section.render()}</section>;
+  }
+
   return (
     <FormSection title={section.title} description={section.description}>
       {section.rows?.map((row) => {
@@ -870,7 +891,7 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
   );
 }
 
-export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, settings, version }: WebAppRootProps) {
+export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRouteChange, settings, version }: WebAppRootProps) {
   const { config, error, refresh } = useConfig();
   const { route, navigate } = useRoute(homeRoute);
   const { theme, setTheme } = useTheme();
@@ -938,6 +959,10 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, settin
       .catch(() => undefined);
   }, [config?.currentUser?.id, setTheme]);
 
+  useEffect(() => {
+    onRouteChange?.(route);
+  }, [onRouteChange, route]);
+
   if (error) {
     return <main className="wapp-auth-screen"><Panel title="Unable to load app" description={error} /></main>;
   }
@@ -968,13 +993,14 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, settin
   const topActions = sidebar.topActions?.slice(0, 2) ?? [];
   const defaultTitle = route.view === "settings" ? "Settings" : route.view === homeRoute.view ? appName : route.view.replace(/-/g, " ");
   const headerContext = { route, defaultTitle };
-  const activePinnableNode = allPinnableItems.find((node) => routeMatches(node.route, route));
-  const activePinningAction = activePinnableNode ? pinningActionFor(activePinnableNode) : undefined;
+  const activeSidebarNode = flattenSidebarItems(nodes).find((node) => routeMatches(node.route, route));
+  const activeSidebarActions = activeSidebarNode?.actions ?? [];
   const headerActions = [
     ...(header?.getActions?.(headerContext) ?? []),
-    ...(activePinningAction ? [activePinningAction] : []),
+    ...activeSidebarActions,
   ];
   const headerTitle = header?.renderTitle?.(headerContext) ?? defaultTitle;
+  const primaryHeaderActions = header?.renderActions?.(headerContext);
   const headerActionLabel = typeof headerTitle === "string" ? headerTitle : defaultTitle;
 
   return (
@@ -992,8 +1018,8 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, settin
         <div className="wapp-sidebar-scroll">
           {sidebarSearchEnabled ? <label className="wapp-search"><span className="sr-only">Search</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" /></label> : null}
           <SidebarTree nodes={nodes} route={route} navigate={(next) => { navigate(next); setSidebarOpen(false); }} />
+          <div className="wapp-sidebar-footer">v{effectiveVersion}<button type="button" aria-label="Reload" onClick={() => window.location.reload()}><Icon name="refresh" /></button></div>
         </div>
-        <div className="wapp-sidebar-footer">v{effectiveVersion}<button type="button" aria-label="Reload" onClick={() => window.location.reload()}><Icon name="refresh" /></button></div>
       </aside>
       <section className="wapp-main">
         <header className="wapp-main-header">
@@ -1001,9 +1027,10 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, settin
             {sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label="Show sidebar" title="Show sidebar" onClick={() => { setSidebarCollapsed(false); setSidebarOpen(true); }}><Icon name="sidebar" /></IconButton> : <IconButton className="wapp-mobile-only wapp-sidebar-top-button" aria-label="Show sidebar" title="Show sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton>}
             <h1>{headerTitle}</h1>
           </div>
-          {headerActions.length ? (
+          {primaryHeaderActions || headerActions.length ? (
             <div className="wapp-main-header-actions">
-              <ActionMenu items={headerActions} ariaLabel={`Actions for ${headerActionLabel}`} />
+              {primaryHeaderActions}
+              {headerActions.length ? <ActionMenu items={headerActions} ariaLabel={`Actions for ${headerActionLabel}`} /> : null}
             </div>
           ) : null}
         </header>
