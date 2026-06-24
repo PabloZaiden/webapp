@@ -1,4 +1,4 @@
-import { Badge, Button, EmptyState, Panel, TextField, WebAppRoot, renderWebApp, useCallback, useEffect, useMemo, useRealtimeRefresh, useState, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
+import { Badge, Button, EmptyState, Page, Panel, TextField, WebAppRoot, renderWebApp, useCallback, useEffect, useMemo, useRealtimeRefresh, useState, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
 
@@ -21,7 +21,7 @@ function needsAuthentication(config: { passkeyAuth: { enabled: boolean; bootstra
 
 function Home({ projects }: { projects: Project[] }) {
   return (
-    <div className="sink-stack">
+    <Page className="sink-stack">
       <Panel title="Projects" description="Protected CRUD + realtime updates.">
         {projects.length ? projects.map((project) => (
           <div className="sink-row" key={project.id}>
@@ -30,7 +30,7 @@ function Home({ projects }: { projects: Project[] }) {
           </div>
         )) : <EmptyState title="No projects" />}
       </Panel>
-    </div>
+    </Page>
   );
 }
 
@@ -43,25 +43,27 @@ function NewProjectView({ refresh }: { refresh: () => Promise<void> }) {
     await refresh();
   }
   return (
-    <div className="sink-stack">
+    <Page className="sink-stack">
       <Panel title="Create project" description="Framework coverage example.">
         <div className="sink-inline">
           <TextField label="Project name" value={name} onChange={(event) => setName(event.currentTarget.value)} />
           <Button type="button" variant="primary" onClick={() => void createProject()}>Create</Button>
         </div>
       </Panel>
-    </div>
+    </Page>
   );
 }
 
 function ProjectView({ route, projects }: { route: WebAppRoute; projects: Project[] }) {
   const project = projects.find((item) => item.id === route.projectId);
-  if (!project) return <EmptyState title="Project not found" />;
+  if (!project) return <Page><EmptyState title="Project not found" /></Page>;
   return (
-    <Panel title={project.name} description="Project detail view with common panel styling.">
-      <p>Status: <Badge variant={project.status === "running" ? "info" : "default"}>{project.status}</Badge></p>
-      <p className="sink-muted">Updated {project.updatedAt}</p>
-    </Panel>
+    <Page>
+      <Panel title={project.name} description="Project detail view with common panel styling.">
+        <p>Status: <Badge variant={project.status === "running" ? "info" : "default"}>{project.status}</Badge></p>
+        <p className="sink-muted">Updated {project.updatedAt}</p>
+      </Panel>
+    </Page>
   );
 }
 
@@ -69,7 +71,7 @@ function ActivityView({ projects }: { projects: Project[] }) {
   const running = projects.filter((project) => project.status === "running").length;
   const failed = projects.filter((project) => project.status === "failed").length;
   return (
-    <div className="sink-stack">
+    <Page className="sink-stack">
       <Panel title="Activity" description="Realtime and route coverage checks.">
         <div className="sink-row"><span><strong>Projects</strong><small>Total configured projects</small></span><Badge variant="default">{projects.length}</Badge></div>
         <div className="sink-row"><span><strong>Running</strong><small>Projects with active status</small></span><Badge variant="info">{running}</Badge></div>
@@ -81,7 +83,7 @@ function ActivityView({ projects }: { projects: Project[] }) {
         <div className="sink-row"><span><strong>Manifest</strong><small>/manifest.webmanifest via publicRoutes</small></span><Badge variant="info">static</Badge></div>
         <div className="sink-row"><span><strong>Diagnostics JSON</strong><small>/public/diagnostics.json before SPA catchall</small></span><Badge variant="info">static</Badge></div>
       </Panel>
-    </div>
+    </Page>
   );
 }
 
