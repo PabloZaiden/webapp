@@ -1,4 +1,4 @@
-import { Badge, Button, DataList, DataListRow, EmptyState, EntityHeader, FormActions, Panel, SelectField, TextAreaField, TextField, WebAppRoot, renderWebApp, useCallback, useEffect, useRealtimeRefresh, useState, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
+import { Badge, Button, DataList, DataListRow, EmptyState, EntityHeader, FormActions, Page, Panel, SelectField, TextAreaField, TextField, WebAppRoot, renderWebApp, useCallback, useEffect, useRealtimeRefresh, useState, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
 
@@ -60,7 +60,7 @@ function Dashboard({ sections, notes, todos }: { sections: Section[]; notes: Not
   const openTodos = todos.filter((todo) => !todo.completed);
   const highPriority = openTodos.filter((todo) => todo.priority === "high");
   return (
-    <div className="notes-stack">
+    <Page className="notes-stack">
       <EntityHeader
         eyebrow="Example app"
         title="Notes TODO"
@@ -102,20 +102,20 @@ function Dashboard({ sections, notes, todos }: { sections: Section[]; notes: Not
           </div>
         </Panel>
       </div>
-    </div>
+    </Page>
   );
 }
 
 function SectionView({ route, sections, notes, todos }: { route: WebAppRoute; sections: Section[]; notes: Note[]; todos: Todo[] }) {
   const sectionId = String(route.sectionId ?? sections[0]?.id ?? "");
   const section = sections.find((item) => item.id === sectionId);
-  if (!section) return <EmptyState title="List not found" />;
+  if (!section) return <Page><EmptyState title="List not found" /></Page>;
 
   const sectionNotes = notes.filter((note) => note.sectionId === section.id);
   const sectionTodos = todos.filter((todo) => todo.sectionId === section.id);
   const openTodos = sectionTodos.filter((todo) => !todo.completed);
   return (
-    <div className="notes-stack">
+    <Page className="notes-stack">
       <EntityHeader
         eyebrow="List"
         title={section.title}
@@ -141,7 +141,7 @@ function SectionView({ route, sections, notes, todos }: { route: WebAppRoute; se
           ))}
         </DataList>
       </Panel>
-    </div>
+    </Page>
   );
 }
 
@@ -153,37 +153,41 @@ function TasksView({ route, sections, todos }: { route: WebAppRoute; sections: S
     return !todo.completed;
   });
   return (
-    <Panel title={filter === "high" ? "High priority tasks" : filter === "completed" ? "Completed tasks" : "Open tasks"}>
-      <DataList empty={<EmptyState title="No matching tasks" />}>
-        {filtered.map((todo) => (
-          <DataListRow
-            key={todo.id}
-            title={todo.title}
-            description={sectionTitle(sections, todo.sectionId)}
-            badge={todoBadge(todo)}
-            onClick={() => navigateTo({ view: "todo", todoId: todo.id })}
-          />
-        ))}
-      </DataList>
-    </Panel>
+    <Page>
+      <Panel title={filter === "high" ? "High priority tasks" : filter === "completed" ? "Completed tasks" : "Open tasks"}>
+        <DataList empty={<EmptyState title="No matching tasks" />}>
+          {filtered.map((todo) => (
+            <DataListRow
+              key={todo.id}
+              title={todo.title}
+              description={sectionTitle(sections, todo.sectionId)}
+              badge={todoBadge(todo)}
+              onClick={() => navigateTo({ view: "todo", todoId: todo.id })}
+            />
+          ))}
+        </DataList>
+      </Panel>
+    </Page>
   );
 }
 
 function NotesView({ sections, notes }: { sections: Section[]; notes: Note[] }) {
   return (
-    <Panel title="All notes" description="A flat note index backed by the same list-owned data.">
-      <DataList empty={<EmptyState title="No notes yet" />}>
-        {notes.map((note) => (
-          <DataListRow
-            key={note.id}
-            title={note.title}
-            description={sectionTitle(sections, note.sectionId)}
-            meta={new Date(note.updatedAt).toLocaleString()}
-            onClick={() => navigateTo({ view: "note", noteId: note.id })}
-          />
-        ))}
-      </DataList>
-    </Panel>
+    <Page>
+      <Panel title="All notes" description="A flat note index backed by the same list-owned data.">
+        <DataList empty={<EmptyState title="No notes yet" />}>
+          {notes.map((note) => (
+            <DataListRow
+              key={note.id}
+              title={note.title}
+              description={sectionTitle(sections, note.sectionId)}
+              meta={new Date(note.updatedAt).toLocaleString()}
+              onClick={() => navigateTo({ view: "note", noteId: note.id })}
+            />
+          ))}
+        </DataList>
+      </Panel>
+    </Page>
   );
 }
 
@@ -197,20 +201,22 @@ function NoteEditor({ route, notes, sections, refresh }: { route: WebAppRoute; n
     setBody(note?.body ?? "");
     setSectionId(note?.sectionId ?? sections[0]?.id ?? "");
   }, [note, sections]);
-  if (!note) return <EmptyState title="Note not found" />;
+  if (!note) return <Page><EmptyState title="Note not found" /></Page>;
   return (
-    <Panel title="Edit note" description="The active note actions are also available from the title bar menu.">
-      <div className="notes-form">
-        <TextField label="Title" value={title} onChange={(event) => setTitle(event.currentTarget.value)} />
-        <SelectField label="List" value={sectionId} onChange={(event) => setSectionId(event.currentTarget.value)}>
-          {sections.map((section) => <option key={section.id} value={section.id}>{section.title}</option>)}
-        </SelectField>
-        <TextAreaField label="Body" value={body} onChange={(event) => setBody(event.currentTarget.value)} />
-        <FormActions>
-          <Button type="button" variant="primary" onClick={() => void api(`/api/notes/${note.id}`, { method: "PATCH", body: JSON.stringify({ title, body, sectionId }) }).then(refresh)}>Save note</Button>
-        </FormActions>
-      </div>
-    </Panel>
+    <Page>
+      <Panel title="Edit note" description="The active note actions are also available from the title bar menu.">
+        <div className="notes-form">
+          <TextField label="Title" value={title} onChange={(event) => setTitle(event.currentTarget.value)} />
+          <SelectField label="List" value={sectionId} onChange={(event) => setSectionId(event.currentTarget.value)}>
+            {sections.map((section) => <option key={section.id} value={section.id}>{section.title}</option>)}
+          </SelectField>
+          <TextAreaField label="Body" value={body} onChange={(event) => setBody(event.currentTarget.value)} />
+          <FormActions>
+            <Button type="button" variant="primary" onClick={() => void api(`/api/notes/${note.id}`, { method: "PATCH", body: JSON.stringify({ title, body, sectionId }) }).then(refresh)}>Save note</Button>
+          </FormActions>
+        </div>
+      </Panel>
+    </Page>
   );
 }
 
@@ -224,24 +230,26 @@ function TodoEditor({ route, todos, sections, refresh }: { route: WebAppRoute; t
     setSectionId(todo?.sectionId ?? sections[0]?.id ?? "");
     setPriority(todo?.priority ?? "normal");
   }, [todo, sections]);
-  if (!todo) return <EmptyState title="Task not found" />;
+  if (!todo) return <Page><EmptyState title="Task not found" /></Page>;
   return (
-    <Panel title="Edit task" description={todo.completed ? "This task is completed." : "This task is open."}>
-      <div className="notes-form">
-        <TextField label="Title" value={title} onChange={(event) => setTitle(event.currentTarget.value)} />
-        <SelectField label="List" value={sectionId} onChange={(event) => setSectionId(event.currentTarget.value)}>
-          {sections.map((section) => <option key={section.id} value={section.id}>{section.title}</option>)}
-        </SelectField>
-        <SelectField label="Priority" value={priority} onChange={(event) => setPriority(event.currentTarget.value as Todo["priority"])}>
-          <option value="low">Low</option>
-          <option value="normal">Normal</option>
-          <option value="high">High</option>
-        </SelectField>
-        <FormActions>
-          <Button type="button" variant="primary" onClick={() => void api(`/api/todos/${todo.id}`, { method: "PATCH", body: JSON.stringify({ title, sectionId, priority }) }).then(refresh)}>Save task</Button>
-        </FormActions>
-      </div>
-    </Panel>
+    <Page>
+      <Panel title="Edit task" description={todo.completed ? "This task is completed." : "This task is open."}>
+        <div className="notes-form">
+          <TextField label="Title" value={title} onChange={(event) => setTitle(event.currentTarget.value)} />
+          <SelectField label="List" value={sectionId} onChange={(event) => setSectionId(event.currentTarget.value)}>
+            {sections.map((section) => <option key={section.id} value={section.id}>{section.title}</option>)}
+          </SelectField>
+          <SelectField label="Priority" value={priority} onChange={(event) => setPriority(event.currentTarget.value as Todo["priority"])}>
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+          </SelectField>
+          <FormActions>
+            <Button type="button" variant="primary" onClick={() => void api(`/api/todos/${todo.id}`, { method: "PATCH", body: JSON.stringify({ title, sectionId, priority }) }).then(refresh)}>Save task</Button>
+          </FormActions>
+        </div>
+      </Panel>
+    </Page>
   );
 }
 
@@ -255,16 +263,18 @@ function NewSectionView({ route, sections, refresh }: { route: WebAppRoute; sect
     navigateTo({ view: "section", sectionId: section.id });
   }
   return (
-    <Panel title="New list" description="Lists can be nested and every list item can expose contextual actions.">
-      <div className="notes-form">
-        <TextField label="List name" value={title} onChange={(event) => setTitle(event.currentTarget.value)} autoFocus />
-        <SelectField label="Parent list" value={parentId} onChange={(event) => navigateTo({ view: "new-section", parentId: event.currentTarget.value || undefined })}>
-          <option value="">Top level</option>
-          {sections.map((section) => <option key={section.id} value={section.id}>{section.title}</option>)}
-        </SelectField>
-        <FormActions><Button type="button" variant="primary" disabled={!title.trim()} onClick={() => void submit()}>Create list</Button></FormActions>
-      </div>
-    </Panel>
+    <Page>
+      <Panel title="New list" description="Lists can be nested and every list item can expose contextual actions.">
+        <div className="notes-form">
+          <TextField label="List name" value={title} onChange={(event) => setTitle(event.currentTarget.value)} autoFocus />
+          <SelectField label="Parent list" value={parentId} onChange={(event) => navigateTo({ view: "new-section", parentId: event.currentTarget.value || undefined })}>
+            <option value="">Top level</option>
+            {sections.map((section) => <option key={section.id} value={section.id}>{section.title}</option>)}
+          </SelectField>
+          <FormActions><Button type="button" variant="primary" disabled={!title.trim()} onClick={() => void submit()}>Create list</Button></FormActions>
+        </div>
+      </Panel>
+    </Page>
   );
 }
 
@@ -279,16 +289,18 @@ function NewNoteView({ route, sections, refresh }: { route: WebAppRoute; section
     navigateTo({ view: "note", noteId: note.id });
   }
   return (
-    <Panel title="New note" description="Dedicated creation flow for notes.">
-      <div className="notes-form">
-        <TextField label="Title" value={title} onChange={(event) => setTitle(event.currentTarget.value)} autoFocus />
-        <SelectField label="List" value={sectionId} onChange={(event) => setSectionId(event.currentTarget.value)}>
-          {sections.map((section) => <option key={section.id} value={section.id}>{section.title}</option>)}
-        </SelectField>
-        <TextAreaField label="Body" value={body} onChange={(event) => setBody(event.currentTarget.value)} />
-        <FormActions><Button type="button" variant="primary" disabled={!title.trim() || !sectionId} onClick={() => void submit()}>Create note</Button></FormActions>
-      </div>
-    </Panel>
+    <Page>
+      <Panel title="New note" description="Dedicated creation flow for notes.">
+        <div className="notes-form">
+          <TextField label="Title" value={title} onChange={(event) => setTitle(event.currentTarget.value)} autoFocus />
+          <SelectField label="List" value={sectionId} onChange={(event) => setSectionId(event.currentTarget.value)}>
+            {sections.map((section) => <option key={section.id} value={section.id}>{section.title}</option>)}
+          </SelectField>
+          <TextAreaField label="Body" value={body} onChange={(event) => setBody(event.currentTarget.value)} />
+          <FormActions><Button type="button" variant="primary" disabled={!title.trim() || !sectionId} onClick={() => void submit()}>Create note</Button></FormActions>
+        </div>
+      </Panel>
+    </Page>
   );
 }
 
@@ -303,20 +315,22 @@ function NewTodoView({ route, sections, refresh }: { route: WebAppRoute; section
     navigateTo({ view: "todo", todoId: todo.id });
   }
   return (
-    <Panel title="New task" description="Dedicated creation flow for tasks.">
-      <div className="notes-form">
-        <TextField label="Title" value={title} onChange={(event) => setTitle(event.currentTarget.value)} autoFocus />
-        <SelectField label="List" value={sectionId} onChange={(event) => setSectionId(event.currentTarget.value)}>
-          {sections.map((section) => <option key={section.id} value={section.id}>{section.title}</option>)}
-        </SelectField>
-        <SelectField label="Priority" value={priority} onChange={(event) => setPriority(event.currentTarget.value as Todo["priority"])}>
-          <option value="low">Low</option>
-          <option value="normal">Normal</option>
-          <option value="high">High</option>
-        </SelectField>
-        <FormActions><Button type="button" variant="primary" disabled={!title.trim() || !sectionId} onClick={() => void submit()}>Create task</Button></FormActions>
-      </div>
-    </Panel>
+    <Page>
+      <Panel title="New task" description="Dedicated creation flow for tasks.">
+        <div className="notes-form">
+          <TextField label="Title" value={title} onChange={(event) => setTitle(event.currentTarget.value)} autoFocus />
+          <SelectField label="List" value={sectionId} onChange={(event) => setSectionId(event.currentTarget.value)}>
+            {sections.map((section) => <option key={section.id} value={section.id}>{section.title}</option>)}
+          </SelectField>
+          <SelectField label="Priority" value={priority} onChange={(event) => setPriority(event.currentTarget.value as Todo["priority"])}>
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+          </SelectField>
+          <FormActions><Button type="button" variant="primary" disabled={!title.trim() || !sectionId} onClick={() => void submit()}>Create task</Button></FormActions>
+        </div>
+      </Panel>
+    </Page>
   );
 }
 

@@ -1,6 +1,6 @@
 :root {
   color-scheme: light;
-  --wapp-bg: #f3f4f6;
+  --wapp-bg: var(--wapp-shell-bg);
   --wapp-shell-bg: rgb(249 250 251 / 0.95);
   --wapp-surface: #ffffff;
   --wapp-surface-muted: #f9fafb;
@@ -18,7 +18,7 @@
 
 :root.dark {
   color-scheme: dark;
-  --wapp-bg: #0a0a0a;
+  --wapp-bg: var(--wapp-shell-bg);
   --wapp-shell-bg: rgb(23 23 23 / 0.95);
   --wapp-surface: #262626;
   --wapp-surface-muted: #171717;
@@ -550,6 +550,12 @@ textarea::placeholder {
   min-height: 0;
   overflow: auto;
   overflow-x: hidden;
+  padding: 0;
+}
+
+.wapp-page {
+  width: 100%;
+  min-width: 0;
   padding: 1.5rem 2rem 2rem;
 }
 
@@ -1765,9 +1771,12 @@ textarea::placeholder {
   }
 
   .wapp-main-content {
-    padding: 1rem;
     overflow: auto;
     overflow-x: hidden;
+  }
+
+  .wapp-page {
+    padding: 1rem;
   }
 
   .wapp-panel-header,
