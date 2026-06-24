@@ -30,7 +30,7 @@ function defaultCliPath(path: string): string {
   return trimSlashes(path.startsWith("/api/") ? path.slice("/api/".length) : path);
 }
 
-function methodsFor(route: RouteDefinition): HttpMethod[] {
+function methodsFor<TEvent>(route: RouteDefinition<TEvent>): HttpMethod[] {
   return HTTP_METHODS.filter((method) => typeof route[method] === "function");
 }
 

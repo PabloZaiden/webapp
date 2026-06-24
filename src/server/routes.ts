@@ -10,6 +10,7 @@ export type UserOwnedResource = { userId: string };
 export type UserIdSelector<TResource> = (resource: TResource) => string | undefined;
 
 export interface UserScopedRealtimePublisher<TEvent = unknown> {
+  readonly _eventType?: TEvent;
   publishChanged<TPayload = unknown>(resource: string, options?: Omit<ResourceRealtimeEvent<TPayload>, "type" | "resource" | "action"> & { target?: RealtimeTarget }): void;
   publishEntityChanged<TPayload = unknown>(resource: string, id: string, options?: Omit<ResourceRealtimeEvent<TPayload>, "type" | "resource" | "action" | "id"> & { target?: RealtimeTarget }): void;
   publishDeleted<TPayload = unknown>(resource: string, id: string, options?: Omit<ResourceRealtimeEvent<TPayload>, "type" | "resource" | "action" | "id"> & { target?: RealtimeTarget }): void;
@@ -75,13 +76,19 @@ export function matchRoute<TEvent>(routes: RouteTable<TEvent>, pathname: string)
   const requestParts = splitPath(pathname);
   for (const [pattern, route] of Object.entries(routes)) {
     const patternParts = splitPath(pattern);
-    if (patternParts.length !== requestParts.length) {
+    const wildcardIndex = patternParts.indexOf("*");
+    const hasTrailingWildcard = wildcardIndex === patternParts.length - 1;
+    if ((!hasTrailingWildcard && patternParts.length !== requestParts.length) || (hasTrailingWildcard && requestParts.length < wildcardIndex)) {
       continue;
     }
     const params: Record<string, string> = {};
     let matched = true;
     for (let index = 0; index < patternParts.length; index += 1) {
       const patternPart = patternParts[index]!;
+      if (patternPart === "*" && index === patternParts.length - 1) {
+        params["*"] = requestParts.slice(index).map(decodeURIComponent).join("/");
+        break;
+      }
       const requestPart = requestParts[index]!;
       if (patternPart.startsWith(":")) {
         params[patternPart.slice(1)] = decodeURIComponent(requestPart);

@@ -1,6 +1,22 @@
 import type { ReactNode } from "react";
 
-export type BadgeVariant = "default" | "success" | "warning" | "error" | "info" | "disabled";
+export type BadgeVariant =
+  | "default"
+  | "success"
+  | "warning"
+  | "error"
+  | "info"
+  | "disabled"
+  | "idle"
+  | "planning"
+  | "running"
+  | "completed"
+  | "stopped"
+  | "failed"
+  | "merged"
+  | "pushed"
+  | "deleted"
+  | "plan_ready";
 
 export interface WebAppRoute {
   view: string;

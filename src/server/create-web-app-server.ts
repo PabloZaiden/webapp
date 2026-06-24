@@ -63,6 +63,7 @@ export interface WebAppServerConfig<TEvent = unknown> {
   logLevel?: {
     onChange?: (level: LogLevelName) => void;
   };
+  configResponse?: (req: Request, base: WebAppConfigResponse) => Record<string, unknown>;
 }
 
 export const WEBAPP_SOCKET_HANDLER = "webappSocketHandler";
@@ -364,9 +365,9 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     return { kind: "anonymous" };
   }
 
-  function configResponse(req: Request): WebAppConfigResponse {
+  function configResponse(req: Request): WebAppConfigResponse & Record<string, unknown> {
     const user = passkeysEnabled && config.passkeyDisabled ? disabledAuthOwner() : passkeysEnabled ? getPasskeySessionUser(req, store, config) : undefined;
-    return {
+    const base = {
       appName: config.appName,
       version,
       currentUser: user,
@@ -381,7 +382,8 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       },
       apiKeys: { enabled: Boolean(apiKeysEnabled) },
       deviceAuth: { enabled: Boolean(deviceAuthEnabled) },
-    };
+    } satisfies WebAppConfigResponse;
+    return { ...base, ...(input.configResponse?.(req, base) ?? {}) };
   }
 
   function setupUrl(req: Request, token: string): string {
@@ -426,6 +428,18 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         const filters = Object.fromEntries(url.searchParams.entries());
         const upgraded = server.upgrade(req, { data: { filters, userId: currentUser(auth)?.id } });
         return upgraded ? undefined : errorResponse(400, "websocket_upgrade_failed", "WebSocket upgrade failed");
+      }
+      if (path === "/api/auth/status" && req.method === "GET") {
+        const auth = await authorize(req, true);
+        if (auth instanceof Response) return auth;
+        const user = currentUser(auth);
+        return jsonResponse({
+          authenticated: true,
+          authKind: auth.kind,
+          subject: user?.id ?? null,
+          clientId: auth.kind === "bearer" ? auth.claims.clientId : null,
+          scope: auth.kind === "bearer" ? auth.claims.scope : null,
+        });
       }
       if (path === "/api/passkey-auth/status" && req.method === "GET") {
         return jsonResponse(passkeyStatus(req, store, config, passkeysEnabled));
