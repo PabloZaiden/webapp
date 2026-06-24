@@ -106,6 +106,53 @@ describe("server security defaults", () => {
     expect(disabledConfig.passkeyAuth).toMatchObject({ enabled: false, authenticated: true });
   });
 
+  test("config extensions cannot override framework-owned fields", async () => {
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_CONFIG_EXTENSION",
+      index: "<html></html>",
+      store: testStore("config-extension"),
+      auth: { passkeys: false },
+      routes: defineRoutes({}),
+      configResponse: () => ({
+        appName: "Overridden",
+        passkeyAuth: { enabled: true, authenticated: false },
+        publicBasePath: "/proxy",
+      }),
+    });
+
+    const config = await responseJson<{ appName: string; passkeyAuth: { enabled: boolean; authenticated: boolean }; publicBasePath: string }>(
+      await app.handleRequest(new Request("http://localhost/api/config")),
+    );
+
+    expect(config.appName).toBe("Test");
+    expect(config.passkeyAuth).toMatchObject({ enabled: false, authenticated: true });
+    expect(config.publicBasePath).toBe("/proxy");
+  });
+
+  test("auth status reports anonymous requests as unauthenticated", async () => {
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_AUTH_STATUS",
+      index: "<html></html>",
+      store: testStore("auth-status-anonymous"),
+      auth: { passkeys: false },
+      routes: defineRoutes({}),
+    });
+
+    const status = await responseJson<{ authenticated: boolean; authKind: string; subject: string | null; clientId: string | null; scope: string | null }>(
+      await app.handleRequest(new Request("http://localhost/api/auth/status")),
+    );
+
+    expect(status).toEqual({
+      authenticated: false,
+      authKind: "anonymous",
+      subject: null,
+      clientId: null,
+      scope: null,
+    });
+  });
+
   test("emergency bypass skips bootstrap and authenticates as local owner", async () => {
     const previous = process.env["TEST_EMPTY_BYPASS_DISABLE_PASSKEY"];
     process.env["TEST_EMPTY_BYPASS_DISABLE_PASSKEY"] = "true";

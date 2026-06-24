@@ -63,7 +63,7 @@ export interface WebAppServerConfig<TEvent = unknown> {
   logLevel?: {
     onChange?: (level: LogLevelName) => void;
   };
-  configResponse?: (req: Request, base: WebAppConfigResponse) => Record<string, unknown>;
+  configResponse?: (req: Request, base: Readonly<WebAppConfigResponse>) => Record<string, unknown>;
 }
 
 export const WEBAPP_SOCKET_HANDLER = "webappSocketHandler";
@@ -383,7 +383,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       apiKeys: { enabled: Boolean(apiKeysEnabled) },
       deviceAuth: { enabled: Boolean(deviceAuthEnabled) },
     } satisfies WebAppConfigResponse;
-    return { ...base, ...(input.configResponse?.(req, base) ?? {}) };
+    return { ...(input.configResponse?.(req, base) ?? {}), ...base };
   }
 
   function setupUrl(req: Request, token: string): string {
@@ -434,7 +434,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         if (auth instanceof Response) return auth;
         const user = currentUser(auth);
         return jsonResponse({
-          authenticated: true,
+          authenticated: auth.kind !== "anonymous",
           authKind: auth.kind,
           subject: user?.id ?? null,
           clientId: auth.kind === "bearer" ? auth.claims.clientId : null,

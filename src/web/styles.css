@@ -548,8 +548,9 @@ textarea::placeholder {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
-  padding: 0;
+  overflow: auto;
+  overflow-x: hidden;
+  padding: 1.5rem 2rem 2rem;
 }
 
 .wapp-panel {
@@ -1764,8 +1765,9 @@ textarea::placeholder {
   }
 
   .wapp-main-content {
-    padding: 0;
-    overflow: hidden;
+    padding: 1rem;
+    overflow: auto;
+    overflow-x: hidden;
   }
 
   .wapp-panel-header,

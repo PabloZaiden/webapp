@@ -259,7 +259,7 @@ function isNativeEnterTarget(target: EventTarget | null): boolean {
   if (target instanceof HTMLButtonElement || target instanceof HTMLAnchorElement || target instanceof HTMLSelectElement) {
     return true;
   }
-  if (target instanceof HTMLInputElement && target.form) {
+  if (target instanceof HTMLInputElement) {
     return true;
   }
   return false;
@@ -350,6 +350,35 @@ export function useDialogKeyboardShortcuts({
 }
 
 const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const MODAL_SCROLL_LOCK_COUNT_KEY = "__webappModalScrollLockCount";
+const MODAL_SCROLL_LOCK_OVERFLOW_KEY = "__webappModalScrollLockOverflow";
+
+type ScrollLockedBody = HTMLElement & {
+  [MODAL_SCROLL_LOCK_COUNT_KEY]?: number;
+  [MODAL_SCROLL_LOCK_OVERFLOW_KEY]?: string;
+};
+
+function lockBodyScroll(): () => void {
+  const body = document.body as ScrollLockedBody;
+  const lockCount = body[MODAL_SCROLL_LOCK_COUNT_KEY] ?? 0;
+  if (lockCount === 0) {
+    body[MODAL_SCROLL_LOCK_OVERFLOW_KEY] = body.style.overflow;
+    body.style.overflow = "hidden";
+  }
+  body[MODAL_SCROLL_LOCK_COUNT_KEY] = lockCount + 1;
+
+  return () => {
+    const nextLockCount = Math.max((body[MODAL_SCROLL_LOCK_COUNT_KEY] ?? 1) - 1, 0);
+    if (nextLockCount > 0) {
+      body[MODAL_SCROLL_LOCK_COUNT_KEY] = nextLockCount;
+      return;
+    }
+
+    body.style.overflow = body[MODAL_SCROLL_LOCK_OVERFLOW_KEY] ?? "";
+    delete body[MODAL_SCROLL_LOCK_COUNT_KEY];
+    delete body[MODAL_SCROLL_LOCK_OVERFLOW_KEY];
+  };
+}
 
 export interface ModalProps {
   isOpen: boolean;
@@ -425,12 +454,12 @@ export function Modal({
 
     previousFocusRef.current = document.activeElement;
     document.addEventListener("keydown", handleFocusTrap);
-    document.body.style.overflow = "hidden";
+    const unlockBodyScroll = lockBodyScroll();
     modalRef.current?.focus();
 
     return () => {
       document.removeEventListener("keydown", handleFocusTrap);
-      document.body.style.overflow = "";
+      unlockBodyScroll();
       if (previousFocusRef.current instanceof HTMLElement) {
         previousFocusRef.current.focus();
       }
