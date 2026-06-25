@@ -102,6 +102,87 @@ function useRoute(defaultRoute: WebAppRoute) {
   return { route, navigate };
 }
 
+function useMobileViewportHeight() {
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const root = document.documentElement;
+    const mobileQuery = window.matchMedia("(max-width: 900px)");
+    const viewport = window.visualViewport;
+    const timers = new Set<number>();
+    let frame = 0;
+
+    const clearViewportHeight = () => {
+      root.style.removeProperty("--wapp-viewport-height");
+    };
+
+    const sync = () => {
+      frame = 0;
+      if (!mobileQuery.matches) {
+        clearViewportHeight();
+        return;
+      }
+
+      const height = Math.round(viewport?.height ?? window.innerHeight);
+      if (height > 0) {
+        root.style.setProperty("--wapp-viewport-height", `${height}px`);
+      }
+
+      const scrollingElement = document.scrollingElement;
+      if (scrollingElement && scrollingElement.scrollTop !== 0) {
+        scrollingElement.scrollTop = 0;
+      }
+    };
+
+    const scheduleSync = () => {
+      if (frame) {
+        return;
+      }
+      frame = requestAnimationFrame(sync);
+    };
+
+    const scheduleDelayedSync = (delay: number) => {
+      const timer = window.setTimeout(() => {
+        timers.delete(timer);
+        scheduleSync();
+      }, delay);
+      timers.add(timer);
+    };
+
+    const handleKeyboardBoundary = () => {
+      scheduleSync();
+      scheduleDelayedSync(120);
+      scheduleDelayedSync(320);
+    };
+
+    scheduleSync();
+    viewport?.addEventListener("resize", scheduleSync);
+    viewport?.addEventListener("scroll", scheduleSync);
+    window.addEventListener("resize", scheduleSync);
+    mobileQuery.addEventListener("change", scheduleSync);
+    document.addEventListener("focusin", handleKeyboardBoundary);
+    document.addEventListener("focusout", handleKeyboardBoundary);
+
+    return () => {
+      if (frame) {
+        cancelAnimationFrame(frame);
+      }
+      for (const timer of timers) {
+        clearTimeout(timer);
+      }
+      viewport?.removeEventListener("resize", scheduleSync);
+      viewport?.removeEventListener("scroll", scheduleSync);
+      window.removeEventListener("resize", scheduleSync);
+      mobileQuery.removeEventListener("change", scheduleSync);
+      document.removeEventListener("focusin", handleKeyboardBoundary);
+      document.removeEventListener("focusout", handleKeyboardBoundary);
+      clearViewportHeight();
+    };
+  }, []);
+}
+
 async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -892,6 +973,7 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
 }
 
 export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRouteChange, settings, version }: WebAppRootProps) {
+  useMobileViewportHeight();
   const { config, error, refresh } = useConfig();
   const { route, navigate } = useRoute(homeRoute);
   const { theme, setTheme } = useTheme();

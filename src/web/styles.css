@@ -13,7 +13,25 @@
   --wapp-danger-bg: #991b1b;
   --wapp-primary: #111827;
   --wapp-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --wapp-safe-area-top: env(safe-area-inset-top, 0px);
+  --wapp-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --wapp-safe-area-left: env(safe-area-inset-left, 0px);
+  --wapp-safe-area-right: env(safe-area-inset-right, 0px);
+  --wapp-mobile-bottom-clearance: max(var(--wapp-safe-area-bottom), 0.75rem);
+  --wapp-viewport-height: 100vh;
   font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
+
+@supports (height: 100svh) {
+  :root {
+    --wapp-viewport-height: 100svh;
+  }
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --wapp-viewport-height: 100dvh;
+  }
 }
 
 :root.dark {
@@ -41,6 +59,7 @@ html,
 body,
 #root {
   height: 100%;
+  min-height: 100%;
 }
 
 body {
@@ -84,8 +103,8 @@ textarea::placeholder {
 
 .wapp-shell {
   display: flex;
-  height: 100vh;
-  min-height: 100vh;
+  height: var(--wapp-viewport-height);
+  min-height: var(--wapp-viewport-height);
   overflow: hidden;
   background: var(--wapp-bg);
 }
@@ -94,7 +113,7 @@ textarea::placeholder {
   width: 20rem;
   min-width: 20rem;
   min-height: 0;
-  height: 100vh;
+  height: var(--wapp-viewport-height);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -258,6 +277,7 @@ textarea::placeholder {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 1rem 0.75rem;
+  scroll-padding-bottom: var(--wapp-mobile-bottom-clearance);
 }
 
 .wapp-search input {
@@ -501,7 +521,7 @@ textarea::placeholder {
   align-items: center;
   justify-content: space-between;
   min-height: 2rem;
-  padding: 0.25rem 0.25rem 0;
+  padding: 0.25rem 0.25rem var(--wapp-safe-area-bottom);
   color: var(--wapp-muted-2);
   font-size: 0.75rem;
 }
@@ -527,7 +547,7 @@ textarea::placeholder {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  height: 100vh;
+  height: var(--wapp-viewport-height);
   display: flex;
   flex-direction: column;
 }
@@ -551,12 +571,53 @@ textarea::placeholder {
   overflow: auto;
   overflow-x: hidden;
   padding: 0;
+  scroll-padding-bottom: var(--wapp-mobile-bottom-clearance);
 }
 
 .wapp-page {
   width: 100%;
   min-width: 0;
-  padding: 1.5rem 2rem 2rem;
+  max-width: 100%;
+  padding: 1.5rem 2rem max(2rem, var(--wapp-mobile-bottom-clearance));
+}
+
+.wapp-page,
+.wapp-panel,
+.wapp-modal-body {
+  overflow-wrap: anywhere;
+}
+
+.wapp-page :where(*):not(table, thead, tbody, tfoot, tr, th, td),
+.wapp-panel :where(*):not(table, thead, tbody, tfoot, tr, th, td),
+.wapp-modal-body :where(*):not(table, thead, tbody, tfoot, tr, th, td) {
+  min-width: 0;
+}
+
+.wapp-page :where(img, video, canvas, iframe, svg),
+.wapp-panel :where(img, video, canvas, iframe, svg),
+.wapp-modal-body :where(img, video, canvas, iframe, svg) {
+  max-width: 100%;
+}
+
+.wapp-page :where(pre),
+.wapp-panel :where(pre),
+.wapp-modal-body :where(pre) {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.wapp-page :where(table),
+.wapp-panel :where(table),
+.wapp-modal-body :where(table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.wapp-page :where(code, kbd, samp),
+.wapp-panel :where(code, kbd, samp),
+.wapp-modal-body :where(code, kbd, samp) {
+  overflow-wrap: anywhere;
 }
 
 .wapp-panel {
@@ -1599,7 +1660,7 @@ textarea::placeholder {
   flex-direction: column;
   width: 100%;
   min-width: 0;
-  max-height: calc(100dvh - 1.5rem);
+  max-height: calc(var(--wapp-viewport-height) - 1.5rem - var(--wapp-safe-area-bottom));
   overflow: hidden;
   border: 1px solid var(--wapp-border);
   border-radius: 0.5rem;
@@ -1682,6 +1743,7 @@ textarea::placeholder {
   overflow-x: hidden;
   overflow-y: auto;
   padding: 0.75rem 1rem;
+  scroll-padding-bottom: var(--wapp-mobile-bottom-clearance);
 }
 
 .wapp-modal-footer {
@@ -1692,7 +1754,7 @@ textarea::placeholder {
   justify-content: flex-end;
   gap: 0.5rem;
   border-top: 1px solid var(--wapp-border);
-  padding: 0.75rem 1rem;
+  padding: 0.75rem 1rem max(0.75rem, var(--wapp-mobile-bottom-clearance));
 }
 
 @media (min-width: 640px) {
@@ -1701,7 +1763,7 @@ textarea::placeholder {
   }
 
   .wapp-modal {
-    max-height: calc(100dvh - 2.5rem);
+    max-height: calc(var(--wapp-viewport-height) - 2.5rem - var(--wapp-safe-area-bottom));
   }
 
   .wapp-modal-header {
@@ -1776,7 +1838,7 @@ textarea::placeholder {
   }
 
   .wapp-page {
-    padding: 1rem;
+    padding: 1rem 1rem max(1rem, var(--wapp-mobile-bottom-clearance));
   }
 
   .wapp-panel-header,
