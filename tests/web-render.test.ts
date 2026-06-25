@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { Button, ConfirmModal, Modal } from "../src/web/components";
@@ -83,6 +84,15 @@ async function renderShortcutWebApp() {
   });
 
   return { ...view, shell };
+}
+
+function cssRule(css: string, selector: string) {
+  const ruleStart = css.indexOf(`${selector} {`);
+  expect(ruleStart).toBeGreaterThanOrEqual(0);
+  const bodyStart = css.indexOf("{", ruleStart);
+  const bodyEnd = css.indexOf("}", bodyStart);
+  expect(bodyEnd).toBeGreaterThan(bodyStart);
+  return css.slice(bodyStart + 1, bodyEnd);
 }
 
 test("renderWebApp reuses the existing React root for the same container", () => {
@@ -261,4 +271,18 @@ test("mobile sidebar backdrop closes the open sidebar", async () => {
   } finally {
     restoreFetch();
   }
+});
+
+test("mobile sidebar backdrop uses the modal overlay blur tokens", () => {
+  const css = readFileSync(new URL("../src/web/styles.css", import.meta.url), "utf8");
+  const rootRule = cssRule(css, ":root");
+  const mobileBackdropRule = cssRule(css, ".wapp-mobile-backdrop");
+  const modalOverlayRule = cssRule(css, ".wapp-modal-overlay");
+
+  expect(rootRule).toContain("--wapp-overlay-bg: rgb(0 0 0 / 0.5);");
+  expect(rootRule).toContain("--wapp-overlay-blur: blur(4px);");
+  expect(mobileBackdropRule).toContain("background: var(--wapp-overlay-bg);");
+  expect(mobileBackdropRule).toContain("backdrop-filter: var(--wapp-overlay-blur);");
+  expect(modalOverlayRule).toContain("background: var(--wapp-overlay-bg);");
+  expect(modalOverlayRule).toContain("backdrop-filter: var(--wapp-overlay-blur);");
 });
