@@ -244,3 +244,21 @@ test("sidebar toggle label reflects the current action", async () => {
     restoreFetch();
   }
 });
+
+test("mobile sidebar backdrop closes the open sidebar", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const { container, getByLabelText, shell } = await renderShortcutWebApp();
+
+    fireEvent.click(getByLabelText("Show sidebar"));
+    await waitFor(() => expect(shell.classList.contains("sidebar-open")).toBe(true));
+
+    const backdrop = container.querySelector(".wapp-mobile-backdrop");
+    expect(backdrop).toBeTruthy();
+    fireEvent.click(backdrop!);
+
+    await waitFor(() => expect(shell.classList.contains("sidebar-open")).toBe(false));
+  } finally {
+    restoreFetch();
+  }
+});
