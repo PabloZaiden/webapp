@@ -9,3 +9,4 @@
 - Keep Bun native hot reload as the development path: one Bun server serves the React UI, API routes and websockets.
 - When adding CI, Docker or release automation for framework apps, follow `docs/github-actions.md`.
 - All destructive delete actions must use the framework `ConfirmDialog` before calling the delete endpoint. Do not wire delete buttons directly to mutations.
+- Route components rendered by `WebAppRoot.routes` must use `Page` as the top-level wrapper; do not render content directly into `.wapp-main-content` or duplicate the fixed framework title with an app-local heading.

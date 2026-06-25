@@ -57,11 +57,15 @@ See `docs/cli.md` for framework CLI helpers and generic API command support.
 Frontend entrypoints should use `renderWebApp` so Bun/browser hot reload reuses the existing React root instead of calling `createRoot()` twice. Import the framework CSS explicitly so Bun hot reload observes style changes:
 
 ```tsx
-import { WebAppRoot, renderWebApp } from "@pablozaiden/webapp/web";
+import { Page, Panel, WebAppRoot, renderWebApp } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 
 function Home() {
-  return <main className="wapp-main-content">Hello</main>;
+  return (
+    <Page>
+      <Panel>Hello</Panel>
+    </Page>
+  );
 }
 
 renderWebApp(
@@ -75,6 +79,7 @@ renderWebApp(
 ```
 
 `renderWebApp` renders into `#root` by default and reuses the existing React root across hot reloads. Pass a custom element id or `Element` only when the app uses a different mount point.
+`WebAppRoot` owns the shell and `.wapp-main-content`; each route component should return a `Page` wrapper so standard content margins, mobile padding and scroll behavior stay consistent.
 
 Recommended dev script:
 
