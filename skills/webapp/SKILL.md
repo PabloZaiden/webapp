@@ -1,3 +1,8 @@
+---
+name: webapp
+description: 'Build, modify, validate, and ship apps using @pablozaiden/webapp. Use when creating framework apps, adding routes, auth, settings, realtime, sidebar actions, Docker, GitHub Actions, screenshots, or Playwright validation.'
+---
+
 # Webapp framework skill
 
 Use this skill when building an app with `@pablozaiden/webapp`.
@@ -5,7 +10,7 @@ Use this skill when building an app with `@pablozaiden/webapp`.
 ## Rules
 
 - Treat the app as one Bun server that serves React, API routes and websockets together.
-- Do not add Vite, a standalone client dev server, or `WEB_DIST_DIR`.
+- Do not add Vite or a standalone client dev server.
 - Use `bun --hot src/index.ts serve` for dev.
 - Keep the product as one app and one binary with subcommands (`serve`, `version`, app-specific commands, and optional framework-backed `auth`/`api`/`schema` commands). Do not split web/server/CLI into separate apps or binaries unless there is a real package boundary.
 - Keep generated apps and tooling cross-platform across macOS and Linux on arm64 and x86-64.

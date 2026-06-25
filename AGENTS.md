@@ -4,6 +4,7 @@
 - Do not hard-code OS-specific executable paths, browser paths, GNU-only flags, or architecture-specific binaries.
 - Use Playwright for all browser automation and screenshot capture. Do not automate screenshots by launching Chrome directly from platform-specific paths.
 - When taking screenshots to validate a visual change, review the screenshots against the specific goal; capturing them is not enough.
+- Don't overwrite existing screenshots unless the user explicitly asks for it. When taking screenshots to validate a visual change, store them either in a temporary location or in a git-ignored folder.
 - Validate that functional changes actually work with Playwright, exercising the affected UI flow end-to-end, unless the change is very simple and has no meaningful browser-facing behavior.
 - Test user-visible functionality and behavior, not implementation details. Do not add brittle UI tests that assert internal class names, DOM structure or component implementation details.
 - Keep Bun native hot reload as the development path: one Bun server serves the React UI, API routes and websockets.
