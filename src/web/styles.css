@@ -22,15 +22,15 @@
   font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
-@supports (height: 100dvh) {
-  :root {
-    --wapp-viewport-height: 100dvh;
-  }
-}
-
 @supports (height: 100svh) {
   :root {
     --wapp-viewport-height: 100svh;
+  }
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --wapp-viewport-height: 100dvh;
   }
 }
 
