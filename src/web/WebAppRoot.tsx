@@ -70,6 +70,18 @@ type StoredSidebarPin = {
   route: WebAppRoute;
 };
 
+function isSidebarShortcutEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  if (target.isContentEditable || target.closest("[contenteditable=''], [contenteditable='true']")) {
+    return true;
+  }
+  return target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target instanceof HTMLSelectElement;
+}
+
 function routeToHash(route: WebAppRoute): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(route)) {
@@ -1057,6 +1069,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
         || event.ctrlKey === event.metaKey
         || event.isComposing
         || event.repeat
+        || isSidebarShortcutEditableTarget(event.target)
       ) {
         return;
       }
@@ -1112,6 +1125,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   const headerTitle = header?.renderTitle?.(headerContext) ?? defaultTitle;
   const primaryHeaderActions = header?.renderActions?.(headerContext);
   const headerActionLabel = typeof headerTitle === "string" ? headerTitle : defaultTitle;
+  const sidebarToggleLabel = sidebarCollapsed ? "Show sidebar" : "Collapse sidebar";
   const navigateFromSidebarHeader = (nextRoute: WebAppRoute) => {
     navigate(nextRoute);
     setSidebarOpen(false);
@@ -1134,7 +1148,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
           <div className="wapp-sidebar-actions">
             {topActions.map((action) => <IconButton key={action.id} className="wapp-sidebar-top-button" title={action.title} aria-label={action.title} onClick={() => runSidebarHeaderAction(action)}><ActionIcon icon={action.icon} /></IconButton>)}
             <IconButton className="wapp-sidebar-top-button" title="Settings" aria-label="Open settings" active={route.view === "settings"} onClick={() => navigateFromSidebarHeader({ view: "settings" })}><Icon name="settings" /></IconButton>
-            <IconButton className="wapp-sidebar-top-button" title="Collapse sidebar" aria-label="Collapse sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton>
+            <IconButton className="wapp-sidebar-top-button" title={sidebarToggleLabel} aria-label={sidebarToggleLabel} onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton>
           </div>
         </div>
         <div className="wapp-sidebar-scroll">
@@ -1146,7 +1160,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
       <section className="wapp-main">
         <header className="wapp-main-header">
           <div className="wapp-main-header-title">
-            {sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label="Show sidebar" title="Show sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : <IconButton className="wapp-mobile-only wapp-sidebar-top-button" aria-label="Show sidebar" title="Show sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton>}
+            {sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : <IconButton className="wapp-mobile-only wapp-sidebar-top-button" aria-label="Show sidebar" title="Show sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton>}
             <h1>{headerTitle}</h1>
           </div>
           {primaryHeaderActions || headerActions.length ? (
