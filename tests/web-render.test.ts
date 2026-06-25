@@ -1,8 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { createElement } from "react";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { Button, ConfirmModal, Modal } from "../src/web/components";
+import type { WebAppConfigResponse } from "../src/contracts";
+import { WebAppRoot } from "../src/web/WebAppRoot";
 import { renderWebApp } from "../src/web/render";
 
 GlobalRegistrator.register();
@@ -12,6 +14,76 @@ afterEach(() => {
   document.body.innerHTML = "";
   document.body.style.overflow = "";
 });
+
+function mockConfigFetch() {
+  const previousFetch = globalThis.fetch;
+  const config: WebAppConfigResponse = {
+    appName: "Test App",
+    version: "1.0.0",
+    passkeyAuth: {
+      enabled: false,
+      passkeyConfigured: false,
+      passkeyDisabled: true,
+      passkeyRequired: false,
+      authenticated: true,
+      bootstrapRequired: false,
+      ownerPasskeySetupRequired: false,
+    },
+    userManagement: {
+      enabled: false,
+      canManageUsers: false,
+    },
+    logLevel: {
+      level: "info",
+      fromEnv: false,
+    },
+    deviceAuth: {
+      enabled: false,
+    },
+    apiKeys: {
+      enabled: false,
+    },
+  };
+
+  function fetchPath(input: RequestInfo | URL) {
+    const rawUrl = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+    return new URL(String(rawUrl), "http://localhost").pathname;
+  }
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    if (fetchPath(input) === "/api/config") {
+      return Response.json(config);
+    }
+    return Response.json({ error: "Not found", message: "Not found" }, { status: 404 });
+  }) as typeof fetch;
+
+  return () => {
+    globalThis.fetch = previousFetch;
+  };
+}
+
+async function renderShortcutWebApp() {
+  const view = render(createElement(WebAppRoot, {
+    appName: "Test App",
+    homeRoute: { view: "home" },
+    sidebar: {
+      search: false,
+      pinning: false,
+      getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+    },
+    routes: {
+      home: createElement("p", null, "Home"),
+    },
+  }));
+
+  const shell = await waitFor(() => {
+    const element = view.container.querySelector(".wapp-shell");
+    expect(element).toBeTruthy();
+    return element as HTMLElement;
+  });
+
+  return { ...view, shell };
+}
 
 test("renderWebApp reuses the existing React root for the same container", () => {
   const container = document.createElement("div");
@@ -30,6 +102,17 @@ test("renderWebApp reuses the existing React root for the same container", () =>
     expect(messages.some((message) => message.includes("createRoot() on a container"))).toBe(false);
   } finally {
     console.error = originalError;
+  }
+});
+
+test("mockConfigFetch matches config requests from string, URL, and Request inputs", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    await expect(fetch("/api/config").then((response) => response.json())).resolves.toMatchObject({ appName: "Test App" });
+    await expect(fetch(new URL("http://localhost/api/config")).then((response) => response.json())).resolves.toMatchObject({ appName: "Test App" });
+    await expect(fetch(new Request("http://localhost/api/config")).then((response) => response.json())).resolves.toMatchObject({ appName: "Test App" });
+  } finally {
+    restoreFetch();
   }
 });
 
@@ -70,4 +153,94 @@ test("modal scroll lock remains active until the last stacked modal closes", () 
 
   unmount();
   expect(document.body.style.overflow).toBe("auto");
+});
+
+test("Ctrl+B toggles the sidebar collapsed state", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const { shell } = await renderShortcutWebApp();
+
+    expect(shell.classList.contains("sidebar-collapsed")).toBe(false);
+
+    const collapseDispatched = fireEvent.keyDown(document, { key: "b", ctrlKey: true, cancelable: true });
+    expect(collapseDispatched).toBe(false);
+    await waitFor(() => expect(shell.classList.contains("sidebar-collapsed")).toBe(true));
+
+    const expandDispatched = fireEvent.keyDown(document, { key: "b", ctrlKey: true, cancelable: true });
+    expect(expandDispatched).toBe(false);
+    await waitFor(() => expect(shell.classList.contains("sidebar-collapsed")).toBe(false));
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("Cmd+B toggles the sidebar collapsed state", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const { shell } = await renderShortcutWebApp();
+
+    fireEvent.keyDown(document, { key: "B", metaKey: true });
+    await waitFor(() => expect(shell.classList.contains("sidebar-collapsed")).toBe(true));
+
+    fireEvent.keyDown(document, { key: "b", metaKey: true });
+    await waitFor(() => expect(shell.classList.contains("sidebar-collapsed")).toBe(false));
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar shortcut ignores non-exact key combinations", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const { shell } = await renderShortcutWebApp();
+
+    fireEvent.keyDown(document, { key: "b" });
+    fireEvent.keyDown(document, { key: "b", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(document, { key: "b", ctrlKey: true, metaKey: true });
+    fireEvent.keyDown(document, { key: "b", ctrlKey: true, repeat: true });
+    fireEvent.keyDown(document, { key: "b", ctrlKey: true, isComposing: true });
+
+    expect(shell.classList.contains("sidebar-collapsed")).toBe(false);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar shortcut ignores text-editing targets", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const { shell } = await renderShortcutWebApp();
+    const targets = [
+      document.createElement("input"),
+      document.createElement("textarea"),
+      document.createElement("select"),
+      document.createElement("div"),
+    ];
+    targets[3].setAttribute("contenteditable", "true");
+    document.body.append(...targets);
+
+    for (const target of targets) {
+      target.focus();
+      const dispatched = fireEvent.keyDown(target, { key: "b", ctrlKey: true, cancelable: true });
+      expect(dispatched).toBe(true);
+      expect(shell.classList.contains("sidebar-collapsed")).toBe(false);
+    }
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar toggle label reflects the current action", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const { container } = await renderShortcutWebApp();
+
+    expect(container.querySelectorAll('[aria-label="Collapse sidebar"]')).toHaveLength(1);
+
+    fireEvent.keyDown(document, { key: "b", ctrlKey: true });
+    await waitFor(() => expect(container.querySelectorAll('[aria-label="Collapse sidebar"]')).toHaveLength(0));
+    expect(container.querySelectorAll('[aria-label="Show sidebar"]').length).toBeGreaterThan(0);
+  } finally {
+    restoreFetch();
+  }
 });
