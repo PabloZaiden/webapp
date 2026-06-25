@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { readFileSync } from "node:fs";
-import { createElement } from "react";
+import { act, createElement } from "react";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { Button, ConfirmModal, Modal } from "../src/web/components";
 import type { WebAppConfigResponse } from "../src/contracts";
@@ -14,6 +14,7 @@ afterEach(() => {
   cleanup();
   document.body.innerHTML = "";
   document.body.style.overflow = "";
+  localStorage.clear();
 });
 
 function mockConfigFetch() {
@@ -84,6 +85,41 @@ async function renderShortcutWebApp() {
   });
 
   return { ...view, shell };
+}
+
+async function renderCollapsibleSidebarWebApp({ defaultCollapsed = false } = {}) {
+  const view = render(createElement(WebAppRoot, {
+    appName: "Test App",
+    homeRoute: { view: "home" },
+    sidebar: {
+      search: false,
+      pinning: false,
+      getNodes: () => [
+        {
+          type: "section" as const,
+          id: "projects",
+          title: "Projects",
+          defaultCollapsed,
+          children: [{ type: "item" as const, id: "alpha", title: "Alpha", route: { view: "alpha" } }],
+        },
+        {
+          type: "item" as const,
+          id: "group",
+          title: "Group",
+          children: [{ type: "item" as const, id: "child", title: "Child", route: { view: "child" } }],
+        },
+      ],
+    },
+    routes: {
+      home: createElement("p", null, "Home"),
+      alpha: createElement("p", null, "Alpha"),
+      child: createElement("p", null, "Child"),
+    },
+  }));
+
+  await waitFor(() => expect(view.container.querySelector(".wapp-shell")).toBeTruthy());
+
+  return view;
 }
 
 function cssRule(css: string, selector: string) {
@@ -250,6 +286,101 @@ test("sidebar toggle label reflects the current action", async () => {
     fireEvent.keyDown(document, { key: "b", ctrlKey: true });
     await waitFor(() => expect(container.querySelectorAll('[aria-label="Collapse sidebar"]')).toHaveLength(0));
     expect(container.querySelectorAll('[aria-label="Show sidebar"]').length).toBeGreaterThan(0);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar tree collapsed state persists across remounts", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const storageKey = "webapp.test-app.sidebar.collapsed";
+    const firstView = await renderCollapsibleSidebarWebApp();
+    const collapseProjects = await waitFor(() => firstView.getByLabelText("Collapse Projects"));
+
+    fireEvent.click(collapseProjects);
+
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: true }));
+    firstView.unmount();
+
+    const secondView = await renderCollapsibleSidebarWebApp();
+    const expandProjects = await waitFor(() => secondView.getByLabelText("Expand Projects"));
+
+    expect(expandProjects.getAttribute("aria-expanded")).toBe("false");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar tree persists item collapsed state", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const storageKey = "webapp.test-app.sidebar.collapsed";
+    const { getByLabelText } = await renderCollapsibleSidebarWebApp();
+
+    fireEvent.click(await waitFor(() => getByLabelText("Collapse Group")));
+
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ group: true }));
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar tree rapid toggles use the latest collapsed state", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const storageKey = "webapp.test-app.sidebar.collapsed";
+    const { getByLabelText } = await renderCollapsibleSidebarWebApp();
+    const collapseProjects = await waitFor(() => getByLabelText("Collapse Projects"));
+
+    await act(async () => {
+      collapseProjects.click();
+      collapseProjects.click();
+    });
+
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: false }));
+    const stillExpandedProjects = await waitFor(() => getByLabelText("Collapse Projects"));
+    expect(stillExpandedProjects.getAttribute("aria-expanded")).toBe("true");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar tree uses defaultCollapsed when no stored state exists", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const { getByLabelText } = await renderCollapsibleSidebarWebApp({ defaultCollapsed: true });
+    const expandProjects = await waitFor(() => getByLabelText("Expand Projects"));
+
+    expect(expandProjects.getAttribute("aria-expanded")).toBe("false");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar tree stored expanded state overrides defaultCollapsed", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    localStorage.setItem("webapp.test-app.sidebar.collapsed", JSON.stringify({ projects: false }));
+
+    const { getByLabelText } = await renderCollapsibleSidebarWebApp({ defaultCollapsed: true });
+    const collapseProjects = await waitFor(() => getByLabelText("Collapse Projects"));
+
+    expect(collapseProjects.getAttribute("aria-expanded")).toBe("true");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar tree ignores corrupt stored collapsed state", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    localStorage.setItem("webapp.test-app.sidebar.collapsed", "{");
+
+    const { getByLabelText } = await renderCollapsibleSidebarWebApp({ defaultCollapsed: true });
+    const expandProjects = await waitFor(() => getByLabelText("Expand Projects"));
+
+    expect(expandProjects.getAttribute("aria-expanded")).toBe("false");
   } finally {
     restoreFetch();
   }
