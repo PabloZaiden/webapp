@@ -1002,16 +1002,28 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   const headerTitle = header?.renderTitle?.(headerContext) ?? defaultTitle;
   const primaryHeaderActions = header?.renderActions?.(headerContext);
   const headerActionLabel = typeof headerTitle === "string" ? headerTitle : defaultTitle;
+  const navigateFromSidebarHeader = (nextRoute: WebAppRoute) => {
+    navigate(nextRoute);
+    setSidebarOpen(false);
+  };
+  const runSidebarHeaderAction = (action: SidebarAction) => {
+    if (action.onAction) {
+      action.onAction();
+    } else if (action.route) {
+      navigate(action.route);
+    }
+    setSidebarOpen(false);
+  };
 
   return (
     <main className={`wapp-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarOpen ? "sidebar-open" : ""}`}>
       <div className="wapp-mobile-backdrop" onClick={() => setSidebarOpen(false)} />
       <aside className="wapp-sidebar">
         <div className="wapp-sidebar-header">
-          <button type="button" className="wapp-brand" onClick={() => navigate(homeRoute)}>{appName}</button>
+          <button type="button" className="wapp-brand" onClick={() => navigateFromSidebarHeader(homeRoute)}>{appName}</button>
           <div className="wapp-sidebar-actions">
-            {topActions.map((action) => <IconButton key={action.id} className="wapp-sidebar-top-button" title={action.title} aria-label={action.title} onClick={action.onAction ?? (() => action.route && navigate(action.route))}><ActionIcon icon={action.icon} /></IconButton>)}
-            <IconButton className="wapp-sidebar-top-button" title="Settings" aria-label="Open settings" active={route.view === "settings"} onClick={() => navigate({ view: "settings" })}><Icon name="settings" /></IconButton>
+            {topActions.map((action) => <IconButton key={action.id} className="wapp-sidebar-top-button" title={action.title} aria-label={action.title} onClick={() => runSidebarHeaderAction(action)}><ActionIcon icon={action.icon} /></IconButton>)}
+            <IconButton className="wapp-sidebar-top-button" title="Settings" aria-label="Open settings" active={route.view === "settings"} onClick={() => navigateFromSidebarHeader({ view: "settings" })}><Icon name="settings" /></IconButton>
             <IconButton className="wapp-sidebar-top-button" title="Collapse sidebar" aria-label="Collapse sidebar" onClick={() => { setSidebarCollapsed(true); setSidebarOpen(false); }}><Icon name="sidebar" /></IconButton>
           </div>
         </div>
