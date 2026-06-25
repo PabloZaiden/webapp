@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { readFileSync } from "node:fs";
-import { createElement } from "react";
+import { act, createElement } from "react";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { Button, ConfirmModal, Modal } from "../src/web/components";
 import type { WebAppConfigResponse } from "../src/contracts";
@@ -321,6 +321,26 @@ test("sidebar tree persists item collapsed state", async () => {
     fireEvent.click(await waitFor(() => getByLabelText("Collapse Group")));
 
     await waitFor(() => expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ group: true }));
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar tree rapid toggles use the latest collapsed state", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const storageKey = "webapp.test-app.sidebar.collapsed";
+    const { getByLabelText } = await renderCollapsibleSidebarWebApp();
+    const collapseProjects = await waitFor(() => getByLabelText("Collapse Projects"));
+
+    await act(async () => {
+      collapseProjects.click();
+      collapseProjects.click();
+    });
+
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: false }));
+    const stillExpandedProjects = await waitFor(() => getByLabelText("Collapse Projects"));
+    expect(stillExpandedProjects.getAttribute("aria-expanded")).toBe("true");
   } finally {
     restoreFetch();
   }

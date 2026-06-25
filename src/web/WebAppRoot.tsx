@@ -322,7 +322,10 @@ function useSidebarCollapsedState(appName: string) {
   }, [key, collapsed]);
 
   const toggleCollapsed = useCallback((id: string, isCollapsed: boolean) => {
-    setCollapsed((current) => ({ ...current, [id]: !isCollapsed }));
+    setCollapsed((current) => {
+      const currentIsCollapsed = current[id] ?? isCollapsed;
+      return { ...current, [id]: !currentIsCollapsed };
+    });
   }, []);
 
   return { collapsed, toggleCollapsed };
