@@ -5,6 +5,7 @@ import { act, createElement } from "react";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { Button, ConfirmModal, Modal } from "../src/web/components";
 import type { WebAppConfigResponse } from "../src/contracts";
+import type { BadgeVariant } from "../src/web/sidebar/types";
 import { WebAppRoot } from "../src/web/WebAppRoot";
 import { renderWebApp } from "../src/web/render";
 
@@ -129,6 +130,22 @@ function cssRule(css: string, selector: string) {
   const bodyEnd = css.indexOf("}", bodyStart);
   expect(bodyEnd).toBeGreaterThan(bodyStart);
   return css.slice(bodyStart + 1, bodyEnd);
+}
+
+function cssRulesForSelector(css: string, selector: string) {
+  const rules: string[] = [];
+  for (const match of css.matchAll(/([^{}]+)\{([^{}]+)\}/g)) {
+    const selectors = match[1]!.split(",").map((part) => part.trim());
+    if (selectors.includes(selector)) {
+      rules.push(match[2]!);
+    }
+  }
+  expect(rules.length).toBeGreaterThan(0);
+  return rules;
+}
+
+function selectorHasDeclaration(css: string, selector: string, declaration: string) {
+  return cssRulesForSelector(css, selector).some((rule) => rule.includes(declaration));
 }
 
 test("renderWebApp reuses the existing React root for the same container", () => {
@@ -416,4 +433,61 @@ test("mobile sidebar backdrop uses the modal overlay blur tokens", () => {
   expect(mobileBackdropRule).toContain("backdrop-filter: var(--wapp-overlay-blur);");
   expect(modalOverlayRule).toContain("background: var(--wapp-overlay-bg);");
   expect(modalOverlayRule).toContain("backdrop-filter: var(--wapp-overlay-blur);");
+});
+
+test("sidebar compact badges use the badge variant foreground token", () => {
+  const css = readFileSync(new URL("../src/web/styles.css", import.meta.url), "utf8");
+  const badgeRule = cssRule(css, ".wapp-badge");
+  const lightForegrounds: Record<Exclude<BadgeVariant, "default">, string> = {
+    success: "rgb(22 101 52)",
+    warning: "rgb(146 64 14)",
+    error: "rgb(153 27 27)",
+    info: "rgb(30 64 175)",
+    disabled: "rgb(31 41 55)",
+    idle: "rgb(31 41 55)",
+    planning: "rgb(21 94 117)",
+    running: "rgb(30 64 175)",
+    completed: "rgb(22 101 52)",
+    stopped: "rgb(31 41 55)",
+    failed: "rgb(153 27 27)",
+    merged: "rgb(107 33 168)",
+    pushed: "rgb(55 48 163)",
+    deleted: "rgb(107 114 128)",
+    plan_ready: "rgb(146 64 14)",
+  };
+  const darkForegrounds: Record<Exclude<BadgeVariant, "default">, string> = {
+    success: "rgb(134 239 172)",
+    warning: "rgb(252 211 77)",
+    error: "rgb(252 165 165)",
+    info: "rgb(147 197 253)",
+    disabled: "rgb(209 213 219)",
+    idle: "rgb(209 213 219)",
+    planning: "rgb(103 232 249)",
+    running: "rgb(147 197 253)",
+    completed: "rgb(134 239 172)",
+    stopped: "rgb(209 213 219)",
+    failed: "rgb(252 165 165)",
+    merged: "rgb(216 180 254)",
+    pushed: "rgb(165 180 252)",
+    deleted: "rgb(107 114 128)",
+    plan_ready: "rgb(252 211 77)",
+  };
+
+  expect(badgeRule).toContain("--wapp-badge-fg: var(--wapp-muted);");
+  expect(badgeRule).toContain("color: var(--wapp-badge-fg);");
+  expect(selectorHasDeclaration(css, ".wapp-badge.wapp-sidebar-badge", "background: var(--wapp-badge-fg);")).toBe(true);
+  expect(selectorHasDeclaration(css, ":root.dark .wapp-badge.wapp-sidebar-badge", "background: var(--wapp-badge-fg);")).toBe(true);
+  expect(cssRulesForSelector(css, ".wapp-sidebar-badge").some((rule) => rule.includes("background: currentColor;"))).toBe(false);
+
+  for (const [variant, foreground] of Object.entries(lightForegrounds)) {
+    const selector = `.wapp-badge-${variant}`;
+    expect(selectorHasDeclaration(css, selector, `--wapp-badge-fg: ${foreground};`)).toBe(true);
+    expect(selectorHasDeclaration(css, selector, "color: var(--wapp-badge-fg);")).toBe(true);
+  }
+
+  for (const [variant, foreground] of Object.entries(darkForegrounds)) {
+    const selector = `:root.dark .wapp-badge-${variant}`;
+    expect(selectorHasDeclaration(css, selector, `--wapp-badge-fg: ${foreground};`)).toBe(true);
+    expect(selectorHasDeclaration(css, selector, "color: var(--wapp-badge-fg);")).toBe(true);
+  }
 });
