@@ -1058,11 +1058,12 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
     });
   }, []);
   const sidebarSearchEnabled = sidebar.search !== false;
-  const sidebarSearchActive = sidebarSearchEnabled && search.trim().length > 0;
+  const normalizedSidebarSearch = sidebarSearchEnabled ? search.trim() : "";
+  const sidebarSearchActive = normalizedSidebarSearch.length > 0;
   const pinningEnabled = sidebar.pinning !== false;
   const sidebarPins = useSidebarPins(appName, sidebar.pinning ? sidebar.pinning.storageKey : undefined);
   const baseNodes = useMemo(() => sidebar.getNodes({ search: "" }), [sidebar]);
-  const filteredNodes = useMemo(() => sidebar.getNodes({ search: sidebarSearchEnabled ? search : "" }), [sidebar, search, sidebarSearchEnabled]);
+  const filteredNodes = useMemo(() => sidebar.getNodes({ search: normalizedSidebarSearch }), [sidebar, normalizedSidebarSearch]);
   const allPinnableItems = useMemo(() => flattenSidebarItems(baseNodes).filter((node) => node.pinnable && node.route), [baseNodes]);
   const currentPins = useMemo(() => {
     const byId = new Map(allPinnableItems.map((node) => [node.pinId ?? node.id, node]));
@@ -1090,7 +1091,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   }), [pinningActionFor]);
   const nodes = useMemo(() => {
     const augmented = augmentPinningActions(filteredNodes);
-    if (!pinningEnabled || (sidebarSearchEnabled && search.trim()) || currentPins.length === 0) return augmented;
+    if (!pinningEnabled || sidebarSearchActive || currentPins.length === 0) return augmented;
     const augmentedByPinId = new Map(flattenSidebarItems(augmentPinningActions(baseNodes)).map((node) => [node.pinId ?? node.id, node]));
     const pinnedChildren = currentPins.map((pin) => ({
       ...(augmentedByPinId.get(pin.id) ?? {
@@ -1110,7 +1111,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
       { type: "section" as const, id: "framework:pinned", title: sidebar.pinning ? sidebar.pinning.sectionTitle ?? "Pinned" : "Pinned", children: pinnedChildren },
       ...augmented,
     ];
-  }, [augmentPinningActions, baseNodes, currentPins, filteredNodes, pinningEnabled, search, sidebar.pinning, sidebarSearchEnabled]);
+  }, [augmentPinningActions, baseNodes, currentPins, filteredNodes, pinningEnabled, sidebar.pinning, sidebarSearchActive]);
 
   useEffect(() => {
     if (!config?.currentUser) return;

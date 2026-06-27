@@ -483,6 +483,42 @@ test("sidebar search expands default-collapsed sections with matching children",
   }
 });
 
+test("sidebar whitespace-only search uses the empty normalized query", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const getNodesSearches: string[] = [];
+    const { getByPlaceholderText, getByText, queryByText } = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: true,
+        pinning: false,
+        getNodes: ({ search }) => {
+          getNodesSearches.push(search);
+          return search
+            ? [{ type: "item" as const, id: "whitespace-result", title: "Whitespace Result", route: { view: "whitespace" } }]
+            : [{ type: "item" as const, id: "empty-result", title: "Empty Search Result", route: { view: "empty" } }];
+        },
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+        empty: createElement("p", null, "Empty Search Result"),
+        whitespace: createElement("p", null, "Whitespace Result"),
+      },
+    }));
+
+    await waitFor(() => expect(getByText("Empty Search Result")).toBeTruthy());
+
+    typeSearch(getByPlaceholderText("Search"), "   ");
+
+    await waitFor(() => expect(getByText("Empty Search Result")).toBeTruthy());
+    expect(queryByText("Whitespace Result")).toBeNull();
+    expect(getNodesSearches).not.toContain("   ");
+  } finally {
+    restoreFetch();
+  }
+});
+
 test("sidebar search expands stored-collapsed sections without changing storage", async () => {
   const restoreFetch = mockConfigFetch();
   try {
