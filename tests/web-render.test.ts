@@ -474,8 +474,9 @@ test("sidebar search expands default-collapsed sections with matching children",
 
     typeSearch(getByPlaceholderText("Search"), "alpha");
 
-    const collapseProjects = await waitFor(() => getByLabelText("Collapse Projects"));
-    expect(collapseProjects.getAttribute("aria-expanded")).toBe("true");
+    const disabledProjectsToggle = await waitFor(() => getByLabelText("Toggling unavailable during search for Projects"));
+    expect(disabledProjectsToggle.getAttribute("aria-expanded")).toBe("true");
+    expect((disabledProjectsToggle as HTMLButtonElement).disabled).toBe(true);
     expect(getByText("Alpha")).toBeTruthy();
   } finally {
     restoreFetch();
@@ -491,8 +492,9 @@ test("sidebar search expands stored-collapsed sections without changing storage"
 
     typeSearch(getByPlaceholderText("Search"), "alpha");
 
-    const collapseProjects = await waitFor(() => getByLabelText("Collapse Projects"));
-    expect(collapseProjects.getAttribute("aria-expanded")).toBe("true");
+    const disabledProjectsToggle = await waitFor(() => getByLabelText("Toggling unavailable during search for Projects"));
+    expect(disabledProjectsToggle.getAttribute("aria-expanded")).toBe("true");
+    expect((disabledProjectsToggle as HTMLButtonElement).disabled).toBe(true);
     expect(getByText("Alpha")).toBeTruthy();
     expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: true });
   } finally {
@@ -508,7 +510,9 @@ test("sidebar search toggle clicks do not persist collapsed state", async () => 
     const { getByLabelText, getByPlaceholderText } = await renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed: false });
 
     typeSearch(getByPlaceholderText("Search"), "alpha");
-    fireEvent.click(await waitFor(() => getByLabelText("Collapse Projects")));
+    const disabledProjectsToggle = await waitFor(() => getByLabelText("Toggling unavailable during search for Projects"));
+    expect((disabledProjectsToggle as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(disabledProjectsToggle);
 
     expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: true });
   } finally {
@@ -524,12 +528,14 @@ test("sidebar search clearing restores stored collapsed section state", async ()
     const searchInput = getByPlaceholderText("Search");
 
     typeSearch(searchInput, "alpha");
-    expect(await waitFor(() => getByLabelText("Collapse Projects"))).toBeTruthy();
+    const disabledProjectsToggle = await waitFor(() => getByLabelText("Toggling unavailable during search for Projects"));
+    expect((disabledProjectsToggle as HTMLButtonElement).disabled).toBe(true);
 
     typeSearch(searchInput, "");
 
     const expandProjects = await waitFor(() => getByLabelText("Expand Projects"));
     expect(expandProjects.getAttribute("aria-expanded")).toBe("false");
+    expect((expandProjects as HTMLButtonElement).disabled).toBe(false);
     expect(queryByText("Alpha")).toBeNull();
   } finally {
     restoreFetch();
@@ -545,11 +551,12 @@ test("sidebar search expands item groups with matching children without persisti
 
     typeSearch(getByPlaceholderText("Search"), "child");
 
-    const collapseGroup = await waitFor(() => getByLabelText("Collapse Group"));
-    expect(collapseGroup.getAttribute("aria-expanded")).toBe("true");
+    const disabledGroupToggle = await waitFor(() => getByLabelText("Toggling unavailable during search for Group"));
+    expect(disabledGroupToggle.getAttribute("aria-expanded")).toBe("true");
+    expect((disabledGroupToggle as HTMLButtonElement).disabled).toBe(true);
     expect(getByText("Child")).toBeTruthy();
 
-    fireEvent.click(collapseGroup);
+    fireEvent.click(disabledGroupToggle);
     expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ group: true });
   } finally {
     restoreFetch();

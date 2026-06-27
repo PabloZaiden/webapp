@@ -559,6 +559,7 @@ function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed, searc
         const hasChildren = Boolean(node.children?.length);
         const storedIsCollapsed = collapsed[node.id] ?? node.defaultCollapsed ?? false;
         const isCollapsed = searchActive && hasChildren ? false : storedIsCollapsed;
+        const toggleAriaLabel = searchActive ? `Toggling unavailable during search for ${node.title}` : `${isCollapsed ? "Expand" : "Collapse"} ${node.title}`;
         const toggleNodeCollapsed = () => {
           if (!searchActive) {
             toggleCollapsed(node.id, storedIsCollapsed);
@@ -569,7 +570,7 @@ function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed, searc
             <section className={`wapp-sidebar-section ${level === 0 ? "top" : "nested"}`} key={node.id}>
               <div className="wapp-sidebar-section-title" style={sidebarIndentStyle(level, parentKind)}>
                 {hasChildren ? (
-                  <button type="button" aria-expanded={!isCollapsed} aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${node.title}`} onClick={toggleNodeCollapsed}>
+                  <button type="button" aria-expanded={!isCollapsed} aria-label={toggleAriaLabel} disabled={searchActive} onClick={toggleNodeCollapsed}>
                     <span>{isCollapsed ? "▶" : "▼"}</span>{node.title}
                   </button>
                 ) : (
@@ -585,7 +586,7 @@ function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed, searc
         const active = node.route?.view === route.view && Object.entries(node.route).every(([key, value]) => key === "view" || route[key] === value);
         return (
           <div className={`wapp-sidebar-item-wrap ${hasChildren ? "has-toggle" : ""}`} key={node.id} style={sidebarIndentStyle(level, parentKind)}>
-            {hasChildren ? <button type="button" className="wapp-tree-toggle" aria-expanded={!isCollapsed} aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${node.title}`} onClick={toggleNodeCollapsed}>{isCollapsed ? "▶" : "▼"}</button> : null}
+            {hasChildren ? <button type="button" className="wapp-tree-toggle" aria-expanded={!isCollapsed} aria-label={toggleAriaLabel} disabled={searchActive} onClick={toggleNodeCollapsed}>{isCollapsed ? "▶" : "▼"}</button> : null}
             <button
               type="button"
               className={`wapp-sidebar-item ${active ? "active" : ""}`}
