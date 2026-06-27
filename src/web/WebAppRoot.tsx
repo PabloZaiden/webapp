@@ -531,6 +531,17 @@ function DeviceVerificationScreen() {
 
 type SidebarTreeParentKind = "root" | "section" | "item";
 
+type SidebarTreeProps = {
+  nodes: SidebarNode[];
+  route: WebAppRoute;
+  navigate: (route: WebAppRoute) => void;
+  collapsed: SidebarCollapsedState;
+  toggleCollapsed: (id: string, isCollapsed: boolean) => void;
+  searchActive: boolean;
+  level?: number;
+  parentKind?: SidebarTreeParentKind;
+};
+
 function sidebarIndentStyle(level: number, parentKind: SidebarTreeParentKind): { marginLeft?: string } | undefined {
   if (level <= 0) {
     return undefined;
@@ -540,19 +551,25 @@ function sidebarIndentStyle(level: number, parentKind: SidebarTreeParentKind): {
   return { marginLeft: `${baseIndentRem + nestedSectionIndentRem}rem` };
 }
 
-function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed, level = 0, parentKind = "root" }: { nodes: SidebarNode[]; route: WebAppRoute; navigate: (route: WebAppRoute) => void; collapsed: SidebarCollapsedState; toggleCollapsed: (id: string, isCollapsed: boolean) => void; level?: number; parentKind?: SidebarTreeParentKind }) {
+function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed, searchActive, level = 0, parentKind = "root" }: SidebarTreeProps) {
   const [contextMenu, setContextMenu] = useState<{ position: ContextMenuPosition; items: ActionMenuItem[]; title: string } | null>(null);
   return (
     <>
       {nodes.map((node) => {
         const hasChildren = Boolean(node.children?.length);
-        const isCollapsed = collapsed[node.id] ?? node.defaultCollapsed ?? false;
+        const storedIsCollapsed = collapsed[node.id] ?? node.defaultCollapsed ?? false;
+        const isCollapsed = searchActive && hasChildren ? false : storedIsCollapsed;
+        const toggleNodeCollapsed = () => {
+          if (!searchActive) {
+            toggleCollapsed(node.id, storedIsCollapsed);
+          }
+        };
         if (node.type === "section") {
           return (
             <section className={`wapp-sidebar-section ${level === 0 ? "top" : "nested"}`} key={node.id}>
               <div className="wapp-sidebar-section-title" style={sidebarIndentStyle(level, parentKind)}>
                 {hasChildren ? (
-                  <button type="button" aria-expanded={!isCollapsed} aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${node.title}`} onClick={() => toggleCollapsed(node.id, isCollapsed)}>
+                  <button type="button" aria-expanded={!isCollapsed} aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${node.title}`} onClick={toggleNodeCollapsed}>
                     <span>{isCollapsed ? "▶" : "▼"}</span>{node.title}
                   </button>
                 ) : (
@@ -560,7 +577,7 @@ function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed, level
                 )}
                 {node.action ? <button type="button" className="wapp-sidebar-action" title={node.action.title} aria-label={node.action.title} onClick={node.action.onAction ?? (() => node.action?.route && navigate(node.action.route))}>{node.action.label ?? "New"}</button> : null}
               </div>
-              {!isCollapsed && hasChildren ? <SidebarTree nodes={node.children ?? []} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} level={level + 1} parentKind="section" /> : null}
+              {!isCollapsed && hasChildren ? <SidebarTree nodes={node.children ?? []} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} level={level + 1} parentKind="section" /> : null}
               {!isCollapsed && !hasChildren && level === 0 ? <div className="wapp-sidebar-empty">No items.</div> : null}
             </section>
           );
@@ -568,7 +585,7 @@ function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed, level
         const active = node.route?.view === route.view && Object.entries(node.route).every(([key, value]) => key === "view" || route[key] === value);
         return (
           <div className={`wapp-sidebar-item-wrap ${hasChildren ? "has-toggle" : ""}`} key={node.id} style={sidebarIndentStyle(level, parentKind)}>
-            {hasChildren ? <button type="button" className="wapp-tree-toggle" aria-expanded={!isCollapsed} aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${node.title}`} onClick={() => toggleCollapsed(node.id, isCollapsed)}>{isCollapsed ? "▶" : "▼"}</button> : null}
+            {hasChildren ? <button type="button" className="wapp-tree-toggle" aria-expanded={!isCollapsed} aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${node.title}`} onClick={toggleNodeCollapsed}>{isCollapsed ? "▶" : "▼"}</button> : null}
             <button
               type="button"
               className={`wapp-sidebar-item ${active ? "active" : ""}`}
@@ -585,7 +602,7 @@ function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed, level
               </span>
               {node.badge ? <Badge variant={node.badgeVariant} className="wapp-sidebar-badge" title={node.badge} aria-label={node.badge}> </Badge> : null}
             </button>
-            {!isCollapsed && node.children ? <div className="wapp-sidebar-children"><SidebarTree nodes={node.children} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} level={level + 1} parentKind="item" /></div> : null}
+            {!isCollapsed && node.children ? <div className="wapp-sidebar-children"><SidebarTree nodes={node.children} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} level={level + 1} parentKind="item" /></div> : null}
           </div>
         );
       })}
@@ -1040,6 +1057,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
     });
   }, []);
   const sidebarSearchEnabled = sidebar.search !== false;
+  const sidebarSearchActive = sidebarSearchEnabled && search.trim().length > 0;
   const pinningEnabled = sidebar.pinning !== false;
   const sidebarPins = useSidebarPins(appName, sidebar.pinning ? sidebar.pinning.storageKey : undefined);
   const baseNodes = useMemo(() => sidebar.getNodes({ search: "" }), [sidebar]);
@@ -1192,8 +1210,8 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
           </div>
         </div>
         <div className="wapp-sidebar-scroll">
-          {sidebarSearchEnabled ? <label className="wapp-search"><span className="sr-only">Search</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" /></label> : null}
-          <SidebarTree nodes={nodes} route={route} navigate={(next) => { navigate(next); setSidebarOpen(false); }} collapsed={sidebarTreeState.collapsed} toggleCollapsed={sidebarTreeState.toggleCollapsed} />
+          {sidebarSearchEnabled ? <label className="wapp-search"><span className="sr-only">Search</span><input value={search} onInput={(event) => setSearch(event.currentTarget.value)} placeholder="Search" /></label> : null}
+          <SidebarTree nodes={nodes} route={route} navigate={(next) => { navigate(next); setSidebarOpen(false); }} collapsed={sidebarTreeState.collapsed} toggleCollapsed={sidebarTreeState.toggleCollapsed} searchActive={sidebarSearchActive} />
           <div className="wapp-sidebar-footer">v{effectiveVersion}<button type="button" aria-label="Reload" onClick={() => window.location.reload()}><Icon name="refresh" /></button></div>
         </div>
       </aside>

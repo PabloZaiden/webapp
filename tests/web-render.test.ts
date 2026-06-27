@@ -5,7 +5,7 @@ import { act, createElement } from "react";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { Button, ConfirmModal, Modal } from "../src/web/components";
 import type { WebAppConfigResponse } from "../src/contracts";
-import type { BadgeVariant } from "../src/web/sidebar/types";
+import type { BadgeVariant, SidebarNode } from "../src/web/sidebar/types";
 import { WebAppRoot } from "../src/web/WebAppRoot";
 import { renderWebApp } from "../src/web/render";
 
@@ -121,6 +121,68 @@ async function renderCollapsibleSidebarWebApp({ defaultCollapsed = false } = {})
   await waitFor(() => expect(view.container.querySelector(".wapp-shell")).toBeTruthy());
 
   return view;
+}
+
+function filterSidebarNodesByTitle(nodes: SidebarNode[], search: string): SidebarNode[] {
+  const query = search.trim().toLowerCase();
+  if (!query) return nodes;
+
+  return nodes.flatMap((node) => {
+    const children = node.children ? filterSidebarNodesByTitle(node.children, search) : undefined;
+    const matches = node.title.toLowerCase().includes(query);
+    if (!matches && !children?.length) return [];
+    return [{ ...node, ...(children ? { children } : {}) }];
+  });
+}
+
+async function renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed = true, groupDefaultCollapsed = true } = {}) {
+  const view = render(createElement(WebAppRoot, {
+    appName: "Test App",
+    homeRoute: { view: "home" },
+    sidebar: {
+      search: true,
+      pinning: false,
+      getNodes: ({ search }) => filterSidebarNodesByTitle([
+        {
+          type: "section" as const,
+          id: "projects",
+          title: "Projects",
+          defaultCollapsed: sectionDefaultCollapsed,
+          children: [{ type: "item" as const, id: "alpha", title: "Alpha", route: { view: "alpha" } }],
+        },
+        {
+          type: "item" as const,
+          id: "group",
+          title: "Group",
+          defaultCollapsed: groupDefaultCollapsed,
+          children: [{ type: "item" as const, id: "child", title: "Child", route: { view: "child" } }],
+        },
+      ], search),
+    },
+    routes: {
+      home: createElement("p", null, "Home"),
+      alpha: createElement("p", null, "Alpha"),
+      child: createElement("p", null, "Child"),
+    },
+  }));
+
+  await waitFor(() => expect(view.container.querySelector(".wapp-shell")).toBeTruthy());
+
+  return view;
+}
+
+function typeSearch(input: HTMLElement, value: string) {
+  const searchInput = input as HTMLInputElement;
+  const valueSetter = Object.getOwnPropertyDescriptor(searchInput, "value")?.set;
+  const prototypeValueSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(searchInput), "value")?.set;
+  act(() => {
+    if (prototypeValueSetter && valueSetter !== prototypeValueSetter) {
+      prototypeValueSetter.call(searchInput, value);
+    } else {
+      searchInput.value = value;
+    }
+    searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+  });
 }
 
 function cssRule(css: string, selector: string) {
@@ -398,6 +460,97 @@ test("sidebar tree ignores corrupt stored collapsed state", async () => {
     const expandProjects = await waitFor(() => getByLabelText("Expand Projects"));
 
     expect(expandProjects.getAttribute("aria-expanded")).toBe("false");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar search expands default-collapsed sections with matching children", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const { getByLabelText, getByPlaceholderText, getByText } = await renderSearchableCollapsibleSidebarWebApp();
+
+    expect(await waitFor(() => getByLabelText("Expand Projects"))).toBeTruthy();
+
+    typeSearch(getByPlaceholderText("Search"), "alpha");
+
+    const collapseProjects = await waitFor(() => getByLabelText("Collapse Projects"));
+    expect(collapseProjects.getAttribute("aria-expanded")).toBe("true");
+    expect(getByText("Alpha")).toBeTruthy();
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar search expands stored-collapsed sections without changing storage", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const storageKey = "webapp.test-app.sidebar.collapsed";
+    localStorage.setItem(storageKey, JSON.stringify({ projects: true }));
+    const { getByLabelText, getByPlaceholderText, getByText } = await renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed: false });
+
+    typeSearch(getByPlaceholderText("Search"), "alpha");
+
+    const collapseProjects = await waitFor(() => getByLabelText("Collapse Projects"));
+    expect(collapseProjects.getAttribute("aria-expanded")).toBe("true");
+    expect(getByText("Alpha")).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: true });
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar search toggle clicks do not persist collapsed state", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const storageKey = "webapp.test-app.sidebar.collapsed";
+    localStorage.setItem(storageKey, JSON.stringify({ projects: true }));
+    const { getByLabelText, getByPlaceholderText } = await renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed: false });
+
+    typeSearch(getByPlaceholderText("Search"), "alpha");
+    fireEvent.click(await waitFor(() => getByLabelText("Collapse Projects")));
+
+    expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: true });
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar search clearing restores stored collapsed section state", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    localStorage.setItem("webapp.test-app.sidebar.collapsed", JSON.stringify({ projects: true }));
+    const { getByLabelText, getByPlaceholderText, queryByText } = await renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed: false });
+    const searchInput = getByPlaceholderText("Search");
+
+    typeSearch(searchInput, "alpha");
+    expect(await waitFor(() => getByLabelText("Collapse Projects"))).toBeTruthy();
+
+    typeSearch(searchInput, "");
+
+    const expandProjects = await waitFor(() => getByLabelText("Expand Projects"));
+    expect(expandProjects.getAttribute("aria-expanded")).toBe("false");
+    expect(queryByText("Alpha")).toBeNull();
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar search expands item groups with matching children without persisting toggles", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const storageKey = "webapp.test-app.sidebar.collapsed";
+    localStorage.setItem(storageKey, JSON.stringify({ group: true }));
+    const { getByLabelText, getByPlaceholderText, getByText } = await renderSearchableCollapsibleSidebarWebApp({ groupDefaultCollapsed: false });
+
+    typeSearch(getByPlaceholderText("Search"), "child");
+
+    const collapseGroup = await waitFor(() => getByLabelText("Collapse Group"));
+    expect(collapseGroup.getAttribute("aria-expanded")).toBe("true");
+    expect(getByText("Child")).toBeTruthy();
+
+    fireEvent.click(collapseGroup);
+    expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ group: true });
   } finally {
     restoreFetch();
   }
