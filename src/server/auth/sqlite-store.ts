@@ -560,6 +560,9 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
     deleteApiKeysForUser: (userId) => {
       db.query("DELETE FROM webapp_api_keys WHERE user_id = ?").run(userId);
     },
+    deleteExpiredApiKeys: (now) => {
+      db.query("DELETE FROM webapp_api_keys WHERE expires_at IS NOT NULL AND expires_at <= ?").run(now);
+    },
 
     saveDeviceAuthRequest: (record) => {
       db.query(`
@@ -645,6 +648,9 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
     },
     revokeRefreshSessionsForUser: (userId, revokedAt) => {
       db.query("UPDATE webapp_refresh_sessions SET revoked_at = ?, updated_at = ? WHERE user_id = ? AND revoked_at IS NULL").run(revokedAt, revokedAt, userId);
+    },
+    deleteExpiredRefreshSessions: (now) => {
+      db.query("DELETE FROM webapp_refresh_sessions WHERE expires_at <= ?").run(now);
     },
   };
 }

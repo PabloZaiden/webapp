@@ -40,6 +40,8 @@ PATCH: (_req, ctx) => {
 
 API keys are user-owned bearer tokens for scripts and agents. They are stored hashed in SQLite and shown only once at creation. Route `scopes` are enforced for API-key requests; `*` grants all scopes.
 
+Expired API keys do not authenticate, are omitted from user-facing lists, and are purged when key lists or expired keys are encountered.
+
 Same-origin checks are skipped for API-key and device bearer requests unless a route sets `sameOrigin: "always"`, because non-browser clients usually do not send `Origin`.
 
 ## Device auth
@@ -52,7 +54,7 @@ Device auth is included in V1:
 4. Client exchanges the approved code at `/api/auth/token`.
 5. Access tokens are JWT bearer tokens whose `sub` is the approving user id; refresh tokens rotate on every refresh.
 
-Device codes are one-use. Device sessions are self-only in Settings. Reusing a consumed device code or stale refresh token returns `invalid_grant`.
+Device codes are one-use. Device sessions are self-only in Settings, and only active refresh-token sessions are listed. Revoked or expired sessions are hidden; expired sessions are purged, while revoked session records can remain stored to detect stale refresh-token reuse. Reusing a consumed device code or stale refresh token returns `invalid_grant`.
 
 ## Same-origin policy
 

@@ -65,6 +65,58 @@ function mockConfigFetch() {
   };
 }
 
+function mockSettingsFetch(sessions: Array<{ id: string; clientId: string; scope: string; createdAt: string; updatedAt: string; expiresAt: string; active: boolean }>) {
+  const previousFetch = globalThis.fetch;
+  const config: WebAppConfigResponse = {
+    appName: "Test App",
+    version: "1.0.0",
+    currentUser: { id: "owner", username: "owner", role: "owner", isOwner: true, isAdmin: true },
+    passkeyAuth: {
+      enabled: false,
+      passkeyConfigured: false,
+      passkeyDisabled: true,
+      passkeyRequired: false,
+      authenticated: true,
+      bootstrapRequired: false,
+      ownerPasskeySetupRequired: false,
+    },
+    userManagement: {
+      enabled: false,
+      canManageUsers: false,
+    },
+    logLevel: {
+      level: "info",
+      fromEnv: false,
+    },
+    deviceAuth: {
+      enabled: true,
+    },
+    apiKeys: {
+      enabled: false,
+    },
+  };
+
+  function fetchPath(input: RequestInfo | URL) {
+    const rawUrl = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+    return new URL(String(rawUrl), "http://localhost").pathname;
+  }
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const path = fetchPath(input);
+    if (path === "/api/config") {
+      return Response.json(config);
+    }
+    if (path === "/api/auth/sessions") {
+      return Response.json(sessions);
+    }
+    return Response.json({ error: "Not found", message: "Not found" }, { status: 404 });
+  }) as typeof fetch;
+
+  return () => {
+    globalThis.fetch = previousFetch;
+  };
+}
+
 async function renderShortcutWebApp() {
   const view = render(createElement(WebAppRoot, {
     appName: "Test App",
@@ -86,6 +138,26 @@ async function renderShortcutWebApp() {
   });
 
   return { ...view, shell };
+}
+
+async function renderSettingsWebApp() {
+  const view = render(createElement(WebAppRoot, {
+    appName: "Test App",
+    homeRoute: { view: "home" },
+    sidebar: {
+      search: false,
+      pinning: false,
+      getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+    },
+    routes: {
+      home: createElement("p", null, "Home"),
+    },
+  }));
+
+  fireEvent.click(await waitFor(() => view.getByLabelText("Open settings")));
+  await waitFor(() => expect(view.getByText("Device auth sessions")).toBeTruthy());
+
+  return view;
 }
 
 async function renderCollapsibleSidebarWebApp({ defaultCollapsed = false } = {}) {
@@ -514,6 +586,39 @@ test("sidebar whitespace-only search uses the empty normalized query", async () 
     await waitFor(() => expect(getByText("Empty Search Result")).toBeTruthy());
     expect(queryByText("Whitespace Result")).toBeNull();
     expect(getNodesSearches).not.toContain("   ");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("settings device sessions omit inactive state labels", async () => {
+  const now = new Date().toISOString();
+  const restoreFetch = mockSettingsFetch([{
+    id: "session-1",
+    clientId: "cli",
+    scope: "*",
+    createdAt: now,
+    updatedAt: now,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    active: true,
+  }]);
+  try {
+    const { container, getByText } = await renderSettingsWebApp();
+
+    expect(getByText("cli")).toBeTruthy();
+    expect(container.textContent).not.toContain("inactive");
+    expect(container.textContent).not.toContain("active ·");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("settings device sessions show empty state when no active sessions are returned", async () => {
+  const restoreFetch = mockSettingsFetch([]);
+  try {
+    const { getByText } = await renderSettingsWebApp();
+
+    expect(getByText("No device sessions")).toBeTruthy();
   } finally {
     restoreFetch();
   }

@@ -123,6 +123,7 @@ function tokenSet(accessToken: string, refreshToken: string, scope: string): Tok
 }
 
 export function createDeviceAuthorization(req: Request, store: WebAppStore, config: RuntimeConfig, input: { clientId?: string; scope?: string } = {}): DeviceAuthorizationResponse {
+  store.deleteExpiredDeviceAuthRequests(nowIso());
   const deviceCode = randomToken(32);
   let userCode = generateUserCode();
   while (store.getDeviceAuthByUserCode(userCode)) {
@@ -151,6 +152,7 @@ export function createDeviceAuthorization(req: Request, store: WebAppStore, conf
 }
 
 export function getDeviceVerificationDetails(store: WebAppStore, userCode: string, passkeyRequired: boolean): DeviceVerificationDetails {
+  store.deleteExpiredDeviceAuthRequests(nowIso());
   const record = store.getDeviceAuthByUserCode(userCode);
   if (!record || isExpired(record.expiresAt)) {
     throw new AuthError("invalid_user_code", "Device authorization code is invalid or expired", 404);
@@ -207,6 +209,7 @@ function createRefreshRecord(userId: string, clientId: string, scope: string, fa
 }
 
 export async function exchangeDeviceCode(store: WebAppStore, config: RuntimeConfig, deviceCode: string, clientId?: string): Promise<TokenResponse> {
+  store.deleteExpiredDeviceAuthRequests(nowIso());
   const record = store.getDeviceAuthByDeviceCodeHash(sha256(deviceCode));
   if (!record) {
     throw new AuthError("invalid_grant", "Device code is invalid", 400);
@@ -301,17 +304,20 @@ export async function verifyAccessToken(store: WebAppStore, config: RuntimeConfi
 }
 
 export function listAuthSessions(store: WebAppStore, userId: string): AuthSessionSummary[] {
-  return store.listRefreshSessions(userId).map((session) => ({
-    id: session.id,
-    clientId: session.clientId,
-    scope: session.scope,
-    createdAt: session.createdAt,
-    updatedAt: session.updatedAt,
-    expiresAt: session.expiresAt,
-    lastUsedAt: session.lastUsedAt,
-    revokedAt: session.revokedAt,
-    active: !session.revokedAt && !isExpired(session.expiresAt),
-  }));
+  store.deleteExpiredRefreshSessions?.(nowIso());
+  return store.listRefreshSessions(userId)
+    .filter((session) => !session.revokedAt && !isExpired(session.expiresAt))
+    .map((session) => ({
+      id: session.id,
+      clientId: session.clientId,
+      scope: session.scope,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      expiresAt: session.expiresAt,
+      lastUsedAt: session.lastUsedAt,
+      revokedAt: session.revokedAt,
+      active: true,
+    }));
 }
 
 export function revokeAuthSession(store: WebAppStore, userId: string, id: string): boolean {
