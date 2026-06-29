@@ -967,8 +967,8 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
             <div className="wapp-list">
               {authSessions.length ? authSessions.map((session) => (
                 <div className="wapp-list-row" key={session.id}>
-                  <span><strong>{session.clientId}</strong><small>{session.scope} · {session.active ? "active" : "inactive"} · {session.updatedAt}</small></span>
-                  <Button type="button" variant="danger" disabled={!session.active} onClick={() => setAuthSessionToRevoke(session)}>Revoke</Button>
+                  <span><strong>{session.clientId}</strong><small>{session.scope} · {session.updatedAt}</small></span>
+                  <Button type="button" variant="danger" onClick={() => setAuthSessionToRevoke(session)}>Revoke</Button>
                 </div>
               )) : <EmptyState title="No device sessions" />}
             </div>

@@ -115,6 +115,7 @@ export interface WebAppStore {
   touchApiKey(id: string, lastUsedAt: string): void;
   deleteApiKey(id: string, userId?: string): boolean;
   deleteApiKeysForUser(userId: string): void;
+  deleteExpiredApiKeys?(nowIso: string): void;
 
   saveDeviceAuthRequest(record: DeviceAuthRequestRecord): void;
   getDeviceAuthByUserCode(userCode: string): DeviceAuthRequestRecord | undefined;
@@ -132,4 +133,5 @@ export interface WebAppStore {
   revokeRefreshSession(id: string, revokedAt: string, userId?: string): boolean;
   revokeRefreshFamily(familyId: string, revokedAt: string): void;
   revokeRefreshSessionsForUser(userId: string, revokedAt: string): void;
+  deleteExpiredRefreshSessions?(nowIso: string): void;
 }

@@ -108,6 +108,7 @@ export interface AuthSessionSummary {
   expiresAt: string;
   lastUsedAt?: string;
   revokedAt?: string;
+  /** Built-in session lists only expose active sessions; retained for API compatibility. */
   active: boolean;
 }
 

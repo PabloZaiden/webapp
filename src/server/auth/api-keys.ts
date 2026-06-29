@@ -16,7 +16,10 @@ function summarize(record: { tokenHash?: string } & ApiKeySummary): ApiKeySummar
 }
 
 export function listApiKeys(store: WebAppStore, userId: string): ApiKeySummary[] {
-  return store.listApiKeys(userId).map(summarize);
+  store.deleteExpiredApiKeys?.(nowIso());
+  return store.listApiKeys(userId)
+    .filter((record) => !record.expiresAt || !isExpired(record.expiresAt))
+    .map(summarize);
 }
 
 export function createApiKey(store: WebAppStore, user: CurrentUser, input: { name?: string; scopes?: string[]; prefix?: string; expiresAt?: string }): CreatedApiKeyResponse {
@@ -44,6 +47,9 @@ export function authenticateApiKey(store: WebAppStore, token: string): { user: C
   const tokenHash = sha256(token);
   const record = store.getApiKeyByHash(tokenHash);
   if (!record || !secureEqual(record.tokenHash, tokenHash) || (record.expiresAt && isExpired(record.expiresAt))) {
+    if (record?.expiresAt && isExpired(record.expiresAt)) {
+      store.deleteApiKey(record.id);
+    }
     return undefined;
   }
   const user = store.getUserById(record.userId);

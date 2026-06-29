@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { RealtimeBus, createWebAppServer, defineRoutes, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
 import { createApiKey } from "../src/server/auth/api-keys";
+import { sha256 } from "../src/server/auth/crypto";
 import { readRuntimeConfig } from "../src/server/runtime-config";
 import type { UserRecord, WebAppStore } from "../src/server/auth/store";
 import staticIndex from "./fixtures/static-index.html";
@@ -44,6 +45,10 @@ function configuredPasskey(userId: string) {
 
 function currentUser(user: UserRecord) {
   return { id: user.id, username: user.username, role: user.role, isOwner: user.role === "owner", isAdmin: user.role === "owner" || user.role === "admin" };
+}
+
+function isoOffset(seconds: number): string {
+  return new Date(Date.now() + seconds * 1000).toISOString();
 }
 
 async function responseJson<T>(response: Response | undefined): Promise<T> {
@@ -694,6 +699,104 @@ describe("server security defaults", () => {
         process.env["TEST_API_KEY_CRUD_DISABLE_PASSKEY"] = previous;
       }
     }
+  });
+
+  test("expired API keys are not listed and are purged", async () => {
+    const store = testStore("api-key-expired-hidden");
+    store.initialize();
+    const owner = configuredUser(store);
+    const activeKey = createApiKey(store, currentUser(owner), { name: "active key", scopes: ["*"], expiresAt: isoOffset(3600) });
+    const expiredKey = createApiKey(store, currentUser(owner), { name: "expired key", scopes: ["*"], expiresAt: isoOffset(-3600) });
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_API_KEY_EXPIRED",
+      index: "<html></html>",
+      store,
+      auth: { apiKeys: true },
+      routes: defineRoutes({}),
+    });
+
+    const listed = await responseJson<Array<{ id: string }>>(await app.handleRequest(new Request("http://localhost/api/api-keys", {
+      headers: { authorization: `Bearer ${activeKey.token}` },
+    })));
+
+    expect(listed.map((key) => key.id)).toEqual([activeKey.key.id]);
+    expect(store.listApiKeys(owner.id).map((key) => key.id)).not.toContain(expiredKey.key.id);
+  });
+
+  test("auth session list only returns active sessions for the authenticated user", async () => {
+    const store = testStore("auth-sessions-active-only");
+    store.initialize();
+    const owner = configuredUser(store);
+    const alice = configuredUser(store, "alice", "user");
+    const ownerKey = createApiKey(store, currentUser(owner), { name: "owner key", scopes: ["*"] });
+    const now = new Date().toISOString();
+    const activeSession = {
+      id: crypto.randomUUID(),
+      userId: owner.id,
+      familyId: crypto.randomUUID(),
+      clientId: "active-client",
+      scope: "*",
+      refreshTokenHash: sha256("active-refresh"),
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: isoOffset(3600),
+    };
+    const revokedSession = {
+      id: crypto.randomUUID(),
+      userId: owner.id,
+      familyId: crypto.randomUUID(),
+      clientId: "revoked-client",
+      scope: "*",
+      refreshTokenHash: sha256("revoked-refresh"),
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: isoOffset(3600),
+      revokedAt: now,
+    };
+    const expiredSession = {
+      id: crypto.randomUUID(),
+      userId: owner.id,
+      familyId: crypto.randomUUID(),
+      clientId: "expired-client",
+      scope: "*",
+      refreshTokenHash: sha256("expired-refresh"),
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: isoOffset(-3600),
+    };
+    const otherUserSession = {
+      id: crypto.randomUUID(),
+      userId: alice.id,
+      familyId: crypto.randomUUID(),
+      clientId: "alice-client",
+      scope: "*",
+      refreshTokenHash: sha256("alice-refresh"),
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: isoOffset(3600),
+    };
+    store.saveRefreshSession(activeSession);
+    store.saveRefreshSession(revokedSession);
+    store.saveRefreshSession(expiredSession);
+    store.saveRefreshSession(otherUserSession);
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_AUTH_SESSIONS_ACTIVE",
+      index: "<html></html>",
+      store,
+      auth: { apiKeys: true, deviceAuth: true },
+      routes: defineRoutes({}),
+    });
+
+    const listed = await responseJson<Array<{ id: string; active: boolean; clientId: string }>>(await app.handleRequest(new Request("http://localhost/api/auth/sessions", {
+      headers: { authorization: `Bearer ${ownerKey.token}` },
+    })));
+
+    expect(listed.map((session) => ({ id: session.id, active: session.active, clientId: session.clientId })))
+      .toEqual([{ id: activeSession.id, active: true, clientId: "active-client" }]);
+    expect(store.listRefreshSessions(owner.id).map((session) => session.id)).not.toContain(expiredSession.id);
+    expect(store.listRefreshSessions(owner.id).map((session) => session.id)).toContain(revokedSession.id);
   });
 
   test("admins can create, reset, promote and delete users but not delete owner", async () => {
