@@ -756,19 +756,23 @@ test("sidebar search toggle clicks do not persist collapsed state", async () => 
   }
 });
 
-test("sidebar search clearing restores stored collapsed section state", async () => {
+test("sidebar search clear button restores stored collapsed section state", async () => {
   const restoreFetch = mockConfigFetch();
   try {
     localStorage.setItem("webapp.test-app.sidebar.collapsed", JSON.stringify({ projects: true }));
-    const { getByLabelText, getByPlaceholderText, queryByText } = await renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed: false });
+    const { getByLabelText, getByPlaceholderText, queryByLabelText, queryByText } = await renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed: false });
     const searchInput = getByPlaceholderText("Search");
 
+    expect(queryByLabelText("Clear search")).toBeNull();
     typeSearch(searchInput, "alpha");
     const disabledProjectsToggle = await waitFor(() => getByLabelText("Toggling unavailable during search for Projects"));
     expect((disabledProjectsToggle as HTMLButtonElement).disabled).toBe(true);
+    expect((searchInput as HTMLInputElement).value).toBe("alpha");
 
-    typeSearch(searchInput, "");
+    fireEvent.click(await waitFor(() => getByLabelText("Clear search")));
 
+    await waitFor(() => expect((searchInput as HTMLInputElement).value).toBe(""));
+    expect(queryByLabelText("Clear search")).toBeNull();
     const expandProjects = await waitFor(() => getByLabelText("Expand Projects"));
     expect(expandProjects.getAttribute("aria-expanded")).toBe("false");
     expect((expandProjects as HTMLButtonElement).disabled).toBe(false);

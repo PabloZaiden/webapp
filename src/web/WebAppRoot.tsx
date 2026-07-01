@@ -1,5 +1,5 @@
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ApiKeySummary, AuthSessionSummary, CreatedApiKeyResponse, CreatedUserResponse, DeviceVerificationDetails, PasskeyAuthStatusResponse, ThemePreference, UserSetupDetails, WebAppConfigResponse, WebAppUserRole, WebAppUserSummary } from "../contracts";
 import { ActionMenu, Badge, Button, ConfirmDialog, ContextMenu, DangerZone, Dialog, EmptyState, FormSection, IconButton, Panel, SelectField, TextField, type ContextMenuPosition } from "./components";
 import type { ActionMenuItem, SidebarAction, SidebarBuildContext, SidebarNode, WebAppRoute } from "./sidebar/types";
@@ -1047,6 +1047,8 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   const { route, navigate } = useRoute(homeRoute);
   const { theme, setTheme } = useTheme();
   const [search, setSearch] = useState("");
+  const sidebarSearchId = useId();
+  const sidebarSearchInputRef = useRef<HTMLInputElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const sidebarTreeState = useSidebarCollapsedState(appName);
@@ -1213,7 +1215,27 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
           </div>
         </div>
         <div className="wapp-sidebar-scroll">
-          {sidebarSearchEnabled ? <label className="wapp-search"><span className="sr-only">Search</span><input value={search} onInput={(event) => setSearch(event.currentTarget.value)} placeholder="Search" /></label> : null}
+          {sidebarSearchEnabled ? (
+            <div className="wapp-search">
+              <label className="sr-only" htmlFor={sidebarSearchId}>Search</label>
+              <div className="wapp-search-input-wrap">
+                <input id={sidebarSearchId} ref={sidebarSearchInputRef} value={search} onInput={(event) => setSearch(event.currentTarget.value)} placeholder="Search" />
+                {search.length > 0 ? (
+                  <button
+                    type="button"
+                    className="wapp-search-clear"
+                    aria-label="Clear search"
+                    onClick={() => {
+                      setSearch("");
+                      sidebarSearchInputRef.current?.focus();
+                    }}
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           <SidebarTree nodes={nodes} route={route} navigate={(next) => { navigate(next); setSidebarOpen(false); }} collapsed={sidebarTreeState.collapsed} toggleCollapsed={sidebarTreeState.toggleCollapsed} searchActive={sidebarSearchActive} />
           <div className="wapp-sidebar-footer">v{effectiveVersion}<button type="button" aria-label="Reload" onClick={() => window.location.reload()}><Icon name="refresh" /></button></div>
         </div>
