@@ -1112,6 +1112,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
       ...augmented,
     ];
   }, [augmentPinningActions, baseNodes, currentPins, filteredNodes, pinningEnabled, sidebar.pinning, sidebarSearchActive]);
+  const activeActionNodes = useMemo(() => augmentPinningActions(baseNodes), [augmentPinningActions, baseNodes]);
 
   useEffect(() => {
     if (!config?.currentUser) return;
@@ -1176,7 +1177,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   const topActions = sidebar.topActions?.slice(0, 2) ?? [];
   const defaultTitle = route.view === "settings" ? "Settings" : route.view === homeRoute.view ? appName : route.view.replace(/-/g, " ");
   const headerContext = { route, defaultTitle };
-  const activeSidebarNode = flattenSidebarItems(nodes).find((node) => routeMatches(node.route, route));
+  const activeSidebarNode = flattenSidebarItems(activeActionNodes).find((node) => routeMatches(node.route, route));
   const activeSidebarActions = activeSidebarNode?.actions ?? [];
   const headerActions = [
     ...(header?.getActions?.(headerContext) ?? []),
