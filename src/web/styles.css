@@ -299,8 +299,12 @@ textarea::placeholder {
   color: var(--wapp-text);
   box-shadow: var(--wapp-shadow);
   outline: none;
-  padding: 0 2.5rem 0 0.75rem;
+  padding: 0 0.75rem;
   font-size: 0.875rem;
+}
+
+.wapp-search-input-wrap--clearable input {
+  padding-right: 2.5rem;
 }
 
 .wapp-search input:focus {

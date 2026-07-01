@@ -1218,7 +1218,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
           {sidebarSearchEnabled ? (
             <div className="wapp-search">
               <label className="sr-only" htmlFor={sidebarSearchId}>Search</label>
-              <div className="wapp-search-input-wrap">
+              <div className={`wapp-search-input-wrap${search.length > 0 ? " wapp-search-input-wrap--clearable" : ""}`}>
                 <input id={sidebarSearchId} ref={sidebarSearchInputRef} value={search} onInput={(event) => setSearch(event.currentTarget.value)} placeholder="Search" />
                 {search.length > 0 ? (
                   <button
