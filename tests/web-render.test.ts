@@ -591,6 +591,101 @@ test("sidebar whitespace-only search uses the empty normalized query", async () 
   }
 });
 
+test("header actions use unfiltered sidebar nodes when search hides the active item", async () => {
+  const restoreFetch = mockConfigFetch();
+  window.location.hash = "";
+  try {
+    const { getByLabelText, getByPlaceholderText, getByRole, getByText, queryByText } = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: true,
+        pinning: false,
+        getNodes: ({ search }) => filterSidebarNodesByTitle([
+          { type: "item" as const, id: "home", title: "Home", route: { view: "home" } },
+          {
+            type: "item" as const,
+            id: "target",
+            title: "Hidden Target",
+            route: { view: "target" },
+            actions: [{ id: "inspect", label: "Inspect target", onAction: () => undefined }],
+          },
+        ], search),
+      },
+      routes: {
+        home: createElement("p", null, "Home view"),
+        target: createElement("p", null, "Target screen"),
+      },
+    }));
+
+    await waitFor(() => expect(getByText("Home view")).toBeTruthy());
+
+    typeSearch(getByPlaceholderText("Search"), "no matches");
+    await waitFor(() => expect(queryByText("Hidden Target")).toBeNull());
+
+    act(() => {
+      window.location.hash = "#/target";
+      window.dispatchEvent(new Event("hashchange"));
+    });
+
+    await waitFor(() => expect(getByText("Target screen")).toBeTruthy());
+
+    fireEvent.click(await waitFor(() => getByLabelText("Actions for target")));
+
+    expect(await waitFor(() => getByRole("menuitem", { name: "Inspect target" }))).toBeTruthy();
+  } finally {
+    window.location.hash = "";
+    restoreFetch();
+  }
+});
+
+test("header actions keep pinning actions from unfiltered active sidebar nodes", async () => {
+  const restoreFetch = mockConfigFetch();
+  window.location.hash = "";
+  try {
+    const { getByLabelText, getByPlaceholderText, getByRole, getByText, queryByText } = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: true,
+        getNodes: ({ search }) => filterSidebarNodesByTitle([
+          { type: "item" as const, id: "home", title: "Home", route: { view: "home" } },
+          {
+            type: "item" as const,
+            id: "target",
+            title: "Pinned Target",
+            route: { view: "target" },
+            pinnable: true,
+          },
+        ], search),
+      },
+      routes: {
+        home: createElement("p", null, "Home view"),
+        target: createElement("p", null, "Target screen"),
+      },
+    }));
+
+    await waitFor(() => expect(getByText("Home view")).toBeTruthy());
+
+    typeSearch(getByPlaceholderText("Search"), "no matches");
+    await waitFor(() => expect(queryByText("Pinned Target")).toBeNull());
+
+    act(() => {
+      window.location.hash = "#/target";
+      window.dispatchEvent(new Event("hashchange"));
+    });
+
+    await waitFor(() => expect(getByText("Target screen")).toBeTruthy());
+
+    fireEvent.click(await waitFor(() => getByLabelText("Actions for target")));
+
+    expect(await waitFor(() => getByRole("menuitem", { name: "Pin to sidebar" }))).toBeTruthy();
+  } finally {
+    window.location.hash = "";
+    restoreFetch();
+  }
+});
+
 test("settings device sessions omit inactive state labels", async () => {
   const now = new Date().toISOString();
   const restoreFetch = mockSettingsFetch([{
