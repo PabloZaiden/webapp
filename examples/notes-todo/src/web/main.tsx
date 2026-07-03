@@ -1,4 +1,4 @@
-import { Badge, Button, DataList, DataListRow, EmptyState, EntityHeader, FormActions, Page, Panel, SelectField, TextAreaField, TextField, WebAppRoot, renderWebApp, useCallback, useEffect, useRealtimeRefresh, useState, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
+import { Badge, Button, DataList, DataListRow, EmptyState, EntityHeader, FormActions, Page, Panel, SelectField, TextAreaField, TextField, WebAppRoot, renderWebApp, replaceHashRoute, useCallback, useEffect, useRealtimeRefresh, useState, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
 
@@ -44,7 +44,7 @@ function routeToHash(route: WebAppRoute): string {
 }
 
 function navigateTo(route: WebAppRoute) {
-  window.location.hash = routeToHash(route);
+  replaceHashRoute(routeToHash(route));
 }
 
 function sectionTitle(sections: Section[], sectionId: string): string {

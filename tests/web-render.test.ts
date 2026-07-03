@@ -16,6 +16,7 @@ afterEach(() => {
   document.body.innerHTML = "";
   document.body.style.overflow = "";
   localStorage.clear();
+  window.history.replaceState(null, "", "/");
 });
 
 function mockConfigFetch() {
@@ -281,6 +282,95 @@ function cssRulesForSelector(css: string, selector: string) {
 function selectorHasDeclaration(css: string, selector: string, declaration: string) {
   return cssRulesForSelector(css, selector).some((rule) => rule.includes(declaration));
 }
+
+test("sidebar navigation replaces hash history entries", async () => {
+  const restoreFetch = mockConfigFetch();
+  window.location.hash = "#/home";
+  window.history.replaceState({ marker: "initial" }, "", window.location.href);
+  const initialLength = window.history.length;
+  const hashChanges: HashChangeEvent[] = [];
+  const routeChanges: string[] = [];
+  const onHashChange = (event: HashChangeEvent) => hashChanges.push(event);
+
+  try {
+    const { getByRole, getByText } = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        getNodes: () => [
+          { type: "item" as const, id: "home", title: "Home", route: { view: "home" } },
+          { type: "item" as const, id: "target", title: "Target", route: { view: "target", projectId: "project-1" } },
+        ],
+      },
+      routes: {
+        home: createElement("p", null, "Home view"),
+        target: createElement("p", null, "Target screen"),
+      },
+      onRouteChange: (route) => routeChanges.push(`${route.view}:${route.projectId ?? ""}`),
+    }));
+
+    await waitFor(() => expect(getByText("Home view")).toBeTruthy());
+
+    const initialUrl = window.location.href;
+    window.addEventListener("hashchange", onHashChange);
+    fireEvent.click(getByRole("button", { name: "Target" }));
+
+    await waitFor(() => expect(getByText("Target screen")).toBeTruthy());
+    expect(window.location.hash).toBe("#/target?projectId=project-1");
+    expect(window.history.length).toBe(initialLength);
+    expect(window.history.state).toEqual({ marker: "initial" });
+    expect(hashChanges.some((event) => event.oldURL === initialUrl && event.newURL === window.location.href)).toBe(true);
+    expect(routeChanges).toContain("target:project-1");
+  } finally {
+    window.removeEventListener("hashchange", onHashChange);
+    restoreFetch();
+  }
+});
+
+test("sidebar navigation to the current hash does not emit duplicate hash changes", async () => {
+  const restoreFetch = mockConfigFetch();
+  window.location.hash = "#/target";
+  window.history.replaceState({ marker: "same-route" }, "", window.location.href);
+  const initialLength = window.history.length;
+  let hashChangeCount = 0;
+  const onHashChange = () => {
+    hashChangeCount += 1;
+  };
+
+  try {
+    const { getByRole, getByText } = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        getNodes: () => [
+          { type: "item" as const, id: "home", title: "Home", route: { view: "home" } },
+          { type: "item" as const, id: "target", title: "Target", route: { view: "target" } },
+        ],
+      },
+      routes: {
+        home: createElement("p", null, "Home view"),
+        target: createElement("p", null, "Target screen"),
+      },
+    }));
+
+    await waitFor(() => expect(getByText("Target screen")).toBeTruthy());
+    window.addEventListener("hashchange", onHashChange);
+
+    fireEvent.click(getByRole("button", { name: "Target" }));
+
+    expect(window.location.hash).toBe("#/target");
+    expect(window.history.length).toBe(initialLength);
+    expect(window.history.state).toEqual({ marker: "same-route" });
+    expect(hashChangeCount).toBe(0);
+  } finally {
+    window.removeEventListener("hashchange", onHashChange);
+    restoreFetch();
+  }
+});
 
 test("renderWebApp reuses the existing React root for the same container", () => {
   const container = document.createElement("div");
