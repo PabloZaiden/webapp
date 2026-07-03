@@ -1,4 +1,4 @@
-import { Badge, Button, EmptyState, Page, Panel, TextField, WebAppRoot, renderWebApp, useCallback, useEffect, useMemo, useRealtimeRefresh, useState, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
+import { Badge, Button, EmptyState, Page, Panel, TextField, WebAppRoot, renderWebApp, replaceHashRoute, useCallback, useEffect, useMemo, useRealtimeRefresh, useState, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
 
@@ -167,10 +167,10 @@ function KitchenSinkApp() {
       }}
       header={{
         getActions: ({ route }) => {
-          if (route.view !== "project") return [{ id: "new-project", label: "New project", onAction: () => { window.location.hash = "#/new-project"; } }];
+          if (route.view !== "project") return [{ id: "new-project", label: "New project", onAction: () => { replaceHashRoute("#/new-project"); } }];
           const project = projects.find((item) => item.id === route.projectId);
           return [
-            { id: "new-project", label: "New project", onAction: () => { window.location.hash = "#/new-project"; } },
+            { id: "new-project", label: "New project", onAction: () => { replaceHashRoute("#/new-project"); } },
             ...(project ? getProjectActions(project) : []),
           ];
         },
