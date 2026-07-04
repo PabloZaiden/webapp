@@ -234,7 +234,129 @@ describe("server security defaults", () => {
     expect(missingPublic?.status).toBe(404);
     expect(missingPublic?.headers.get("x-frame-options")).toBe("DENY");
     expect(missingApi?.status).toBe(404);
-    expect(await spa?.text()).toBe("<html>index</html>");
+    const spaHtml = await spa?.text();
+    expect(spaHtml).toContain("<html>index</html>");
+    expect(spaHtml).toContain('<link rel="manifest" href="/manifest.webmanifest" />');
+  });
+
+  test("serves generated PWA manifest with defaults and method handling", async () => {
+    const app = createWebAppServer({
+      appName: "Test App",
+      envPrefix: "TEST_PWA_DEFAULTS",
+      index: "<html><head></head><body>index</body></html>",
+      store: testStore("pwa-defaults"),
+      auth: { passkeys: false },
+      routes: defineRoutes({}),
+    });
+
+    const manifest = await app.handleRequest(new Request("http://localhost/manifest.webmanifest"));
+    const manifestHead = await app.handleRequest(new Request("http://localhost/manifest.webmanifest", { method: "HEAD" }));
+    const manifestPost = await app.handleRequest(new Request("http://localhost/manifest.webmanifest", { method: "POST" }));
+
+    expect(manifest?.headers.get("content-type")).toContain("application/manifest+json");
+    expect(await manifest?.json()).toEqual({
+      name: "Test App",
+      short_name: "Test App",
+      start_url: "/",
+      scope: "/",
+      display: "standalone",
+      background_color: "#ffffff",
+      theme_color: "#111827",
+      icons: [
+        { src: "/web-app-manifest-192x192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
+        { src: "/web-app-manifest-512x512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+      ],
+    });
+    expect(manifestHead?.status).toBe(200);
+    expect(await manifestHead?.text()).toBe("");
+    expect(manifestPost?.status).toBe(405);
+    expect(manifestPost?.headers.get("x-frame-options")).toBe("DENY");
+  });
+
+  test("serves custom PWA metadata and injects head tags", async () => {
+    const app = createWebAppServer({
+      appName: "Test App",
+      envPrefix: "TEST_PWA_CUSTOM",
+      index: "<!doctype html><html><head><title>Test</title></head><body>index</body></html>",
+      store: testStore("pwa-custom"),
+      auth: { passkeys: false },
+      pwa: {
+        manifestPath: "/site.webmanifest",
+        shortName: "Test",
+        themeColor: "#242424",
+        backgroundColor: "#f3f4f6",
+        display: "minimal-ui",
+        startUrl: "/app",
+        scope: "/app/",
+        icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml" }],
+        appleTouchIcon: { href: "/apple-touch-icon-180x180.png", sizes: "180x180" },
+      },
+      routes: defineRoutes({}),
+    });
+
+    const manifest = await app.handleRequest(new Request("http://localhost/site.webmanifest"));
+    const htmlResponse = await app.handleRequest(new Request("http://localhost/app", { headers: { accept: "text/html" } }));
+    const html = await htmlResponse?.text();
+
+    expect(await manifest?.json()).toEqual({
+      name: "Test App",
+      short_name: "Test",
+      start_url: "/app",
+      scope: "/app/",
+      display: "minimal-ui",
+      background_color: "#f3f4f6",
+      theme_color: "#242424",
+      icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml" }],
+    });
+    expect(html).toContain('<link rel="manifest" href="/site.webmanifest" />');
+    expect(html).toContain('<link rel="icon" href="/icon.svg" type="image/svg+xml" sizes="any" />');
+    expect(html).toContain('<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon-180x180.png" />');
+    expect(html).toContain('<meta name="mobile-web-app-capable" content="yes" />');
+    expect(html).toContain('<meta name="apple-mobile-web-app-capable" content="yes" />');
+    expect(html).toContain('<meta name="apple-mobile-web-app-title" content="Test" />');
+    expect(html).toContain('<meta name="theme-color" content="#242424" />');
+    expect(html?.indexOf('<link rel="manifest"')).toBeLessThan(html?.indexOf("</head>") ?? -1);
+  });
+
+  test("keeps explicit public manifest route precedence over generated PWA manifest", async () => {
+    const app = createWebAppServer({
+      appName: "Generated",
+      envPrefix: "TEST_PWA_PRECEDENCE",
+      index: "<html><head></head><body>index</body></html>",
+      store: testStore("pwa-precedence"),
+      auth: { passkeys: false },
+      publicRoutes: {
+        "/manifest.webmanifest": {
+          headers: { "content-type": "application/manifest+json" },
+          GET: JSON.stringify({ name: "Explicit" }),
+        },
+      },
+      routes: defineRoutes({}),
+    });
+
+    const manifest = await app.handleRequest(new Request("http://localhost/manifest.webmanifest"));
+
+    expect(await manifest?.json()).toEqual({ name: "Explicit" });
+  });
+
+  test("does not duplicate existing PWA head tags", async () => {
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_PWA_DUPLICATES",
+      index: '<html><head><link rel="manifest" href="/custom.webmanifest" /><meta name="theme-color" content="#000000" /></head><body>index</body></html>',
+      store: testStore("pwa-duplicates"),
+      auth: { passkeys: false },
+      pwa: { shortName: "Duplicate Test", icons: [{ src: "/icon.png", sizes: "96x96", type: "image/png" }] },
+      routes: defineRoutes({}),
+    });
+
+    const response = await app.handleRequest(new Request("http://localhost/"));
+    const html = await response?.text();
+
+    expect(html?.match(/rel="manifest"/g)).toHaveLength(1);
+    expect(html?.match(/name="theme-color"/g)).toHaveLength(1);
+    expect(html).toContain('<link rel="icon" href="/icon.png" type="image/png" sizes="96x96" />');
+    expect(html).toContain('<meta name="apple-mobile-web-app-title" content="Duplicate Test" />');
   });
 
   test("started server serves public routes before static index catchall", async () => {
@@ -266,6 +388,7 @@ describe("server security defaults", () => {
       expect(manifest.headers.get("content-type")).toContain("application/manifest+json");
       expect(await manifest.json()).toEqual({ name: "Static Index Test" });
       expect(fallback.headers.get("content-type")).toContain("text/html");
+      expect(await fallback.text()).toContain('<link rel="manifest" href="/manifest.webmanifest" />');
     } finally {
       stopServer?.();
       if (portPrevious === undefined) {
