@@ -194,14 +194,6 @@ const app = createWebAppServer<NotesTodoEvent>({
   store,
   auth: { passkeys: true, apiKeys: true, deviceAuth: true },
   realtime: { path: "/api/ws" },
-  pwa: {
-    shortName: "Notes",
-    themeColor: "#111827",
-    backgroundColor: "#ffffff",
-    display: "standalone",
-    startUrl: "/",
-    scope: "/",
-  },
   publicRoutes,
   routes,
 });

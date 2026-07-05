@@ -98,14 +98,6 @@ const app = createWebAppServer<Event>({
   store,
   auth: { passkeys: true, apiKeys: true, deviceAuth: true },
   realtime: { path: "/api/ws" },
-  pwa: {
-    shortName: "Kitchen",
-    themeColor: "#111827",
-    backgroundColor: "#ffffff",
-    display: "standalone",
-    startUrl: "/",
-    scope: "/",
-  },
   publicRoutes,
   routes,
 });

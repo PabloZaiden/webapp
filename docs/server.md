@@ -94,45 +94,11 @@ Built-in endpoints include:
 | `/api/server/kill` | Authenticated server shutdown |
 | `/api/ws` | Realtime websocket by default |
 
-## PWA metadata
+## App-owned web manifest metadata
 
-`createWebAppServer` provides shell-level PWA metadata. PWA support is enabled by default with `appName`-derived manifest values, `/manifest.webmanifest`, `/` start/scope, `standalone` display, and conventional icon paths (`/web-app-manifest-192x192.png`, `/web-app-manifest-512x512.png`, and `/apple-touch-icon.png`).
+`createWebAppServer` does not generate PWA manifests or inject installability tags. Apps that need install capabilities should own their manifest, icons, and HTML metadata directly.
 
-```ts
-createWebAppServer({
-  appName: "My App",
-  // ...
-  pwa: {
-    shortName: "MyApp",
-    themeColor: "#111827",
-    backgroundColor: "#ffffff",
-    display: "standalone",
-    icons: [
-      { src: "/web-app-manifest-192x192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
-      { src: "/web-app-manifest-512x512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
-    ],
-    appleTouchIcon: { href: "/apple-touch-icon.png", sizes: "180x180" },
-    startUrl: "/",
-    scope: "/",
-  },
-});
-```
-
-The framework serves the manifest with `application/manifest+json; charset=utf-8`.
-
-For string, `Blob`, or `Response` HTML indexes, the framework also injects the installability tags into HTML shell responses:
-
-```html
-<link rel="manifest" href="/manifest.webmanifest" />
-<link rel="icon" href="/web-app-manifest-192x192.png" type="image/png" sizes="192x192" />
-<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-<meta name="mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-title" content="MyApp" />
-<meta name="theme-color" content="#111827" />
-```
-
-For Bun `HTMLBundle` indexes imported from `index.html`, Bun must serve the HTML and generated assets directly so module rewriting and transpilation keep working. In that mode the framework still serves `/manifest.webmanifest`, but it does not mutate the HTML response. Follow the Clanky-style static asset pattern instead: place `site.webmanifest`, favicons, and apple-touch icons next to `index.html`, then reference them with relative paths so Bun can bundle and rewrite them:
+When `index` is a Bun `HTMLBundle`, place `site.webmanifest`, favicons, and apple-touch icons next to `index.html`, then reference them with relative paths so Bun can bundle, rewrite, and serve those assets:
 
 ```html
 <link rel="manifest" href="./site.webmanifest" />
@@ -163,7 +129,9 @@ Use relative icon paths inside `site.webmanifest` as well:
 }
 ```
 
-Icon files still need to exist in the app bundle or public routes; the framework advertises and serves metadata, but it does not generate image assets. Set `pwa: { enabled: false }` to opt out. Apps that already serve `/manifest.webmanifest` through `publicRoutes` can keep that override; explicit public routes take precedence over the generated manifest.
+This colocated asset resolution is a Bun `HTMLBundle` feature. Apps that pass a string, `Blob`, or `Response` as `index` must serve `site.webmanifest`, icons, and other static assets explicitly through `publicRoutes` or another static file layer.
+
+If an app prefers `/manifest.webmanifest` or needs to serve a manifest dynamically, declare it explicitly with `publicRoutes`. The framework treats it like any other public asset and does not add manifest-specific behavior.
 
 ## Public/static routes
 
@@ -178,7 +146,7 @@ createWebAppServer({
 });
 ```
 
-Only declared public routes are served this way. Unknown `/api/*` paths still return `404`, while normal frontend paths still return the React index.
+Only declared public routes are served this way. Unknown `/api/*` paths still return `404`, while normal frontend `GET` and `HEAD` paths still return the React index. Other methods on unmatched frontend paths return `404` instead of the SPA fallback.
 
 ## App-owned websocket upgrades
 

@@ -51,7 +51,6 @@ export interface WebAppServerConfig<TEvent = unknown> {
   store?: WebAppStore;
   routes?: RouteTable<TEvent>;
   publicRoutes?: Record<string, PublicRouteDefinition>;
-  pwa?: WebAppPwaConfig;
   websockets?: Record<string, Partial<WebSocketHandler<WebAppWebSocketData>>>;
   auth?: {
     passkeys?: boolean | { rpName?: string; userName?: string; userDisplayName?: string };
@@ -65,34 +64,6 @@ export interface WebAppServerConfig<TEvent = unknown> {
     onChange?: (level: LogLevelName) => void;
   };
   configResponse?: (req: Request, base: Readonly<WebAppConfigResponse>) => Record<string, unknown>;
-}
-
-export type WebAppPwaDisplay = "fullscreen" | "standalone" | "minimal-ui" | "browser";
-
-export interface WebAppPwaIcon {
-  src: string;
-  sizes?: string;
-  type?: string;
-  purpose?: string;
-}
-
-export interface WebAppPwaAppleTouchIcon {
-  href: string;
-  sizes?: string;
-}
-
-export interface WebAppPwaConfig {
-  enabled?: boolean;
-  manifestPath?: string;
-  appName?: string;
-  shortName?: string;
-  themeColor?: string;
-  backgroundColor?: string;
-  display?: WebAppPwaDisplay;
-  icons?: WebAppPwaIcon[];
-  appleTouchIcon?: string | WebAppPwaAppleTouchIcon | WebAppPwaAppleTouchIcon[];
-  startUrl?: string;
-  scope?: string;
 }
 
 export const WEBAPP_SOCKET_HANDLER = "webappSocketHandler";
@@ -124,23 +95,8 @@ export interface WebAppServer<TEvent = unknown> {
 
 const log = createLogger("webapp:server");
 const LOG_LEVELS = new Set<LogLevelName>(["trace", "debug", "info", "warn", "error"]);
-const DEFAULT_PWA_THEME_COLOR = "#111827";
-const DEFAULT_PWA_BACKGROUND_COLOR = "#ffffff";
 
 type HtmlBundleIndex = { index: string };
-
-interface NormalizedPwaConfig {
-  manifestPath: string;
-  appName: string;
-  shortName: string;
-  themeColor: string;
-  backgroundColor: string;
-  display: WebAppPwaDisplay;
-  icons: WebAppPwaIcon[];
-  appleTouchIcons: WebAppPwaAppleTouchIcon[];
-  startUrl: string;
-  scope: string;
-}
 
 function bearerToken(req: Request): string | undefined {
   const header = req.headers.get("authorization")?.trim();
@@ -207,195 +163,22 @@ function requestLooksLikeNavigation(req?: Request): boolean {
   return !accept || accept.includes("text/html") || accept.includes("*/*");
 }
 
-function normalizePath(path: string, field: string): string {
-  const trimmed = path.trim();
-  if (!trimmed) {
-    throw new Error(`PWA ${field} cannot be empty`);
-  }
-  return trimmed;
-}
 
-function normalizeServerPath(path: string, field: string): string {
-  const normalized = normalizePath(path, field);
-  return normalized.startsWith("/") ? normalized : `/${normalized}`;
-}
-
-function normalizePwaIcon(icon: WebAppPwaIcon): WebAppPwaIcon {
-  const src = normalizePath(icon.src, "icon src");
-  return {
-    src,
-    ...(icon.sizes ? { sizes: icon.sizes } : {}),
-    ...(icon.type ? { type: icon.type } : {}),
-    ...(icon.purpose ? { purpose: icon.purpose } : {}),
-  };
-}
-
-function normalizeAppleTouchIcon(icon: string | WebAppPwaAppleTouchIcon): WebAppPwaAppleTouchIcon {
-  if (typeof icon === "string") {
-    return { href: normalizePath(icon, "appleTouchIcon") };
-  }
-  return {
-    href: normalizePath(icon.href, "appleTouchIcon href"),
-    ...(icon.sizes ? { sizes: icon.sizes } : {}),
-  };
-}
-
-function normalizePwaConfig(appName: string, input?: WebAppPwaConfig): NormalizedPwaConfig | undefined {
-  if (input?.enabled === false) {
-    return undefined;
-  }
-  const icons = input?.icons?.map(normalizePwaIcon) ?? [
-    { src: "/web-app-manifest-192x192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
-    { src: "/web-app-manifest-512x512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
-  ];
-  const appleTouchIconInput = input?.appleTouchIcon;
-  const appleTouchIcons = Array.isArray(appleTouchIconInput)
-    ? appleTouchIconInput.map(normalizeAppleTouchIcon)
-    : appleTouchIconInput
-      ? [normalizeAppleTouchIcon(appleTouchIconInput)]
-      : [{ href: "/apple-touch-icon.png" }];
-  return {
-    manifestPath: normalizeServerPath(input?.manifestPath ?? "/manifest.webmanifest", "manifestPath"),
-    appName: input?.appName ?? appName,
-    shortName: input?.shortName ?? input?.appName ?? appName,
-    themeColor: input?.themeColor ?? DEFAULT_PWA_THEME_COLOR,
-    backgroundColor: input?.backgroundColor ?? DEFAULT_PWA_BACKGROUND_COLOR,
-    display: input?.display ?? "standalone",
-    icons,
-    appleTouchIcons,
-    startUrl: normalizeServerPath(input?.startUrl ?? "/", "startUrl"),
-    scope: normalizeServerPath(input?.scope ?? "/", "scope"),
-  };
-}
-
-function pwaManifestJson(pwa: NormalizedPwaConfig): string {
-  return JSON.stringify({
-    name: pwa.appName,
-    short_name: pwa.shortName,
-    start_url: pwa.startUrl,
-    scope: pwa.scope,
-    display: pwa.display,
-    background_color: pwa.backgroundColor,
-    theme_color: pwa.themeColor,
-    icons: pwa.icons,
-  });
-}
-
-function pwaManifestResponse(pwa: NormalizedPwaConfig): Response {
-  return withSecurityHeaders(new Response(pwaManifestJson(pwa), {
-    headers: { "content-type": "application/manifest+json; charset=utf-8" },
-  }));
-}
-
-function escapeHtmlAttribute(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function hasHeadTag(html: string, pattern: RegExp): boolean {
-  return pattern.test(html);
-}
-
-function hasLinkRel(html: string, rel: string): boolean {
-  const links = html.matchAll(/<link\b[^>]*\brel\s*=\s*(["'])(.*?)\1[^>]*>/gi);
-  for (const link of links) {
-    const relValue = link[2]?.toLowerCase();
-    if (relValue?.split(/\s+/).includes(rel)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function pwaHeadTags(html: string, pwa: NormalizedPwaConfig): string {
-  const tags: string[] = [];
-  if (!hasLinkRel(html, "manifest")) {
-    tags.push(`<link rel="manifest" href="${escapeHtmlAttribute(pwa.manifestPath)}" />`);
-  }
-  if (!hasLinkRel(html, "icon")) {
-    for (const icon of pwa.icons) {
-      const attributes = [
-        `rel="icon"`,
-        `href="${escapeHtmlAttribute(icon.src)}"`,
-        icon.type ? `type="${escapeHtmlAttribute(icon.type)}"` : undefined,
-        icon.sizes ? `sizes="${escapeHtmlAttribute(icon.sizes)}"` : undefined,
-      ].filter(Boolean);
-      tags.push(`<link ${attributes.join(" ")} />`);
-    }
-  }
-  if (!hasLinkRel(html, "apple-touch-icon")) {
-    for (const icon of pwa.appleTouchIcons) {
-      const attributes = [
-        `rel="apple-touch-icon"`,
-        icon.sizes ? `sizes="${escapeHtmlAttribute(icon.sizes)}"` : undefined,
-        `href="${escapeHtmlAttribute(icon.href)}"`,
-      ].filter(Boolean);
-      tags.push(`<link ${attributes.join(" ")} />`);
-    }
-  }
-  if (!hasHeadTag(html, /<meta\b[^>]*\bname=["']mobile-web-app-capable["']/i)) {
-    tags.push(`<meta name="mobile-web-app-capable" content="yes" />`);
-  }
-  if (!hasHeadTag(html, /<meta\b[^>]*\bname=["']apple-mobile-web-app-capable["']/i)) {
-    tags.push(`<meta name="apple-mobile-web-app-capable" content="yes" />`);
-  }
-  if (!hasHeadTag(html, /<meta\b[^>]*\bname=["']apple-mobile-web-app-title["']/i)) {
-    tags.push(`<meta name="apple-mobile-web-app-title" content="${escapeHtmlAttribute(pwa.shortName)}" />`);
-  }
-  if (!hasHeadTag(html, /<meta\b[^>]*\bname=["']theme-color["']/i)) {
-    tags.push(`<meta name="theme-color" content="${escapeHtmlAttribute(pwa.themeColor)}" />`);
-  }
-  return tags.length > 0 ? `\n    ${tags.join("\n    ")}\n` : "";
-}
-
-function injectPwaHeadTags(html: string, pwa?: NormalizedPwaConfig): string {
-  if (!pwa) {
-    return html;
-  }
-  const tags = pwaHeadTags(html, pwa);
-  if (!tags) {
-    return html;
-  }
-  const headClose = /<\/head\s*>/i;
-  if (headClose.test(html)) {
-    return html.replace(headClose, `${tags}</head>`);
-  }
-  return `${html}${tags}`;
-}
-
-async function htmlResponse(index: unknown, pwa?: NormalizedPwaConfig, req?: Request): Promise<Response> {
+async function htmlResponse(index: unknown, req?: Request): Promise<Response> {
   if (isHtmlBundleIndex(index)) {
     if (requestLooksLikeNavigation(req)) {
       const html = await Bun.file(index.index).text();
-      return withSecurityHeaders(new Response(injectPwaHeadTags(html, pwa), { headers: { "content-type": "text/html; charset=utf-8" } }));
+      return withSecurityHeaders(new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } }));
     }
     return index as unknown as Response;
   }
   if (index instanceof Response) {
-    const contentType = index.headers.get("content-type");
-    if (pwa && (!contentType || contentType.includes("text/html"))) {
-      const headers = new Headers(index.headers);
-      if (!headers.has("content-type")) {
-        headers.set("content-type", "text/html; charset=utf-8");
-      }
-      return withSecurityHeaders(new Response(injectPwaHeadTags(await index.clone().text(), pwa), {
-        status: index.status,
-        statusText: index.statusText,
-        headers,
-      }));
-    }
     return withSecurityHeaders(index);
   }
   if (typeof index === "string") {
-    return withSecurityHeaders(new Response(injectPwaHeadTags(index, pwa), { headers: { "content-type": "text/html; charset=utf-8" } }));
+    return withSecurityHeaders(new Response(index, { headers: { "content-type": "text/html; charset=utf-8" } }));
   }
   if (index instanceof Blob) {
-    if (pwa && (!index.type || index.type.includes("text/html"))) {
-      return withSecurityHeaders(new Response(injectPwaHeadTags(await index.text(), pwa), { headers: { "content-type": index.type || "text/html; charset=utf-8" } }));
-    }
     return withSecurityHeaders(new Response(index));
   }
   return index as Response;
@@ -421,6 +204,10 @@ function secureDynamicResponse(response: Response): Response {
 
 function canRespondWithIndex(index: unknown): boolean {
   return index instanceof Response || typeof index === "string" || index instanceof Blob || isHtmlBundleIndex(index);
+}
+
+function canUseSpaFallback(req: Request): boolean {
+  return req.method === "GET" || req.method === "HEAD";
 }
 
 function hasOwnPublicRoute(publicRoutes: Record<string, PublicRouteDefinition>, path: string): boolean {
@@ -550,7 +337,6 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const wsPath = input.realtime?.path ?? "/api/ws";
   const routes = input.routes ?? {};
   const publicRoutes = input.publicRoutes ?? {};
-  const pwa = normalizePwaConfig(config.appName, input.pwa);
   const appWebsockets = input.websockets ?? {};
   const passkeysEnabled = input.auth?.passkeys !== false;
   const apiKeysEnabled = input.auth?.apiKeys ?? false;
@@ -958,7 +744,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         return successResponse({ success: true, message: "Server is shutting down" });
       }
       if (deviceAuthEnabled && path === "/device" && req.method === "GET") {
-        return htmlResponse(input.index, pwa, req);
+        return htmlResponse(input.index, req);
       }
     } catch (error) {
       return authErrorResponse(error);
@@ -991,20 +777,6 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       return withSecurityHeaders(notFound());
     }
     const response = publicAssetResponse(asset, definition?.headers);
-    if (req.method === "HEAD") {
-      return new Response(null, { status: response.status, statusText: response.statusText, headers: response.headers });
-    }
-    return response;
-  }
-
-  function handlePwaManifest(req: Request): Response | undefined {
-    if (!pwa || new URL(req.url).pathname !== pwa.manifestPath || hasOwnPublicRoute(publicRoutes, pwa.manifestPath)) {
-      return undefined;
-    }
-    if (req.method !== "GET" && req.method !== "HEAD") {
-      return withSecurityHeaders(methodNotAllowed());
-    }
-    const response = pwaManifestResponse(pwa);
     if (req.method === "HEAD") {
       return new Response(null, { status: response.status, statusText: response.statusText, headers: response.headers });
     }
@@ -1075,10 +847,6 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     if (publicRoute) {
       return publicRoute;
     }
-    const manifest = handlePwaManifest(req);
-    if (manifest) {
-      return manifest;
-    }
     const matched = matchRoute(routes, url.pathname);
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/.well-known/") || url.pathname === "/device") {
       const builtIn = await handleBuiltIn(req, server);
@@ -1093,7 +861,10 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     if (matched) {
       return handleMatchedRoute(req, matched, server);
     }
-    return htmlResponse(input.index, pwa, req);
+    if (!canUseSpaFallback(req)) {
+      return withSecurityHeaders(notFound());
+    }
+    return htmlResponse(input.index, req);
   }
 
   function customHandler(socket: ServerWebSocket<WebAppWebSocketData>): Partial<WebSocketHandler<WebAppWebSocketData>> | undefined {
@@ -1104,20 +875,31 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   function start(): Server<WebAppWebSocketData> {
     const dynamicHandler = (req: Request, server: Server<WebAppWebSocketData>) => handleRequest(req, server);
     const publicRouteHandlers = Object.fromEntries(Object.keys(publicRoutes).map((path) => [path, dynamicHandler]));
-    const pwaRouteHandlers = pwa && !hasOwnPublicRoute(publicRoutes, pwa.manifestPath) ? { [pwa.manifestPath]: dynamicHandler } : {};
     const indexCanRespond = canRespondWithIndex(input.index);
     const indexIsHtmlBundle = isHtmlBundleIndex(input.index);
+    const spaFallbackRoute = indexCanRespond && !indexIsHtmlBundle
+      ? dynamicHandler
+      : indexIsHtmlBundle
+        ? {
+            GET: input.index as never,
+            HEAD: input.index as never,
+            POST: dynamicHandler,
+            PUT: dynamicHandler,
+            PATCH: dynamicHandler,
+            DELETE: dynamicHandler,
+            OPTIONS: dynamicHandler,
+          }
+        : input.index as never;
     const server = Bun.serve<WebAppWebSocketData>({
       hostname: config.host,
       port: config.port,
       routes: {
         ...publicRouteHandlers,
-        ...pwaRouteHandlers,
         "/api/*": dynamicHandler,
         "/.well-known/*": dynamicHandler,
         "/device": deviceAuthEnabled && (!indexCanRespond || indexIsHtmlBundle) ? input.index as never : dynamicHandler,
         "/setup": passkeysEnabled && (!indexCanRespond || indexIsHtmlBundle) ? input.index as never : dynamicHandler,
-        "/*": indexCanRespond && !indexIsHtmlBundle ? dynamicHandler : input.index as never,
+        "/*": spaFallbackRoute,
       },
       websocket: {
         open(socket) {

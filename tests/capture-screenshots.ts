@@ -100,9 +100,9 @@ const kitchen = startExample("kitchen-sink", 3302);
 try {
   await Promise.all([waitForHealth(3301), waitForHealth(3302)]);
   await Promise.all([
-    assertPublicRoute(3301, "/manifest.webmanifest", "application/manifest+json", "Notes TODO"),
+    assertPublicRoute(3301, "/site.webmanifest", "application/manifest+json", "Notes TODO"),
     assertPublicRoute(3301, "/public/onboarding.txt", "text/plain", "title-bar action menus"),
-    assertPublicRoute(3302, "/manifest.webmanifest", "application/manifest+json", "Kitchen Sink"),
+    assertPublicRoute(3302, "/site.webmanifest", "application/manifest+json", "Kitchen Sink"),
     assertPublicRoute(3302, "/public/diagnostics.json", "application/json", "\"publicRoute\":true"),
     assertPublicRoute(3302, "/robots.txt", "text/plain", "User-agent"),
   ]);
