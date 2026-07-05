@@ -227,6 +227,8 @@ describe("server security defaults", () => {
     const missingPublic = await app.handleRequest(new Request("http://localhost/missing-public"));
     const missingApi = await app.handleRequest(new Request("http://localhost/api/missing"));
     const spa = await app.handleRequest(new Request("http://localhost/projects"));
+    const spaHead = await app.handleRequest(new Request("http://localhost/projects", { method: "HEAD" }));
+    const spaPost = await app.handleRequest(new Request("http://localhost/projects", { method: "POST" }));
 
     expect(manifest?.headers.get("content-type")).toContain("application/manifest+json");
     expect(await manifest?.json()).toEqual({ name: "Test" });
@@ -241,6 +243,10 @@ describe("server security defaults", () => {
     const spaHtml = await spa?.text();
     expect(spaHtml).toContain("<html>index</html>");
     expect(spaHtml).not.toContain('<link rel="manifest"');
+    expect(spaHead?.status).toBe(200);
+    expect(spaPost?.status).toBe(404);
+    expect(spaPost?.headers.get("content-type")).toContain("application/json");
+    expect(await spaPost?.json()).toMatchObject({ error: "not_found" });
   });
 
   test("does not generate manifest routes or mutate HTML metadata", async () => {
@@ -287,11 +293,15 @@ describe("server security defaults", () => {
       stopServer = () => server.stop(true);
       const manifest = await fetch(new URL("/manifest.webmanifest", server.url));
       const fallback = await fetch(new URL("/anything-else", server.url));
+      const postFallback = await fetch(new URL("/anything-else", server.url), { method: "POST" });
 
       expect(manifest.headers.get("content-type")).toContain("application/manifest+json");
       expect(await manifest.json()).toEqual({ name: "Static Index Test" });
       expect(fallback.headers.get("content-type")).toContain("text/html");
       expect(await fallback.text()).toContain("static index");
+      expect(postFallback.status).toBe(404);
+      expect(postFallback.headers.get("content-type")).toContain("application/json");
+      expect(await postFallback.json()).toMatchObject({ error: "not_found" });
     } finally {
       stopServer?.();
       if (portPrevious === undefined) {

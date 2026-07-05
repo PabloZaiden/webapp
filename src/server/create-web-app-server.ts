@@ -206,6 +206,10 @@ function canRespondWithIndex(index: unknown): boolean {
   return index instanceof Response || typeof index === "string" || index instanceof Blob || isHtmlBundleIndex(index);
 }
 
+function canUseSpaFallback(req: Request): boolean {
+  return req.method === "GET" || req.method === "HEAD";
+}
+
 function hasOwnPublicRoute(publicRoutes: Record<string, PublicRouteDefinition>, path: string): boolean {
   return Object.prototype.hasOwnProperty.call(publicRoutes, path);
 }
@@ -857,6 +861,9 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     if (matched) {
       return handleMatchedRoute(req, matched, server);
     }
+    if (!canUseSpaFallback(req)) {
+      return withSecurityHeaders(notFound());
+    }
     return htmlResponse(input.index, req);
   }
 
@@ -870,6 +877,19 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     const publicRouteHandlers = Object.fromEntries(Object.keys(publicRoutes).map((path) => [path, dynamicHandler]));
     const indexCanRespond = canRespondWithIndex(input.index);
     const indexIsHtmlBundle = isHtmlBundleIndex(input.index);
+    const spaFallbackRoute = indexCanRespond && !indexIsHtmlBundle
+      ? dynamicHandler
+      : indexIsHtmlBundle
+        ? {
+            GET: input.index as never,
+            HEAD: input.index as never,
+            POST: dynamicHandler,
+            PUT: dynamicHandler,
+            PATCH: dynamicHandler,
+            DELETE: dynamicHandler,
+            OPTIONS: dynamicHandler,
+          }
+        : input.index as never;
     const server = Bun.serve<WebAppWebSocketData>({
       hostname: config.host,
       port: config.port,
@@ -879,7 +899,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         "/.well-known/*": dynamicHandler,
         "/device": deviceAuthEnabled && (!indexCanRespond || indexIsHtmlBundle) ? input.index as never : dynamicHandler,
         "/setup": passkeysEnabled && (!indexCanRespond || indexIsHtmlBundle) ? input.index as never : dynamicHandler,
-        "/*": indexCanRespond && !indexIsHtmlBundle ? dynamicHandler : input.index as never,
+        "/*": spaFallbackRoute,
       },
       websocket: {
         open(socket) {

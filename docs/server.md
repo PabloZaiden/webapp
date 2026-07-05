@@ -98,7 +98,7 @@ Built-in endpoints include:
 
 `createWebAppServer` does not generate PWA manifests or inject installability tags. Apps that need install capabilities should own their manifest, icons, and HTML metadata directly.
 
-Place `site.webmanifest`, favicons, and apple-touch icons next to `index.html`, then reference them with relative paths so Bun can bundle and rewrite those assets:
+When `index` is a Bun `HTMLBundle`, place `site.webmanifest`, favicons, and apple-touch icons next to `index.html`, then reference them with relative paths so Bun can bundle, rewrite, and serve those assets:
 
 ```html
 <link rel="manifest" href="./site.webmanifest" />
@@ -129,6 +129,8 @@ Use relative icon paths inside `site.webmanifest` as well:
 }
 ```
 
+This colocated asset resolution is a Bun `HTMLBundle` feature. Apps that pass a string, `Blob`, or `Response` as `index` must serve `site.webmanifest`, icons, and other static assets explicitly through `publicRoutes` or another static file layer.
+
 If an app prefers `/manifest.webmanifest` or needs to serve a manifest dynamically, declare it explicitly with `publicRoutes`. The framework treats it like any other public asset and does not add manifest-specific behavior.
 
 ## Public/static routes
@@ -144,7 +146,7 @@ createWebAppServer({
 });
 ```
 
-Only declared public routes are served this way. Unknown `/api/*` paths still return `404`, while normal frontend paths still return the React index.
+Only declared public routes are served this way. Unknown `/api/*` paths still return `404`, while normal frontend `GET` and `HEAD` paths still return the React index. Other methods on unmatched frontend paths return `404` instead of the SPA fallback.
 
 ## App-owned websocket upgrades
 
