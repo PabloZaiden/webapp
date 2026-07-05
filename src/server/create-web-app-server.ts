@@ -215,6 +215,11 @@ function normalizePath(path: string, field: string): string {
   return trimmed;
 }
 
+function normalizeServerPath(path: string, field: string): string {
+  const normalized = normalizePath(path, field);
+  return normalized.startsWith("/") ? normalized : `/${normalized}`;
+}
+
 function normalizePwaIcon(icon: WebAppPwaIcon): WebAppPwaIcon {
   const src = normalizePath(icon.src, "icon src");
   return {
@@ -250,7 +255,7 @@ function normalizePwaConfig(appName: string, input?: WebAppPwaConfig): Normalize
       ? [normalizeAppleTouchIcon(appleTouchIconInput)]
       : [{ href: "/apple-touch-icon.png" }];
   return {
-    manifestPath: normalizePath(input?.manifestPath ?? "/manifest.webmanifest", "manifestPath"),
+    manifestPath: normalizeServerPath(input?.manifestPath ?? "/manifest.webmanifest", "manifestPath"),
     appName: input?.appName ?? appName,
     shortName: input?.shortName ?? input?.appName ?? appName,
     themeColor: input?.themeColor ?? DEFAULT_PWA_THEME_COLOR,
@@ -258,8 +263,8 @@ function normalizePwaConfig(appName: string, input?: WebAppPwaConfig): Normalize
     display: input?.display ?? "standalone",
     icons,
     appleTouchIcons,
-    startUrl: normalizePath(input?.startUrl ?? "/", "startUrl"),
-    scope: normalizePath(input?.scope ?? "/", "scope"),
+    startUrl: normalizeServerPath(input?.startUrl ?? "/", "startUrl"),
+    scope: normalizeServerPath(input?.scope ?? "/", "scope"),
   };
 }
 
@@ -294,12 +299,23 @@ function hasHeadTag(html: string, pattern: RegExp): boolean {
   return pattern.test(html);
 }
 
+function hasLinkRel(html: string, rel: string): boolean {
+  const links = html.matchAll(/<link\b[^>]*\brel\s*=\s*(["'])(.*?)\1[^>]*>/gi);
+  for (const link of links) {
+    const relValue = link[2]?.toLowerCase();
+    if (relValue?.split(/\s+/).includes(rel)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function pwaHeadTags(html: string, pwa: NormalizedPwaConfig): string {
   const tags: string[] = [];
-  if (!hasHeadTag(html, /<link\b[^>]*\brel=["'][^"']*\bmanifest\b/i)) {
+  if (!hasLinkRel(html, "manifest")) {
     tags.push(`<link rel="manifest" href="${escapeHtmlAttribute(pwa.manifestPath)}" />`);
   }
-  if (!hasHeadTag(html, /<link\b[^>]*\brel=["'][^"']*\bicon\b/i)) {
+  if (!hasLinkRel(html, "icon")) {
     for (const icon of pwa.icons) {
       const attributes = [
         `rel="icon"`,
@@ -310,7 +326,7 @@ function pwaHeadTags(html: string, pwa: NormalizedPwaConfig): string {
       tags.push(`<link ${attributes.join(" ")} />`);
     }
   }
-  if (!hasHeadTag(html, /<link\b[^>]*\brel=["'][^"']*\bapple-touch-icon\b/i)) {
+  if (!hasLinkRel(html, "apple-touch-icon")) {
     for (const icon of pwa.appleTouchIcons) {
       const attributes = [
         `rel="apple-touch-icon"`,
@@ -405,6 +421,10 @@ function secureDynamicResponse(response: Response): Response {
 
 function canRespondWithIndex(index: unknown): boolean {
   return index instanceof Response || typeof index === "string" || index instanceof Blob || isHtmlBundleIndex(index);
+}
+
+function hasOwnPublicRoute(publicRoutes: Record<string, PublicRouteDefinition>, path: string): boolean {
+  return Object.prototype.hasOwnProperty.call(publicRoutes, path);
 }
 
 function scopesFromBearer(claims: { scope: string }): string[] {
@@ -948,6 +968,9 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
 
   async function handlePublicRoute(req: Request): Promise<Response | undefined> {
     const url = new URL(req.url);
+    if (!hasOwnPublicRoute(publicRoutes, url.pathname)) {
+      return undefined;
+    }
     const route = publicRoutes[url.pathname];
     if (!route) {
       return undefined;
@@ -975,7 +998,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   }
 
   function handlePwaManifest(req: Request): Response | undefined {
-    if (!pwa || new URL(req.url).pathname !== pwa.manifestPath || pwa.manifestPath in publicRoutes) {
+    if (!pwa || new URL(req.url).pathname !== pwa.manifestPath || hasOwnPublicRoute(publicRoutes, pwa.manifestPath)) {
       return undefined;
     }
     if (req.method !== "GET" && req.method !== "HEAD") {
@@ -1081,7 +1104,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   function start(): Server<WebAppWebSocketData> {
     const dynamicHandler = (req: Request, server: Server<WebAppWebSocketData>) => handleRequest(req, server);
     const publicRouteHandlers = Object.fromEntries(Object.keys(publicRoutes).map((path) => [path, dynamicHandler]));
-    const pwaRouteHandlers = pwa && !(pwa.manifestPath in publicRoutes) ? { [pwa.manifestPath]: dynamicHandler } : {};
+    const pwaRouteHandlers = pwa && !hasOwnPublicRoute(publicRoutes, pwa.manifestPath) ? { [pwa.manifestPath]: dynamicHandler } : {};
     const server = Bun.serve<WebAppWebSocketData>({
       hostname: config.host,
       port: config.port,

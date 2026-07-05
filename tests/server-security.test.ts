@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { Database } from "bun:sqlite";
-import { RealtimeBus, createWebAppServer, defineRoutes, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
+import { RealtimeBus, createWebAppServer, defineRoutes, jsonResponse, sqliteWebAppStore, type PublicRouteDefinition, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
 import { createApiKey } from "../src/server/auth/api-keys";
 import { sha256 } from "../src/server/auth/crypto";
 import { readRuntimeConfig } from "../src/server/runtime-config";
@@ -318,6 +318,32 @@ describe("server security defaults", () => {
     expect(html?.indexOf('<link rel="manifest"')).toBeLessThan(html?.indexOf("</head>") ?? -1);
   });
 
+  test("normalizes relative PWA server paths", async () => {
+    const app = createWebAppServer({
+      appName: "Relative Paths",
+      envPrefix: "TEST_PWA_RELATIVE_PATHS",
+      index: "<html><head></head><body>index</body></html>",
+      store: testStore("pwa-relative-paths"),
+      auth: { passkeys: false },
+      pwa: {
+        manifestPath: "site.webmanifest",
+        startUrl: "app",
+        scope: "app/",
+      },
+      routes: defineRoutes({}),
+    });
+
+    const manifest = await app.handleRequest(new Request("http://localhost/site.webmanifest"));
+    const htmlResponse = await app.handleRequest(new Request("http://localhost/app", { headers: { accept: "text/html" } }));
+    const html = await htmlResponse?.text();
+
+    expect(await manifest?.json()).toMatchObject({
+      start_url: "/app",
+      scope: "/app/",
+    });
+    expect(html).toContain('<link rel="manifest" href="/site.webmanifest" />');
+  });
+
   test("keeps explicit public manifest route precedence over generated PWA manifest", async () => {
     const app = createWebAppServer({
       appName: "Generated",
@@ -339,6 +365,28 @@ describe("server security defaults", () => {
     expect(await manifest?.json()).toEqual({ name: "Explicit" });
   });
 
+  test("ignores inherited public manifest route keys when generating PWA manifest", async () => {
+    const publicRoutes = Object.create({
+      "/manifest.webmanifest": {
+        headers: { "content-type": "application/manifest+json" },
+        GET: JSON.stringify({ name: "Inherited" }),
+      },
+    }) as Record<string, PublicRouteDefinition>;
+    const app = createWebAppServer({
+      appName: "Generated",
+      envPrefix: "TEST_PWA_OWN_PRECEDENCE",
+      index: "<html><head></head><body>index</body></html>",
+      store: testStore("pwa-own-precedence"),
+      auth: { passkeys: false },
+      publicRoutes,
+      routes: defineRoutes({}),
+    });
+
+    const manifest = await app.handleRequest(new Request("http://localhost/manifest.webmanifest"));
+
+    expect(await manifest?.json()).toMatchObject({ name: "Generated" });
+  });
+
   test("does not duplicate existing PWA head tags", async () => {
     const app = createWebAppServer({
       appName: "Test",
@@ -357,6 +405,24 @@ describe("server security defaults", () => {
     expect(html?.match(/name="theme-color"/g)).toHaveLength(1);
     expect(html).toContain('<link rel="icon" href="/icon.png" type="image/png" sizes="96x96" />');
     expect(html).toContain('<meta name="apple-mobile-web-app-title" content="Duplicate Test" />');
+  });
+
+  test("does not treat mask-icon as an existing icon rel token", async () => {
+    const app = createWebAppServer({
+      appName: "Mask Icon",
+      envPrefix: "TEST_PWA_MASK_ICON",
+      index: '<html><head><link rel="mask-icon" href="/safari-pinned-tab.svg" /></head><body>index</body></html>',
+      store: testStore("pwa-mask-icon"),
+      auth: { passkeys: false },
+      pwa: { icons: [{ src: "/icon.png", sizes: "96x96", type: "image/png" }] },
+      routes: defineRoutes({}),
+    });
+
+    const response = await app.handleRequest(new Request("http://localhost/"));
+    const html = await response?.text();
+
+    expect(html).toContain('<link rel="mask-icon" href="/safari-pinned-tab.svg" />');
+    expect(html).toContain('<link rel="icon" href="/icon.png" type="image/png" sizes="96x96" />');
   });
 
   test("started server serves public routes before static index catchall", async () => {
