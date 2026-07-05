@@ -180,17 +180,6 @@ const routes = defineRoutes<NotesTodoEvent>({
 });
 
 const publicRoutes = {
-  "/manifest.webmanifest": {
-    headers: { "content-type": "application/manifest+json; charset=utf-8" },
-    GET: JSON.stringify({
-      name: "Notes TODO",
-      short_name: "Notes",
-      start_url: "/",
-      display: "standalone",
-      background_color: "#ffffff",
-      theme_color: "#111827",
-    }),
-  },
   "/public/onboarding.txt": {
     headers: { "content-type": "text/plain; charset=utf-8" },
     GET: "Use sidebar pins, title-bar action menus, and user-owned routes to build a Notes TODO app.\n",
@@ -205,6 +194,14 @@ const app = createWebAppServer<NotesTodoEvent>({
   store,
   auth: { passkeys: true, apiKeys: true, deviceAuth: true },
   realtime: { path: "/api/ws" },
+  pwa: {
+    shortName: "Notes",
+    themeColor: "#111827",
+    backgroundColor: "#ffffff",
+    display: "standalone",
+    startUrl: "/",
+    scope: "/",
+  },
   publicRoutes,
   routes,
 });

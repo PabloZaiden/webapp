@@ -94,6 +94,44 @@ Built-in endpoints include:
 | `/api/server/kill` | Authenticated server shutdown |
 | `/api/ws` | Realtime websocket by default |
 
+## PWA metadata
+
+`createWebAppServer` provides shell-level PWA metadata so apps do not need to duplicate manifest and icon tags in every `index.html`. PWA support is enabled by default with `appName`-derived manifest values, `/manifest.webmanifest`, `/` start/scope, `standalone` display, and conventional icon paths (`/web-app-manifest-192x192.png`, `/web-app-manifest-512x512.png`, and `/apple-touch-icon.png`).
+
+```ts
+createWebAppServer({
+  appName: "My App",
+  // ...
+  pwa: {
+    shortName: "MyApp",
+    themeColor: "#111827",
+    backgroundColor: "#ffffff",
+    display: "standalone",
+    icons: [
+      { src: "/web-app-manifest-192x192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
+      { src: "/web-app-manifest-512x512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+    ],
+    appleTouchIcon: { href: "/apple-touch-icon.png", sizes: "180x180" },
+    startUrl: "/",
+    scope: "/",
+  },
+});
+```
+
+The framework serves the manifest with `application/manifest+json; charset=utf-8` and injects the installability tags into HTML shell responses:
+
+```html
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="icon" href="/web-app-manifest-192x192.png" type="image/png" sizes="192x192" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="MyApp" />
+<meta name="theme-color" content="#111827" />
+```
+
+Icon files still need to exist in the app bundle or public routes; the framework advertises and serves metadata, but it does not generate image assets. Set `pwa: { enabled: false }` to opt out. Apps that already serve `/manifest.webmanifest` through `publicRoutes` can keep that override; explicit public routes take precedence over the generated manifest.
+
 ## Public/static routes
 
 Declare public non-API assets explicitly with `publicRoutes`:
@@ -102,10 +140,6 @@ Declare public non-API assets explicitly with `publicRoutes`:
 createWebAppServer({
   // ...
   publicRoutes: {
-    "/manifest.webmanifest": {
-      headers: { "content-type": "application/manifest+json" },
-      GET: manifestJson,
-    },
     "/service-worker": serviceWorker,
   },
 });

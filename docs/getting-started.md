@@ -37,11 +37,18 @@ const app = createWebAppServer({
   index: webIndex,
   auth: { passkeys: true, apiKeys: true, deviceAuth: true },
   realtime: { path: "/api/ws" },
+  pwa: {
+    shortName: "MyApp",
+    themeColor: "#111827",
+    backgroundColor: "#ffffff",
+  },
   routes,
 });
 
 await app.runFromCli();
 ```
+
+The `pwa` option is optional; by default the framework derives install metadata from `appName`, serves `/manifest.webmanifest`, and injects the manifest/icon/mobile head tags into the shell HTML. Configure `icons`, `appleTouchIcon`, `startUrl`, and `scope` when your app ships specific install assets.
 
 Apps should stay one app and one binary. Use subcommands for different modes:
 
