@@ -37,20 +37,13 @@ const app = createWebAppServer({
   index: webIndex,
   auth: { passkeys: true, apiKeys: true, deviceAuth: true },
   realtime: { path: "/api/ws" },
-  pwa: {
-    shortName: "MyApp",
-    themeColor: "#111827",
-    backgroundColor: "#ffffff",
-  },
   routes,
 });
 
 await app.runFromCli();
 ```
 
-The `pwa` option is optional; by default the framework derives install metadata from `appName` and serves `/manifest.webmanifest`. Configure `icons`, `appleTouchIcon`, `startUrl`, and `scope` when your app serves the manifest dynamically through the framework.
-
-For the recommended Bun `HTMLBundle` shape (`import webIndex from "./index.html"`), keep the install metadata static and relative to `index.html` so Bun can bundle and rewrite those assets:
+Keep install metadata static and relative to `index.html` so Bun can bundle and rewrite those app-owned assets:
 
 ```html
 <link rel="manifest" href="./site.webmanifest" />
@@ -62,7 +55,7 @@ For the recommended Bun `HTMLBundle` shape (`import webIndex from "./index.html"
 <meta name="theme-color" content="#111827" />
 ```
 
-Place `site.webmanifest`, icons, and apple-touch icons next to `index.html`, and reference manifest icons with relative paths such as `"./web-app-manifest-192x192.png"`. A single SVG favicon is enough for lightweight examples; production apps should include PNG manifest icons and an Apple touch icon like Clanky. For string, `Blob`, or `Response` HTML indexes, the framework injects equivalent tags automatically.
+Place `site.webmanifest`, icons, and apple-touch icons next to `index.html`, and reference manifest icons with relative paths such as `"./web-app-manifest-192x192.png"`. A single SVG favicon is enough for lightweight examples; production apps should include PNG manifest icons and an Apple touch icon like Clanky. For string, `Blob`, or `Response` HTML indexes, include equivalent tags in the HTML you pass to the server.
 
 Apps should stay one app and one binary. Use subcommands for different modes:
 
