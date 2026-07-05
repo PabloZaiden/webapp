@@ -1105,6 +1105,8 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     const dynamicHandler = (req: Request, server: Server<WebAppWebSocketData>) => handleRequest(req, server);
     const publicRouteHandlers = Object.fromEntries(Object.keys(publicRoutes).map((path) => [path, dynamicHandler]));
     const pwaRouteHandlers = pwa && !hasOwnPublicRoute(publicRoutes, pwa.manifestPath) ? { [pwa.manifestPath]: dynamicHandler } : {};
+    const indexCanRespond = canRespondWithIndex(input.index);
+    const indexIsHtmlBundle = isHtmlBundleIndex(input.index);
     const server = Bun.serve<WebAppWebSocketData>({
       hostname: config.host,
       port: config.port,
@@ -1113,9 +1115,9 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         ...pwaRouteHandlers,
         "/api/*": dynamicHandler,
         "/.well-known/*": dynamicHandler,
-        "/device": deviceAuthEnabled && !canRespondWithIndex(input.index) ? input.index as never : dynamicHandler,
-        "/setup": passkeysEnabled && !canRespondWithIndex(input.index) ? input.index as never : dynamicHandler,
-        "/*": canRespondWithIndex(input.index) ? dynamicHandler : input.index as never,
+        "/device": deviceAuthEnabled && (!indexCanRespond || indexIsHtmlBundle) ? input.index as never : dynamicHandler,
+        "/setup": passkeysEnabled && (!indexCanRespond || indexIsHtmlBundle) ? input.index as never : dynamicHandler,
+        "/*": indexCanRespond && !indexIsHtmlBundle ? dynamicHandler : input.index as never,
       },
       websocket: {
         open(socket) {

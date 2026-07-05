@@ -454,7 +454,7 @@ describe("server security defaults", () => {
       expect(manifest.headers.get("content-type")).toContain("application/manifest+json");
       expect(await manifest.json()).toEqual({ name: "Static Index Test" });
       expect(fallback.headers.get("content-type")).toContain("text/html");
-      expect(await fallback.text()).toContain('<link rel="manifest" href="/manifest.webmanifest" />');
+      expect(await fallback.text()).toContain("static index");
     } finally {
       stopServer?.();
       if (portPrevious === undefined) {
