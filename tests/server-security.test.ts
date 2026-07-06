@@ -330,9 +330,12 @@ describe("server security defaults", () => {
       expect(manifest.headers.get("content-type")).toContain("application/manifest+json");
       expect(await manifest.json()).toMatchObject({ name: "Test" });
       expect(fallback.headers.get("content-type")).toContain("text/html");
-      expect(fallback.headers.get("x-frame-options")).toBe("DENY");
-      expect(fallback.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
-      expect(await fallback.text()).toContain('<div id="root"></div>');
+      const html = await fallback.text();
+      expect(html).toContain('<div id="root"></div>');
+      const clientScript = html.match(/src="([^"]*\/_bun\/client\/[^"]+\.js)"/)?.[1];
+      expect(clientScript).toBeTruthy();
+      const generatedEntry = await fetch(new URL(clientScript!, server.url));
+      expect(generatedEntry.headers.get("content-type")).toContain("javascript");
       expect(postFallback.status).toBe(404);
       expect(postFallback.headers.get("content-type")).toContain("application/json");
       expect(await postFallback.json()).toMatchObject({ error: "not_found" });

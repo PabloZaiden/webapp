@@ -134,6 +134,8 @@ export interface WebAppIconsConfig {
 
 type WebDocument = {
   bundle: HtmlBundleIndex;
+  entryPublicPath: string;
+  html: string;
   manifest: string;
   icon: string;
   generatedPublicRoutes: Record<string, PublicRouteDefinition>;
@@ -211,11 +213,10 @@ function requestLooksLikeNavigation(req?: Request): boolean {
 
 
 async function htmlResponse(document: WebDocument, req?: Request): Promise<Response> {
-  if (requestLooksLikeNavigation(req)) {
-    const html = await Bun.file(document.bundle.index).text();
-    return withSecurityHeaders(new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } }));
+  if (!requestLooksLikeNavigation(req)) {
+    return withSecurityHeaders(notFound());
   }
-  return withSecurityHeaders(document.bundle as unknown as Response);
+  return withSecurityHeaders(new Response(document.html, { headers: { "content-type": "text/html; charset=utf-8" } }));
 }
 
 function publicAssetResponse(asset: PublicRouteAsset, extraHeaders?: HeadersInit): Response {
@@ -403,6 +404,11 @@ function generatedManifest(config: RuntimeConfig, web: WebAppDocumentConfig, the
   }, null, 2);
 }
 
+function iconConfig(value: string | URL | WebAppIconConfig | undefined): WebAppIconConfig | undefined {
+  if (!value) return undefined;
+  return typeof value === "object" && !(value instanceof URL) && "src" in value ? value : { src: value };
+}
+
 function generatedImportMap(packageRoot: string, cacheDir: string): string {
   const nodeModules = toWebPath(relative(cacheDir, resolve(packageRoot, "node_modules")));
   return JSON.stringify({
@@ -414,11 +420,6 @@ function generatedImportMap(packageRoot: string, cacheDir: string): string {
       "react-dom/client": `${nodeModules}/react-dom/client.js`,
     },
   });
-}
-
-function iconConfig(value: string | URL | WebAppIconConfig | undefined): WebAppIconConfig | undefined {
-  if (!value) return undefined;
-  return typeof value === "object" && !(value instanceof URL) && "src" in value ? value : { src: value };
 }
 
 function generatedHtml(config: RuntimeConfig, web: WebAppDocumentConfig, relativeEntry: string, relativePrelude: string, themeColor: string, importMap: string, faviconPath: string, appleTouchPath: string): string {
@@ -518,8 +519,8 @@ configureWebAppRenderer(createRoot);
   if (!isHtmlBundleIndex(bundle)) {
     throw new Error("Generated web document did not produce a Bun HTMLBundle");
   }
+  const html = await Bun.file(bundle.index).text();
   const generatedPublicRoutes: Record<string, PublicRouteDefinition> = {
-    [publicEntry]: bundle as unknown as Response,
     "/webapp-icon.svg": {
       headers: { "content-type": "image/svg+xml; charset=utf-8" },
       GET: icon,
@@ -558,9 +559,9 @@ configureWebAppRenderer(createRoot);
       headers: { "content-type": "application/manifest+json; charset=utf-8" },
       GET: manifest,
     };
-    return { bundle, manifest, icon, generatedPublicRoutes };
+    return { bundle, entryPublicPath: publicEntry, html, manifest, icon, generatedPublicRoutes };
   }
-  return { bundle, manifest: "", icon, generatedPublicRoutes };
+  return { bundle, entryPublicPath: publicEntry, html, manifest: "", icon, generatedPublicRoutes };
 }
 
 function scopesFromBearer(claims: { scope: string }): string[] {
@@ -711,6 +712,9 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         if (hasOwnPublicRoute(publicRoutes, path)) {
           throw new Error(`publicRoutes cannot override framework-owned web route: ${path}`);
         }
+      }
+      if (hasOwnPublicRoute(publicRoutes, document.entryPublicPath)) {
+        throw new Error(`publicRoutes cannot override framework-owned web route: ${document.entryPublicPath}`);
       }
       return document;
     });
@@ -1279,11 +1283,17 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       port: config.port,
       routes: {
         ...publicRouteHandlers,
+        [webDocument.entryPublicPath]: webDocument.bundle as never,
         "/api/*": dynamicHandler,
         "/.well-known/*": dynamicHandler,
         "/device": dynamicHandler,
         "/setup": dynamicHandler,
-        "/*": spaFallbackRoute,
+        "/*": {
+          ...spaFallbackRoute,
+          // Bun only transforms HTMLBundle modules/HMR when the bundle is mounted directly.
+          GET: webDocument.bundle as never,
+          HEAD: webDocument.bundle as never,
+        },
       },
       websocket: {
         open(socket) {
