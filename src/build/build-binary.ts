@@ -31,18 +31,23 @@ export async function buildWebAppBinary(options: BuildWebAppBinaryOptions): Prom
   try {
     mkdirSync(cacheDir, { recursive: true });
     const webEntry = resolve(dirname(resolve(options.entrypoint)), options.web?.entry ?? "./web/main.tsx");
-    const browserEntry = resolve(cacheDir, "webapp-browser-entry.ts");
+    const rendererEntry = resolve(cacheDir, "webapp-renderer-prelude.ts");
+    const clientEntry = resolve(cacheDir, "webapp-client-entry.ts");
     const browserOutDir = resolve(cacheDir, "browser");
-    writeFileSync(browserEntry, `import { createRoot } from "react-dom/client";
+    writeFileSync(rendererEntry, `import { createRoot } from "react-dom/client";
 import { configureWebAppRenderer } from "@pablozaiden/webapp/web";
 
 configureWebAppRenderer(createRoot);
-import ${JSON.stringify(webEntry)};
+`);
+    writeFileSync(clientEntry, `import ${JSON.stringify(webEntry)};
 `);
     const browserBuild = await Bun.build({
-      entrypoints: [browserEntry],
+      entrypoints: [rendererEntry, clientEntry],
       outdir: browserOutDir,
       target: "browser",
+      format: "esm",
+      splitting: true,
+      publicPath: "/webapp-compiled/",
       minify: true,
       sourcemap: "external",
       define: options.define,
@@ -56,11 +61,13 @@ import ${JSON.stringify(webEntry)};
     const assets = browserBuild.outputs
       .map((output) => {
         const ext = extname(output.path).toLowerCase();
+        const fileName = basename(output.path);
         const publicPath = `/webapp-compiled/${basename(output.path)}`;
         return {
           path: publicPath,
           contentType: contentTypeForOutput(ext),
-          role: ext === ".css" ? "style" : ext === ".js" ? "script" : "asset",
+          role: ext === ".css" ? "style" : ext === ".js" && fileName === "webapp-renderer-prelude.js" ? "script" : ext === ".js" && fileName === "webapp-client-entry.js" ? "script" : "asset",
+          scriptOrder: fileName === "webapp-renderer-prelude.js" ? 0 : 1,
           body: readFileSync(output.path).toString("base64"),
         };
       });

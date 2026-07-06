@@ -147,6 +147,7 @@ type CompiledClientAsset = {
   path: string;
   contentType: string;
   role: "script" | "style" | "asset";
+  scriptOrder?: number;
   body: string;
 };
 
@@ -481,7 +482,11 @@ function generatedHtml(
   const htmlAppleTouchPath = appleTouchPath.replace(/^\//, "./");
   const styleTags = compiledAssets?.filter((asset) => asset.role === "style").map((asset) => `    <link rel="stylesheet" href="${escapeAttribute(asset.path)}" />`).join("\n") ?? "";
   const scriptTags = compiledAssets
-    ? compiledAssets.filter((asset) => asset.role === "script").map((asset) => `    <script type="module" src="${escapeAttribute(asset.path)}"></script>`).join("\n")
+    ? compiledAssets
+        .filter((asset) => asset.role === "script")
+        .sort((left, right) => (left.scriptOrder ?? 0) - (right.scriptOrder ?? 0))
+        .map((asset) => `    <script type="module" src="${escapeAttribute(asset.path)}"></script>`)
+        .join("\n")
     : `    <script type="module" src="${escapeAttribute(relativePrelude ?? "")}"></script>
     <script type="module" src="${escapeAttribute(relativeEntry ?? "")}"></script>`;
   const manifestTags = pwaEnabled(web)
