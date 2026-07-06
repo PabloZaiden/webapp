@@ -107,6 +107,32 @@ renderWebApp(
 `renderWebApp` renders into `#root` by default and reuses the existing React root across hot reloads. Pass a custom element id or `Element` only when the app uses a different mount point.
 `WebAppRoot` owns the shell and `.wapp-main-content`; each route component should return a `Page` wrapper so standard content margins, mobile padding and scroll behavior stay consistent.
 
+Use the framework URL helpers for browser API calls, websocket URLs and app-local links instead of deriving paths from `window.location` in each app. They honor `<base>`, explicit `publicBasePath` config, and reverse-proxy subpaths for direct path deep links such as `/workspaces`:
+
+```tsx
+import {
+  appAbsoluteUrl,
+  appFetch,
+  appPath,
+  appRequest,
+  appWebSocketUrl,
+  configureWebAppClient,
+  setWebAppPublicBasePath,
+} from "@pablozaiden/webapp/web";
+
+configureWebAppClient();
+
+const config = await appFetch("/api/config").then((res) => res.json());
+setWebAppPublicBasePath(config.publicBasePath);
+
+const downloadUrl = appPath("/api/items/export");
+const shareUrl = appAbsoluteUrl("/#/items");
+const socket = new WebSocket(appWebSocketUrl("/api/ws"));
+const rawResponse = await appRequest("/api/items");
+```
+
+`appFetch` is the framework JSON API helper and throws `WebAppApiError` for non-OK responses. Use `appRequest` when the app needs a raw `Response`, such as downloads, custom error handling, or compatibility wrappers.
+
 Recommended dev script:
 
 ```json
