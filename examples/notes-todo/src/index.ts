@@ -1,5 +1,5 @@
-import webIndex from "./index.html";
 import { createWebAppServer, defineRoutes, jsonResponse, parseJson, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
+import favicon from "./favicon.svg";
 
 type NotesTodoEvent = ResourceRealtimeEvent;
 
@@ -189,7 +189,15 @@ const publicRoutes = {
 const app = createWebAppServer<NotesTodoEvent>({
   appName: "Notes TODO",
   envPrefix: "NOTES_TODO",
-  index: webIndex,
+  web: {
+    icons: {
+      favicon: { src: favicon, sizes: "any", type: "image/svg+xml" },
+      appleTouch: { src: favicon, sizes: "any", type: "image/svg+xml" },
+      manifest: [
+        { src: favicon, sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
+      ],
+    },
+  },
   version: typeof WEBAPP_VERSION === "string" ? WEBAPP_VERSION : "0.0.0-development",
   store,
   auth: { passkeys: true, apiKeys: true, deviceAuth: true },

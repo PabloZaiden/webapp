@@ -94,42 +94,52 @@ Built-in endpoints include:
 | `/api/server/kill` | Authenticated server shutdown |
 | `/api/ws` | Realtime websocket by default |
 
-## App-owned web manifest metadata
+## Framework-owned web document and PWA metadata
 
-`createWebAppServer` does not generate PWA manifests or inject installability tags. Apps that need install capabilities should own their manifest, icons, and HTML metadata directly.
+`createWebAppServer` owns the browser document. Apps do not provide `index.html`; the framework generates a Bun `HTMLBundle` internally so Bun hot reload and asset rewriting keep working. By default the frontend entrypoint is `./web/main.tsx` relative to the Bun entry file.
 
-When `index` is a Bun `HTMLBundle`, place `site.webmanifest`, favicons, and apple-touch icons next to `index.html`, then reference them with relative paths so Bun can bundle, rewrite, and serve those assets:
-
-```html
-<link rel="manifest" href="./site.webmanifest" />
-<link rel="icon" href="./favicon.ico" sizes="any" />
-<link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-<link rel="apple-touch-icon" href="./apple-touch-icon.png" />
-<meta name="mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-title" content="MyApp" />
+```ts
+createWebAppServer({
+  appName: "My App",
+  envPrefix: "MY_APP",
+  web: {
+    entry: "./frontend.tsx",
+    shortName: "MyApp",
+    themeColor: "#111827",
+    backgroundColor: "#ffffff",
+    pwa: true,
+    icons: {
+      favicon: { src: "./src/web/icons/app-192.png", sizes: "192x192", type: "image/png" },
+      appleTouch: { src: "./src/web/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+      manifest: [
+        { src: "./src/web/icons/app-192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
+        { src: "./src/web/icons/app-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+      ],
+    },
+  },
+  routes,
+});
 ```
 
-Use relative icon paths inside `site.webmanifest` as well:
+PWA metadata is enabled by default. Without `web.icons`, the framework serves `/site.webmanifest`, `/manifest.webmanifest`, and a generated SVG icon at `/webapp-icon.svg` using the app name initials. Apps with product artwork can override favicon, Apple touch icon, and manifest icons through `web.icons` while keeping the document framework-owned. Set `web.pwa: false` only for apps that intentionally should not be installable. The generated document includes the standard `webapp.theme` prepaint script; apps should use that framework preference instead of app-specific theme storage.
 
-```json
-{
-  "name": "My App",
-  "short_name": "MyApp",
-  "start_url": "./",
-  "scope": "./",
-  "display": "standalone",
-  "background_color": "#ffffff",
-  "icons": [
-    { "src": "./web-app-manifest-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "./web-app-manifest-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
-  ]
-}
-```
+For a functional PWA:
 
-This colocated asset resolution is a Bun `HTMLBundle` feature. Apps that pass a string, `Blob`, or `Response` as `index` must serve `site.webmanifest`, icons, and other static assets explicitly through `publicRoutes` or another static file layer.
+| Field | Default | Use when |
+| --- | --- | --- |
+| `web.entry` | `./web/main.tsx` | The app frontend entrypoint lives somewhere else, such as Clanky's `./frontend.tsx` |
+| `web.shortName` | `appName` | The installed app label should be shorter than the full name |
+| `web.themeColor` | `#111827` | Browser chrome/install metadata should match product branding |
+| `web.backgroundColor` | `#ffffff` | The manifest background should match the app splash/background |
+| `web.icons.favicon` | Generated initials SVG | Browser tabs should use product artwork instead of initials |
+| `web.icons.appleTouch` | `favicon` or generated initials SVG | iOS home-screen/Dock should use product artwork |
+| `web.icons.manifest` | Generated initials SVG | Installed PWA icons should use product artwork at install sizes |
 
-If an app prefers `/manifest.webmanifest` or needs to serve a manifest dynamically, declare it explicitly with `publicRoutes`. The framework treats it like any other public asset and does not add manifest-specific behavior.
+Icon `src` values are resolved relative to the app package root, not the server file. Use paths such as `./src/web/icons/app-192.png` for assets under `src`. Manifest icons should include at least a `192x192` and `512x512` PNG for production apps. SVG defaults are fine for lightweight examples and development, but app-store/Dock integrations vary by platform, so production apps should provide PNG manifest and Apple-touch icons.
+
+The framework serves the manifest at `/site.webmanifest` and `/manifest.webmanifest` and injects the manifest link at runtime so Bun does not rewrite manifest-relative icon URLs into broken asset paths. Favicon and Apple-touch links may be rewritten by Bun to `/_bun/asset/...`; that is expected and keeps hot reload/static asset handling native.
+
+Service workers are not generated by the framework. Apps that need browser push, offline caches, app badge, or background sync should keep a deliberate app-owned service worker route such as `/service-worker`; normal installability does not require one.
 
 ## Public/static routes
 

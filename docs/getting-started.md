@@ -3,7 +3,6 @@
 Apps are one Bun application: backend routes, websocket, React UI and static assets are served by the same server. The framework does not support or require a standalone client dist directory.
 
 ```ts
-import webIndex from "./index.html";
 import { createWebAppServer, defineRoutes, jsonResponse, parseJson } from "@pablozaiden/webapp/server";
 
 const items: Array<{ id: string; userId: string; title: string }> = [];
@@ -34,7 +33,6 @@ const routes = defineRoutes({
 const app = createWebAppServer({
   appName: "My App",
   envPrefix: "MY_APP",
-  index: webIndex,
   auth: { passkeys: true, apiKeys: true, deviceAuth: true },
   realtime: { path: "/api/ws" },
   routes,
@@ -43,18 +41,33 @@ const app = createWebAppServer({
 await app.runFromCli();
 ```
 
-Keep install metadata static and relative to `index.html` so Bun can bundle and rewrite those app-owned assets:
+The framework generates the HTML document, React mount point, viewport metadata, PWA manifest, default SVG icons, and the theme prepaint script. By default it uses `./web/main.tsx` relative to the Bun entry file as the frontend entrypoint, so apps only need to create that file. Override document defaults only when the app needs different metadata:
 
-```html
-<link rel="manifest" href="./site.webmanifest" />
-<link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-<link rel="apple-touch-icon" href="./apple-touch-icon.png" />
-<meta name="mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-title" content="MyApp" />
+```ts
+createWebAppServer({
+  appName: "My App",
+  envPrefix: "MY_APP",
+  web: {
+    entry: "./frontend.tsx",
+    title: "My App",
+    shortName: "MyApp",
+    themeColor: "#111827",
+    backgroundColor: "#ffffff",
+    pwa: true,
+    icons: {
+      favicon: { src: "./src/web/icons/app-192.png", sizes: "192x192", type: "image/png" },
+      appleTouch: { src: "./src/web/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+      manifest: [
+        { src: "./src/web/icons/app-192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
+        { src: "./src/web/icons/app-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+      ],
+    },
+  },
+  routes,
+});
 ```
 
-Place `site.webmanifest`, icons, and apple-touch icons next to `index.html`, and reference manifest icons with relative paths such as `"./web-app-manifest-192x192.png"`. A single SVG favicon is enough for lightweight examples; production apps should include PNG manifest icons and an Apple touch icon like Clanky. For string, `Blob`, or `Response` HTML indexes, include equivalent tags in the HTML you pass to the server.
+PWA support is on by default, with generated initials icons unless the app provides `web.icons`. Icon paths are relative to the app package root; production apps should provide at least 192x192 and 512x512 PNG manifest icons plus an Apple touch icon. Set `web.pwa: false` only for apps that deliberately should not be installable. The standard theme preference key is `webapp.theme`; apps should not use app-specific theme storage keys.
 
 Apps should stay one app and one binary. Use subcommands for different modes:
 

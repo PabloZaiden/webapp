@@ -1,4 +1,8 @@
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CurrentUser, LogLevelName, ThemePreference, WebAppConfigResponse, WebAppUserRole } from "../contracts";
 import { authenticateApiKey, assertScopes, createApiKey, deleteApiKey, listApiKeys } from "./auth/api-keys";
 import {
@@ -46,7 +50,7 @@ import { errorResponse, jsonResponse, methodNotAllowed, notFound, parseJson, suc
 export interface WebAppServerConfig<TEvent = unknown> {
   appName: string;
   envPrefix: string;
-  index: unknown;
+  web?: WebAppDocumentConfig;
   version?: string;
   store?: WebAppStore;
   routes?: RouteTable<TEvent>;
@@ -89,7 +93,7 @@ export interface WebAppServer<TEvent = unknown> {
   store: WebAppStore;
   realtime: RealtimeBus<TEvent>;
   handleRequest(req: Request, server?: Server<WebSocketData>): Promise<Response | undefined>;
-  start(): Server<WebSocketData>;
+  start(): Promise<Server<WebSocketData>>;
   runFromCli(argv?: string[]): Promise<void>;
 }
 
@@ -97,6 +101,81 @@ const log = createLogger("webapp:server");
 const LOG_LEVELS = new Set<LogLevelName>(["trace", "debug", "info", "warn", "error"]);
 
 type HtmlBundleIndex = { index: string };
+
+export interface WebAppDocumentConfig {
+  entry?: string | URL;
+  title?: string;
+  shortName?: string;
+  lang?: string;
+  pwa?: boolean | WebAppPwaConfig;
+  themeColor?: string;
+  backgroundColor?: string;
+  icons?: WebAppIconsConfig;
+}
+
+export interface WebAppPwaConfig {
+  enabled?: boolean;
+  display?: "standalone" | "fullscreen" | "minimal-ui" | "browser";
+  startUrl?: string;
+  scope?: string;
+}
+
+export interface WebAppIconConfig {
+  src: string | URL;
+  sizes?: string;
+  type?: string;
+  purpose?: string;
+}
+
+export interface WebAppIconsConfig {
+  favicon?: string | URL | WebAppIconConfig;
+  appleTouch?: string | URL | WebAppIconConfig;
+  manifest?: WebAppIconConfig[];
+}
+
+type WebDocument = {
+  bundle: HtmlBundleIndex;
+  entryPublicPath: string;
+  cacheDir: string;
+  html: string;
+  manifest: string;
+  icon: string;
+  generatedPublicRoutes: Record<string, PublicRouteDefinition>;
+};
+
+const DEFAULT_WEB_ENTRY = "./web/main.tsx";
+const DEFAULT_THEME_COLOR = "#111827";
+const DEFAULT_BACKGROUND_COLOR = "#ffffff";
+const WEBAPP_DOCUMENT_CACHE_PREFIX = "webapp-document-";
+const documentCacheDirs = new Set<string>();
+let documentCacheCleanupRegistered = false;
+
+function cleanupDocumentCacheDir(cacheDir: string): void {
+  if (!documentCacheDirs.delete(cacheDir)) return;
+  rmSync(cacheDir, { recursive: true, force: true });
+}
+
+function cleanupDocumentCacheDirs(): void {
+  for (const cacheDir of Array.from(documentCacheDirs)) {
+    cleanupDocumentCacheDir(cacheDir);
+  }
+}
+
+function safeCachePathSegment(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "app";
+}
+
+function createDocumentCacheDir(envPrefix: string): string {
+  const root = join(tmpdir(), "webapp", safeCachePathSegment(envPrefix));
+  mkdirSync(root, { recursive: true });
+  const cacheDir = mkdtempSync(join(root, WEBAPP_DOCUMENT_CACHE_PREFIX));
+  documentCacheDirs.add(cacheDir);
+  if (!documentCacheCleanupRegistered) {
+    documentCacheCleanupRegistered = true;
+    process.once("exit", cleanupDocumentCacheDirs);
+  }
+  return cacheDir;
+}
 
 function bearerToken(req: Request): string | undefined {
   const header = req.headers.get("authorization")?.trim();
@@ -164,24 +243,11 @@ function requestLooksLikeNavigation(req?: Request): boolean {
 }
 
 
-async function htmlResponse(index: unknown, req?: Request): Promise<Response> {
-  if (isHtmlBundleIndex(index)) {
-    if (requestLooksLikeNavigation(req)) {
-      const html = await Bun.file(index.index).text();
-      return withSecurityHeaders(new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } }));
-    }
-    return index as unknown as Response;
+async function htmlResponse(document: WebDocument, req?: Request): Promise<Response> {
+  if (!requestLooksLikeNavigation(req)) {
+    return withSecurityHeaders(notFound());
   }
-  if (index instanceof Response) {
-    return withSecurityHeaders(index);
-  }
-  if (typeof index === "string") {
-    return withSecurityHeaders(new Response(index, { headers: { "content-type": "text/html; charset=utf-8" } }));
-  }
-  if (index instanceof Blob) {
-    return withSecurityHeaders(new Response(index));
-  }
-  return index as Response;
+  return withSecurityHeaders(new Response(document.html, { headers: { "content-type": "text/html; charset=utf-8" } }));
 }
 
 function publicAssetResponse(asset: PublicRouteAsset, extraHeaders?: HeadersInit): Response {
@@ -202,16 +268,324 @@ function secureDynamicResponse(response: Response): Response {
   return response instanceof Response ? withSecurityHeaders(response) : response;
 }
 
-function canRespondWithIndex(index: unknown): boolean {
-  return index instanceof Response || typeof index === "string" || index instanceof Blob || isHtmlBundleIndex(index);
-}
-
 function canUseSpaFallback(req: Request): boolean {
   return req.method === "GET" || req.method === "HEAD";
 }
 
 function hasOwnPublicRoute(publicRoutes: Record<string, PublicRouteDefinition>, path: string): boolean {
   return Object.prototype.hasOwnProperty.call(publicRoutes, path);
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function escapeAttribute(value: string): string {
+  return escapeHtml(value).replace(/'/g, "&#39;");
+}
+
+function normalizePublicPath(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) return "/";
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+function toWebPath(path: string): string {
+  return path.split(sep).join("/");
+}
+
+function localFileUrlPath(url: URL, label: string): string {
+  if (url.protocol !== "file:") {
+    throw new Error(`${label} must be a local file path or file: URL; received ${url.protocol} URL`);
+  }
+  return fileURLToPath(url);
+}
+
+function resolveMaybeUrlString(value: string, label: string): string | undefined {
+  if (!/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value)) {
+    return undefined;
+  }
+  return localFileUrlPath(new URL(value), label);
+}
+
+function resolveWebEntry(entry: string | URL | undefined): string {
+  if (entry instanceof URL) {
+    return localFileUrlPath(entry, "web.entry");
+  }
+  const value = entry ?? DEFAULT_WEB_ENTRY;
+  const urlPath = resolveMaybeUrlString(value, "web.entry");
+  if (urlPath) {
+    return urlPath;
+  }
+  if (isAbsolute(value)) {
+    return value;
+  }
+  const mainDir = dirname(resolve(Bun.main || process.argv[1] || "."));
+  return resolve(mainDir, value);
+}
+
+function resolveWebAsset(src: string | URL, packageRoot: string): string {
+  if (src instanceof URL) {
+    return localFileUrlPath(src, "web.icons src");
+  }
+  const urlPath = resolveMaybeUrlString(src, "web.icons src");
+  if (urlPath) {
+    return urlPath;
+  }
+  if (isAbsolute(src)) {
+    return src;
+  }
+  return resolve(packageRoot, src);
+}
+
+function findPackageRoot(start: string): string {
+  let current = start;
+  while (true) {
+    if (existsSync(resolve(current, "package.json"))) {
+      return current;
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return start;
+    }
+    current = parent;
+  }
+}
+
+async function copyWebAsset(src: string, dest: string): Promise<void> {
+  await Bun.write(dest, Bun.file(src));
+}
+
+function webEntryPublicPath(entryFile: string, packageRoot: string): string {
+  const relativeEntry = relative(packageRoot, entryFile);
+  if (relativeEntry.startsWith("..") || isAbsolute(relativeEntry)) {
+    throw new Error(`web.entry must resolve inside the app package root: ${packageRoot}`);
+  }
+  return normalizePublicPath(toWebPath(relativeEntry));
+}
+
+function initialsForAppName(appName: string): string {
+  const words = appName.match(/[A-Za-z0-9]+/g) ?? [];
+  const initials = words.slice(0, 2).map((word) => word[0]?.toUpperCase()).join("");
+  return initials || "W";
+}
+
+function generatedIcon(appName: string, themeColor: string, backgroundColor: string): string {
+  const initials = escapeHtml(initialsForAppName(appName));
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="${escapeAttribute(appName)}">
+  <rect width="512" height="512" rx="112" fill="${escapeAttribute(themeColor)}"/>
+  <circle cx="256" cy="256" r="178" fill="${escapeAttribute(backgroundColor)}" opacity="0.14"/>
+  <text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle" fill="${escapeAttribute(backgroundColor)}" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="176" font-weight="800">${initials}</text>
+</svg>
+`;
+}
+
+function pathExtension(path: string): string {
+  const pathname = path.includes("://") ? new URL(path).pathname : path;
+  const match = pathname.match(/\.([A-Za-z0-9]+)$/);
+  return match ? `.${match[1]}` : "";
+}
+
+function contentTypeForIcon(path: string, explicit?: string): string {
+  if (explicit) return explicit;
+  const ext = pathExtension(path).toLowerCase();
+  if (ext === ".svg") return "image/svg+xml";
+  if (ext === ".png") return "image/png";
+  if (ext === ".ico") return "image/x-icon";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  return "application/octet-stream";
+}
+
+function themeBootScript(themeColor: string): string {
+  const darkThemeColor = JSON.stringify(themeColor);
+  const lightThemeColor = JSON.stringify(DEFAULT_BACKGROUND_COLOR);
+  return `(() => {
+  const key = "webapp.theme";
+  const root = document.documentElement;
+  const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+  const stored = window.localStorage.getItem(key);
+  const preference = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+  const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const resolved = preference === "system" ? (systemDark ? "dark" : "light") : preference;
+  root.classList.toggle("dark", resolved === "dark");
+  root.style.colorScheme = resolved;
+  root.dataset.theme = preference;
+  root.dataset.resolvedTheme = resolved;
+  if (metaThemeColor instanceof HTMLMetaElement) metaThemeColor.content = resolved === "dark" ? ${darkThemeColor} : ${lightThemeColor};
+})();`;
+}
+
+function pwaEnabled(web: WebAppDocumentConfig): boolean {
+  return typeof web.pwa === "object" ? web.pwa.enabled !== false : web.pwa !== false;
+}
+
+function pwaConfig(web: WebAppDocumentConfig): WebAppPwaConfig {
+  return typeof web.pwa === "object" ? web.pwa : {};
+}
+
+function generatedManifest(config: RuntimeConfig, web: WebAppDocumentConfig, themeColor: string, backgroundColor: string, icons: WebAppIconConfig[]): string {
+  const pwa = pwaConfig(web);
+  return JSON.stringify({
+    name: config.appName,
+    short_name: web.shortName ?? config.appName,
+    start_url: pwa.startUrl ?? "./",
+    scope: pwa.scope ?? "./",
+    display: pwa.display ?? "standalone",
+    background_color: backgroundColor,
+    theme_color: themeColor,
+    icons,
+  }, null, 2);
+}
+
+function iconConfig(value: string | URL | WebAppIconConfig | undefined): WebAppIconConfig | undefined {
+  if (!value) return undefined;
+  return typeof value === "object" && !(value instanceof URL) && "src" in value ? value : { src: value };
+}
+
+function generatedHtml(config: RuntimeConfig, web: WebAppDocumentConfig, relativeEntry: string, relativePrelude: string, themeColor: string, faviconPath: string, appleTouchPath: string): string {
+  const title = escapeHtml(web.title ?? config.appName);
+  const shortName = escapeAttribute(web.shortName ?? config.appName);
+  const htmlFaviconPath = faviconPath.replace(/^\//, "./");
+  const htmlAppleTouchPath = appleTouchPath.replace(/^\//, "./");
+  const manifestTags = pwaEnabled(web)
+    ? `    <link rel="icon" href="${escapeAttribute(htmlFaviconPath)}" />
+    <link rel="apple-touch-icon" href="${escapeAttribute(htmlAppleTouchPath)}" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="${shortName}" />
+    <script>(() => {
+      const manifest = document.createElement("link");
+      manifest.rel = "manifest";
+      manifest.href = "/site.webmanifest";
+      document.head.appendChild(manifest);
+    })();</script>
+`
+    : "";
+  return `<!doctype html>
+<html lang="${escapeAttribute(web.lang ?? "en")}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="${escapeAttribute(themeColor)}" />
+${manifestTags}    <title>${title}</title>
+    <script>${themeBootScript(themeColor)}</script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="${escapeAttribute(relativePrelude)}"></script>
+    <script type="module" src="${escapeAttribute(relativeEntry)}"></script>
+  </body>
+</html>
+`;
+}
+
+async function createWebDocument(config: RuntimeConfig, webInput: WebAppDocumentConfig | undefined): Promise<WebDocument> {
+  const web = webInput ?? {};
+  const entryFile = resolveWebEntry(web.entry);
+  const themeColor = web.themeColor ?? DEFAULT_THEME_COLOR;
+  const backgroundColor = web.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
+  const packageRoot = findPackageRoot(dirname(resolve(Bun.main || process.argv[1] || entryFile)));
+  const publicEntry = webEntryPublicPath(entryFile, packageRoot);
+  const cacheDir = createDocumentCacheDir(config.envPrefix);
+  const htmlPath = resolve(cacheDir, `${config.envPrefix.toLowerCase()}-index.html`);
+  const icon = generatedIcon(config.appName, themeColor, backgroundColor);
+  const favicon = iconConfig(web.icons?.favicon);
+  const appleTouch = iconConfig(web.icons?.appleTouch) ?? favicon;
+  const manifestIconConfigs = web.icons?.manifest?.length ? web.icons.manifest : undefined;
+  const manifestIcons = manifestIconConfigs
+    ? manifestIconConfigs.map((manifestIcon, index) => {
+        const srcPath = resolveWebAsset(manifestIcon.src, packageRoot);
+        const ext = pathExtension(srcPath) || ".png";
+        return {
+          src: `./webapp-icon-${index + 1}${ext}`,
+          sizes: manifestIcon.sizes ?? "any",
+          type: contentTypeForIcon(srcPath, manifestIcon.type),
+          purpose: manifestIcon.purpose ?? "any maskable",
+        };
+      })
+    : [{ src: "./webapp-icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" }];
+  const manifest = pwaEnabled(web) ? generatedManifest(config, web, themeColor, backgroundColor, manifestIcons) : "";
+  writeFileSync(resolve(cacheDir, "webapp-icon.svg"), icon);
+  if (manifest) {
+    writeFileSync(resolve(cacheDir, "site.webmanifest"), manifest);
+  }
+  const preludePath = resolve(cacheDir, "webapp-prelude.ts");
+  const reactDomClientPath = toWebPath(resolve(packageRoot, "node_modules/react-dom/client.js"));
+  const frameworkWebPath = toWebPath(fileURLToPath(new URL("../web/index.ts", import.meta.url)));
+  writeFileSync(preludePath, `import { createRoot } from ${JSON.stringify(reactDomClientPath)};
+import { configureWebAppRenderer } from ${JSON.stringify(frameworkWebPath)};
+
+configureWebAppRenderer(createRoot);
+`);
+  const relativeEntry = toWebPath(relative(cacheDir, entryFile));
+  const relativePrelude = toWebPath(relative(cacheDir, preludePath));
+  const faviconPath = favicon ? `/webapp-favicon${pathExtension(resolveWebAsset(favicon.src, packageRoot)) || ".png"}` : "/webapp-icon.svg";
+  const appleTouchPath = appleTouch ? `/webapp-apple-touch-icon${pathExtension(resolveWebAsset(appleTouch.src, packageRoot)) || ".png"}` : faviconPath;
+  if (favicon) {
+    await copyWebAsset(resolveWebAsset(favicon.src, packageRoot), resolve(cacheDir, faviconPath.slice(1)));
+  }
+  if (appleTouch) {
+    await copyWebAsset(resolveWebAsset(appleTouch.src, packageRoot), resolve(cacheDir, appleTouchPath.slice(1)));
+  }
+  if (manifestIconConfigs) {
+    for (const [index, manifestIcon] of manifestIconConfigs.entries()) {
+      const manifestIconFile = resolveWebAsset(manifestIcon.src, packageRoot);
+      const ext = pathExtension(manifestIconFile) || ".png";
+      await copyWebAsset(manifestIconFile, resolve(cacheDir, `webapp-icon-${index + 1}${ext}`));
+    }
+  }
+  writeFileSync(htmlPath, generatedHtml(config, web, relativeEntry, relativePrelude, themeColor, faviconPath, appleTouchPath));
+  const bundle = (await import(`${pathToFileURL(htmlPath).href}?v=${Date.now()}-${Math.random()}`)).default;
+  if (!isHtmlBundleIndex(bundle)) {
+    throw new Error("Generated web document did not produce a Bun HTMLBundle");
+  }
+  const html = await Bun.file(bundle.index).text();
+  const generatedPublicRoutes: Record<string, PublicRouteDefinition> = {
+    "/webapp-icon.svg": {
+      headers: { "content-type": "image/svg+xml; charset=utf-8" },
+      GET: icon,
+    },
+  };
+  if (favicon) {
+    const faviconFile = resolveWebAsset(favicon.src, packageRoot);
+    generatedPublicRoutes[faviconPath] = {
+      headers: { "content-type": contentTypeForIcon(faviconFile, favicon.type) },
+      GET: () => Bun.file(faviconFile),
+    };
+  }
+  if (appleTouch) {
+    const appleTouchFile = resolveWebAsset(appleTouch.src, packageRoot);
+    generatedPublicRoutes[appleTouchPath] = {
+      headers: { "content-type": contentTypeForIcon(appleTouchFile, appleTouch.type) },
+      GET: () => Bun.file(appleTouchFile),
+    };
+  }
+  if (manifestIconConfigs) {
+    manifestIconConfigs.forEach((manifestIcon, index) => {
+      const manifestIconFile = resolveWebAsset(manifestIcon.src, packageRoot);
+      const ext = pathExtension(manifestIconFile) || ".png";
+      generatedPublicRoutes[`/webapp-icon-${index + 1}${ext}`] = {
+        headers: { "content-type": contentTypeForIcon(manifestIconFile, manifestIcon.type) },
+        GET: () => Bun.file(manifestIconFile),
+      };
+    });
+  }
+  if (pwaEnabled(web)) {
+    generatedPublicRoutes["/site.webmanifest"] = {
+      headers: { "content-type": "application/manifest+json; charset=utf-8" },
+      GET: manifest,
+    };
+    generatedPublicRoutes["/manifest.webmanifest"] = {
+      headers: { "content-type": "application/manifest+json; charset=utf-8" },
+      GET: manifest,
+    };
+    return { bundle, entryPublicPath: publicEntry, cacheDir, html, manifest, icon, generatedPublicRoutes };
+  }
+  return { bundle, entryPublicPath: publicEntry, cacheDir, html, manifest: "", icon, generatedPublicRoutes };
 }
 
 function scopesFromBearer(claims: { scope: string }): string[] {
@@ -341,6 +715,35 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const passkeysEnabled = input.auth?.passkeys !== false;
   const apiKeysEnabled = input.auth?.apiKeys ?? false;
   const deviceAuthEnabled = input.auth?.deviceAuth ?? false;
+  const configuredFavicon = iconConfig(input.web?.icons?.favicon);
+  const configuredAppleTouch = iconConfig(input.web?.icons?.appleTouch) ?? configuredFavicon;
+  const configuredManifestIcons = input.web?.icons?.manifest ?? [];
+  const webEntryFile = resolveWebEntry(input.web?.entry);
+  const webPackageRoot = findPackageRoot(dirname(resolve(Bun.main || process.argv[1] || webEntryFile)));
+  const generatedRoutePaths = new Set([
+    webEntryPublicPath(webEntryFile, webPackageRoot),
+    "/webapp-icon.svg",
+    ...(configuredFavicon ? [`/webapp-favicon${pathExtension(resolveWebAsset(configuredFavicon.src, webPackageRoot)) || ".png"}`] : []),
+    ...(configuredAppleTouch ? [`/webapp-apple-touch-icon${pathExtension(resolveWebAsset(configuredAppleTouch.src, webPackageRoot)) || ".png"}`] : []),
+    ...configuredManifestIcons.map((manifestIcon, index) => `/webapp-icon-${index + 1}${pathExtension(resolveWebAsset(manifestIcon.src, webPackageRoot)) || ".png"}`),
+    ...(pwaEnabled(input.web ?? {}) ? ["/site.webmanifest", "/manifest.webmanifest"] : []),
+  ]);
+  let webDocumentPromise: Promise<WebDocument> | undefined;
+
+  async function ensureWebDocument(): Promise<WebDocument> {
+    webDocumentPromise ??= createWebDocument(config, input.web).then((document) => {
+      for (const path of Object.keys(document.generatedPublicRoutes)) {
+        if (hasOwnPublicRoute(publicRoutes, path)) {
+          throw new Error(`publicRoutes cannot override framework-owned web route: ${path}`);
+        }
+      }
+      if (hasOwnPublicRoute(publicRoutes, document.entryPublicPath)) {
+        throw new Error(`publicRoutes cannot override framework-owned web route: ${document.entryPublicPath}`);
+      }
+      return document;
+    });
+    return await webDocumentPromise;
+  }
 
   function disabledAuthOwner(): CurrentUser {
     const existing = store.getOwnerUser();
@@ -744,7 +1147,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         return successResponse({ success: true, message: "Server is shutting down" });
       }
       if (deviceAuthEnabled && path === "/device" && req.method === "GET") {
-        return htmlResponse(input.index, req);
+        return htmlResponse(await ensureWebDocument(), req);
       }
     } catch (error) {
       return authErrorResponse(error);
@@ -754,6 +1157,13 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
 
   async function handlePublicRoute(req: Request): Promise<Response | undefined> {
     const url = new URL(req.url);
+    if (generatedRoutePaths.has(url.pathname)) {
+      const webDocument = await ensureWebDocument();
+      const generatedRoute = webDocument.generatedPublicRoutes[url.pathname];
+      if (generatedRoute) {
+        return handlePublicRouteValue(req, generatedRoute);
+      }
+    }
     if (!hasOwnPublicRoute(publicRoutes, url.pathname)) {
       return undefined;
     }
@@ -761,6 +1171,10 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     if (!route) {
       return undefined;
     }
+    return handlePublicRouteValue(req, route);
+  }
+
+  async function handlePublicRouteValue(req: Request, route: PublicRouteDefinition): Promise<Response | undefined> {
     const methodName = req.method === "HEAD" ? "HEAD" : req.method === "GET" ? "GET" : undefined;
     if (!methodName) {
       return withSecurityHeaders(methodNotAllowed());
@@ -864,7 +1278,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     if (!canUseSpaFallback(req)) {
       return withSecurityHeaders(notFound());
     }
-    return htmlResponse(input.index, req);
+    return htmlResponse(await ensureWebDocument(), req);
   }
 
   function customHandler(socket: ServerWebSocket<WebAppWebSocketData>): Partial<WebSocketHandler<WebAppWebSocketData>> | undefined {
@@ -872,34 +1286,38 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     return handlerName ? appWebsockets[handlerName] : undefined;
   }
 
-  function start(): Server<WebAppWebSocketData> {
+  async function start(): Promise<Server<WebAppWebSocketData>> {
+    const webDocument = await ensureWebDocument();
     const dynamicHandler = (req: Request, server: Server<WebAppWebSocketData>) => handleRequest(req, server);
-    const publicRouteHandlers = Object.fromEntries(Object.keys(publicRoutes).map((path) => [path, dynamicHandler]));
-    const indexCanRespond = canRespondWithIndex(input.index);
-    const indexIsHtmlBundle = isHtmlBundleIndex(input.index);
-    const spaFallbackRoute = indexCanRespond && !indexIsHtmlBundle
-      ? dynamicHandler
-      : indexIsHtmlBundle
-        ? {
-            GET: input.index as never,
-            HEAD: input.index as never,
-            POST: dynamicHandler,
-            PUT: dynamicHandler,
-            PATCH: dynamicHandler,
-            DELETE: dynamicHandler,
-            OPTIONS: dynamicHandler,
-          }
-        : input.index as never;
+    const publicRouteHandlers = Object.fromEntries([
+      ...Object.keys(webDocument.generatedPublicRoutes),
+      ...Object.keys(publicRoutes),
+    ].map((path) => [path, dynamicHandler]));
+    const spaFallbackRoute = {
+      GET: dynamicHandler,
+      HEAD: dynamicHandler,
+      POST: dynamicHandler,
+      PUT: dynamicHandler,
+      PATCH: dynamicHandler,
+      DELETE: dynamicHandler,
+      OPTIONS: dynamicHandler,
+    };
     const server = Bun.serve<WebAppWebSocketData>({
       hostname: config.host,
       port: config.port,
       routes: {
         ...publicRouteHandlers,
+        [webDocument.entryPublicPath]: webDocument.bundle as never,
         "/api/*": dynamicHandler,
         "/.well-known/*": dynamicHandler,
-        "/device": deviceAuthEnabled && (!indexCanRespond || indexIsHtmlBundle) ? input.index as never : dynamicHandler,
-        "/setup": passkeysEnabled && (!indexCanRespond || indexIsHtmlBundle) ? input.index as never : dynamicHandler,
-        "/*": spaFallbackRoute,
+        "/device": dynamicHandler,
+        "/setup": dynamicHandler,
+        "/*": {
+          ...spaFallbackRoute,
+          // Bun only transforms HTMLBundle modules/HMR when the bundle is mounted directly.
+          GET: webDocument.bundle as never,
+          HEAD: webDocument.bundle as never,
+        },
       },
       websocket: {
         open(socket) {
@@ -934,6 +1352,11 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       },
       development: config.development,
     });
+    const stop = server.stop.bind(server);
+    server.stop = ((closeActiveConnections?: boolean) => {
+      stop(closeActiveConnections);
+      cleanupDocumentCacheDir(webDocument.cacheDir);
+    }) as typeof server.stop;
     log.info(`${config.appName} server running`, { url: String(server.url) });
     return server;
   }
@@ -941,7 +1364,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   async function runFromCli(argv = Bun.argv.slice(2)): Promise<void> {
     const command = argv[0] ?? "serve";
     if (command === "serve") {
-      start();
+      await start();
       return await new Promise(() => undefined);
     }
     if (command === "version") {

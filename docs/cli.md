@@ -13,7 +13,7 @@ const result = await dispatchCliCommand({
   defaultCommand: "serve",
   commands: {
     serve: async () => {
-      app.start();
+      await app.start();
       await new Promise(() => undefined);
       return { exitCode: 0 };
     },

@@ -2,14 +2,16 @@ import { afterEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { readFileSync } from "node:fs";
 import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { Button, ConfirmModal, Modal } from "../src/web/components";
 import type { WebAppConfigResponse } from "../src/contracts";
 import type { BadgeVariant, SidebarNode } from "../src/web/sidebar/types";
 import { WebAppRoot } from "../src/web/WebAppRoot";
-import { renderWebApp } from "../src/web/render";
+import { configureWebAppRenderer, renderWebApp } from "../src/web/render";
 
 GlobalRegistrator.register();
+configureWebAppRenderer(createRoot);
 
 afterEach(() => {
   cleanup();
