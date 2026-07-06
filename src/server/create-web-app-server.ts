@@ -1,5 +1,5 @@
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CurrentUser, LogLevelName, ThemePreference, WebAppConfigResponse, WebAppUserRole } from "../contracts";
@@ -325,6 +325,14 @@ function findPackageRoot(start: string): string {
   }
 }
 
+function writableDocumentRoot(packageRoot: string): string {
+  return packageRoot.startsWith("/$bunfs") ? process.cwd() : packageRoot;
+}
+
+async function copyWebAsset(src: string, dest: string): Promise<void> {
+  await Bun.write(dest, Bun.file(src));
+}
+
 function webEntryPublicPath(entryFile: string, packageRoot: string): string {
   const relativeEntry = relative(packageRoot, entryFile);
   if (relativeEntry.startsWith("..") || isAbsolute(relativeEntry)) {
@@ -467,7 +475,7 @@ async function createWebDocument(config: RuntimeConfig, webInput: WebAppDocument
   const backgroundColor = web.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
   const packageRoot = findPackageRoot(dirname(resolve(Bun.main || process.argv[1] || entryFile)));
   const publicEntry = webEntryPublicPath(entryFile, packageRoot);
-  const cacheDir = resolve(packageRoot, WEBAPP_DOCUMENT_CACHE_DIR);
+  const cacheDir = resolve(writableDocumentRoot(packageRoot), WEBAPP_DOCUMENT_CACHE_DIR);
   mkdirSync(cacheDir, { recursive: true });
   const htmlPath = resolve(cacheDir, `${config.envPrefix.toLowerCase()}-index.html`);
   const icon = generatedIcon(config.appName, themeColor, backgroundColor);
@@ -502,17 +510,17 @@ configureWebAppRenderer(createRoot);
   const faviconPath = favicon ? `/webapp-favicon${pathExtension(resolveWebAsset(favicon.src, packageRoot)) || ".png"}` : "/webapp-icon.svg";
   const appleTouchPath = appleTouch ? `/webapp-apple-touch-icon${pathExtension(resolveWebAsset(appleTouch.src, packageRoot)) || ".png"}` : faviconPath;
   if (favicon) {
-    copyFileSync(resolveWebAsset(favicon.src, packageRoot), resolve(cacheDir, faviconPath.slice(1)));
+    await copyWebAsset(resolveWebAsset(favicon.src, packageRoot), resolve(cacheDir, faviconPath.slice(1)));
   }
   if (appleTouch) {
-    copyFileSync(resolveWebAsset(appleTouch.src, packageRoot), resolve(cacheDir, appleTouchPath.slice(1)));
+    await copyWebAsset(resolveWebAsset(appleTouch.src, packageRoot), resolve(cacheDir, appleTouchPath.slice(1)));
   }
   if (manifestIconConfigs) {
-    manifestIconConfigs.forEach((manifestIcon, index) => {
+    for (const [index, manifestIcon] of manifestIconConfigs.entries()) {
       const manifestIconFile = resolveWebAsset(manifestIcon.src, packageRoot);
       const ext = pathExtension(manifestIconFile) || ".png";
-      copyFileSync(manifestIconFile, resolve(cacheDir, `webapp-icon-${index + 1}${ext}`));
-    });
+      await copyWebAsset(manifestIconFile, resolve(cacheDir, `webapp-icon-${index + 1}${ext}`));
+    }
   }
   writeFileSync(htmlPath, generatedHtml(config, web, relativeEntry, relativePrelude, themeColor, generatedImportMap(packageRoot, cacheDir), faviconPath, appleTouchPath));
   const bundle = (await import(`${pathToFileURL(htmlPath).href}?v=${Date.now()}-${Math.random()}`)).default;

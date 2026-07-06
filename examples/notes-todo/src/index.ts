@@ -1,4 +1,5 @@
 import { createWebAppServer, defineRoutes, jsonResponse, parseJson, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
+import favicon from "./favicon.svg";
 
 type NotesTodoEvent = ResourceRealtimeEvent;
 
@@ -190,10 +191,10 @@ const app = createWebAppServer<NotesTodoEvent>({
   envPrefix: "NOTES_TODO",
   web: {
     icons: {
-      favicon: { src: "./src/favicon.svg", sizes: "any", type: "image/svg+xml" },
-      appleTouch: { src: "./src/favicon.svg", sizes: "any", type: "image/svg+xml" },
+      favicon: { src: favicon, sizes: "any", type: "image/svg+xml" },
+      appleTouch: { src: favicon, sizes: "any", type: "image/svg+xml" },
       manifest: [
-        { src: "./src/favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
+        { src: favicon, sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
       ],
     },
   },
