@@ -1,6 +1,7 @@
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CurrentUser, LogLevelName, ThemePreference, WebAppConfigResponse, WebAppUserRole } from "../contracts";
 import { authenticateApiKey, assertScopes, createApiKey, deleteApiKey, listApiKeys } from "./auth/api-keys";
@@ -135,6 +136,7 @@ export interface WebAppIconsConfig {
 type WebDocument = {
   bundle: HtmlBundleIndex;
   entryPublicPath: string;
+  cacheDir: string;
   html: string;
   manifest: string;
   icon: string;
@@ -144,7 +146,32 @@ type WebDocument = {
 const DEFAULT_WEB_ENTRY = "./web/main.tsx";
 const DEFAULT_THEME_COLOR = "#111827";
 const DEFAULT_BACKGROUND_COLOR = "#ffffff";
-const WEBAPP_DOCUMENT_CACHE_DIR = ".cache/webapp";
+const WEBAPP_DOCUMENT_CACHE_PREFIX = "webapp-document-";
+const documentCacheDirs = new Set<string>();
+let documentCacheCleanupRegistered = false;
+
+function cleanupDocumentCacheDir(cacheDir: string): void {
+  if (!documentCacheDirs.delete(cacheDir)) return;
+  rmSync(cacheDir, { recursive: true, force: true });
+}
+
+function cleanupDocumentCacheDirs(): void {
+  for (const cacheDir of Array.from(documentCacheDirs)) {
+    cleanupDocumentCacheDir(cacheDir);
+  }
+}
+
+function createDocumentCacheDir(envPrefix: string): string {
+  const root = join(tmpdir(), "webapp", envPrefix.toLowerCase());
+  mkdirSync(root, { recursive: true });
+  const cacheDir = mkdtempSync(join(root, WEBAPP_DOCUMENT_CACHE_PREFIX));
+  documentCacheDirs.add(cacheDir);
+  if (!documentCacheCleanupRegistered) {
+    documentCacheCleanupRegistered = true;
+    process.once("exit", cleanupDocumentCacheDirs);
+  }
+  return cacheDir;
+}
 
 function bearerToken(req: Request): string | undefined {
   const header = req.headers.get("authorization")?.trim();
@@ -325,10 +352,6 @@ function findPackageRoot(start: string): string {
   }
 }
 
-function writableDocumentRoot(packageRoot: string): string {
-  return packageRoot.startsWith("/$bunfs") ? process.cwd() : packageRoot;
-}
-
 async function copyWebAsset(src: string, dest: string): Promise<void> {
   await Bun.write(dest, Bun.file(src));
 }
@@ -417,20 +440,7 @@ function iconConfig(value: string | URL | WebAppIconConfig | undefined): WebAppI
   return typeof value === "object" && !(value instanceof URL) && "src" in value ? value : { src: value };
 }
 
-function generatedImportMap(packageRoot: string, cacheDir: string): string {
-  const nodeModules = toWebPath(relative(cacheDir, resolve(packageRoot, "node_modules")));
-  return JSON.stringify({
-    imports: {
-      react: `${nodeModules}/react/index.js`,
-      "react/jsx-runtime": `${nodeModules}/react/jsx-runtime.js`,
-      "react/jsx-dev-runtime": `${nodeModules}/react/jsx-dev-runtime.js`,
-      "react-dom": `${nodeModules}/react-dom/index.js`,
-      "react-dom/client": `${nodeModules}/react-dom/client.js`,
-    },
-  });
-}
-
-function generatedHtml(config: RuntimeConfig, web: WebAppDocumentConfig, relativeEntry: string, relativePrelude: string, themeColor: string, importMap: string, faviconPath: string, appleTouchPath: string): string {
+function generatedHtml(config: RuntimeConfig, web: WebAppDocumentConfig, relativeEntry: string, relativePrelude: string, themeColor: string, faviconPath: string, appleTouchPath: string): string {
   const title = escapeHtml(web.title ?? config.appName);
   const shortName = escapeAttribute(web.shortName ?? config.appName);
   const htmlFaviconPath = faviconPath.replace(/^\//, "./");
@@ -456,7 +466,6 @@ function generatedHtml(config: RuntimeConfig, web: WebAppDocumentConfig, relativ
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="${escapeAttribute(themeColor)}" />
 ${manifestTags}    <title>${title}</title>
-    <script type="importmap">${importMap}</script>
     <script>${themeBootScript(themeColor)}</script>
   </head>
   <body>
@@ -475,8 +484,7 @@ async function createWebDocument(config: RuntimeConfig, webInput: WebAppDocument
   const backgroundColor = web.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
   const packageRoot = findPackageRoot(dirname(resolve(Bun.main || process.argv[1] || entryFile)));
   const publicEntry = webEntryPublicPath(entryFile, packageRoot);
-  const cacheDir = resolve(writableDocumentRoot(packageRoot), WEBAPP_DOCUMENT_CACHE_DIR);
-  mkdirSync(cacheDir, { recursive: true });
+  const cacheDir = createDocumentCacheDir(config.envPrefix);
   const htmlPath = resolve(cacheDir, `${config.envPrefix.toLowerCase()}-index.html`);
   const icon = generatedIcon(config.appName, themeColor, backgroundColor);
   const favicon = iconConfig(web.icons?.favicon);
@@ -500,8 +508,10 @@ async function createWebDocument(config: RuntimeConfig, webInput: WebAppDocument
     writeFileSync(resolve(cacheDir, "site.webmanifest"), manifest);
   }
   const preludePath = resolve(cacheDir, "webapp-prelude.ts");
-  writeFileSync(preludePath, `import { createRoot } from "react-dom/client";
-import { configureWebAppRenderer } from "@pablozaiden/webapp/web";
+  const reactDomClientPath = toWebPath(resolve(packageRoot, "node_modules/react-dom/client.js"));
+  const frameworkWebPath = toWebPath(fileURLToPath(new URL("../web/index.ts", import.meta.url)));
+  writeFileSync(preludePath, `import { createRoot } from ${JSON.stringify(reactDomClientPath)};
+import { configureWebAppRenderer } from ${JSON.stringify(frameworkWebPath)};
 
 configureWebAppRenderer(createRoot);
 `);
@@ -522,7 +532,7 @@ configureWebAppRenderer(createRoot);
       await copyWebAsset(manifestIconFile, resolve(cacheDir, `webapp-icon-${index + 1}${ext}`));
     }
   }
-  writeFileSync(htmlPath, generatedHtml(config, web, relativeEntry, relativePrelude, themeColor, generatedImportMap(packageRoot, cacheDir), faviconPath, appleTouchPath));
+  writeFileSync(htmlPath, generatedHtml(config, web, relativeEntry, relativePrelude, themeColor, faviconPath, appleTouchPath));
   const bundle = (await import(`${pathToFileURL(htmlPath).href}?v=${Date.now()}-${Math.random()}`)).default;
   if (!isHtmlBundleIndex(bundle)) {
     throw new Error("Generated web document did not produce a Bun HTMLBundle");
@@ -567,9 +577,9 @@ configureWebAppRenderer(createRoot);
       headers: { "content-type": "application/manifest+json; charset=utf-8" },
       GET: manifest,
     };
-    return { bundle, entryPublicPath: publicEntry, html, manifest, icon, generatedPublicRoutes };
+    return { bundle, entryPublicPath: publicEntry, cacheDir, html, manifest, icon, generatedPublicRoutes };
   }
-  return { bundle, entryPublicPath: publicEntry, html, manifest: "", icon, generatedPublicRoutes };
+  return { bundle, entryPublicPath: publicEntry, cacheDir, html, manifest: "", icon, generatedPublicRoutes };
 }
 
 function scopesFromBearer(claims: { scope: string }): string[] {
@@ -1336,6 +1346,11 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       },
       development: config.development,
     });
+    const stop = server.stop.bind(server);
+    server.stop = ((closeActiveConnections?: boolean) => {
+      stop(closeActiveConnections);
+      cleanupDocumentCacheDir(webDocument.cacheDir);
+    }) as typeof server.stop;
     log.info(`${config.appName} server running`, { url: String(server.url) });
     return server;
   }
