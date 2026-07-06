@@ -277,6 +277,26 @@ describe("server security defaults", () => {
     expect(html).toContain('<script type="module"');
   });
 
+  test("rejects non-local web document entry and icon URLs", () => {
+    expect(() => createWebAppServer({
+      appName: "Remote Entry",
+      envPrefix: "TEST_REMOTE_ENTRY",
+      web: { entry: new URL("https://example.com/main.tsx") },
+      store: testStore("remote-entry"),
+      auth: { passkeys: false },
+      routes: defineRoutes({}),
+    })).toThrow("web.entry must be a local file path or file: URL");
+
+    expect(() => createWebAppServer({
+      appName: "Remote Icon",
+      envPrefix: "TEST_REMOTE_ICON",
+      web: { ...testWeb, icons: { favicon: { src: new URL("https://example.com/icon.png") } } },
+      store: testStore("remote-icon"),
+      auth: { passkeys: false },
+      routes: defineRoutes({}),
+    })).toThrow("web.icons src must be a local file path or file: URL");
+  });
+
   test("started server serves framework document and public routes before SPA catchall", async () => {
     const portPrevious = process.env["TEST_PUBLIC_STATIC_INDEX_PORT"];
     const hostPrevious = process.env["TEST_PUBLIC_STATIC_INDEX_HOST"];
@@ -310,6 +330,8 @@ describe("server security defaults", () => {
       expect(manifest.headers.get("content-type")).toContain("application/manifest+json");
       expect(await manifest.json()).toMatchObject({ name: "Test" });
       expect(fallback.headers.get("content-type")).toContain("text/html");
+      expect(fallback.headers.get("x-frame-options")).toBe("DENY");
+      expect(fallback.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
       expect(await fallback.text()).toContain('<div id="root"></div>');
       expect(postFallback.status).toBe(404);
       expect(postFallback.headers.get("content-type")).toContain("application/json");

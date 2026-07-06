@@ -1,7 +1,7 @@
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CurrentUser, LogLevelName, ThemePreference, WebAppConfigResponse, WebAppUserRole } from "../contracts";
 import { authenticateApiKey, assertScopes, createApiKey, deleteApiKey, listApiKeys } from "./auth/api-keys";
 import {
@@ -215,7 +215,7 @@ async function htmlResponse(document: WebDocument, req?: Request): Promise<Respo
     const html = await Bun.file(document.bundle.index).text();
     return withSecurityHeaders(new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } }));
   }
-  return document.bundle as unknown as Response;
+  return withSecurityHeaders(document.bundle as unknown as Response);
 }
 
 function publicAssetResponse(asset: PublicRouteAsset, extraHeaders?: HeadersInit): Response {
@@ -266,11 +266,29 @@ function toWebPath(path: string): string {
   return path.split(sep).join("/");
 }
 
+function localFileUrlPath(url: URL, label: string): string {
+  if (url.protocol !== "file:") {
+    throw new Error(`${label} must be a local file path or file: URL; received ${url.protocol} URL`);
+  }
+  return fileURLToPath(url);
+}
+
+function resolveMaybeUrlString(value: string, label: string): string | undefined {
+  if (!/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value)) {
+    return undefined;
+  }
+  return localFileUrlPath(new URL(value), label);
+}
+
 function resolveWebEntry(entry: string | URL | undefined): string {
   if (entry instanceof URL) {
-    return entry.protocol === "file:" ? Bun.file(entry).name! : entry.href;
+    return localFileUrlPath(entry, "web.entry");
   }
   const value = entry ?? DEFAULT_WEB_ENTRY;
+  const urlPath = resolveMaybeUrlString(value, "web.entry");
+  if (urlPath) {
+    return urlPath;
+  }
   if (isAbsolute(value)) {
     return value;
   }
@@ -280,7 +298,11 @@ function resolveWebEntry(entry: string | URL | undefined): string {
 
 function resolveWebAsset(src: string | URL, packageRoot: string): string {
   if (src instanceof URL) {
-    return src.protocol === "file:" ? Bun.file(src).name! : src.href;
+    return localFileUrlPath(src, "web.icons src");
+  }
+  const urlPath = resolveMaybeUrlString(src, "web.icons src");
+  if (urlPath) {
+    return urlPath;
   }
   if (isAbsolute(src)) {
     return src;
@@ -302,9 +324,12 @@ function findPackageRoot(start: string): string {
   }
 }
 
-function webEntryPublicPath(entry: string | URL | undefined): string {
-  const raw = entry instanceof URL ? entry.pathname : entry ?? DEFAULT_WEB_ENTRY;
-  return normalizePublicPath(toWebPath(raw).replace(/^\.\//, ""));
+function webEntryPublicPath(entryFile: string, packageRoot: string): string {
+  const relativeEntry = relative(packageRoot, entryFile);
+  if (relativeEntry.startsWith("..") || isAbsolute(relativeEntry)) {
+    throw new Error(`web.entry must resolve inside the app package root: ${packageRoot}`);
+  }
+  return normalizePublicPath(toWebPath(relativeEntry));
 }
 
 function initialsForAppName(appName: string): string {
@@ -437,10 +462,10 @@ ${manifestTags}    <title>${title}</title>
 async function createWebDocument(config: RuntimeConfig, webInput: WebAppDocumentConfig | undefined): Promise<WebDocument> {
   const web = webInput ?? {};
   const entryFile = resolveWebEntry(web.entry);
-  const publicEntry = webEntryPublicPath(web.entry);
   const themeColor = web.themeColor ?? DEFAULT_THEME_COLOR;
   const backgroundColor = web.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
   const packageRoot = findPackageRoot(dirname(resolve(Bun.main || process.argv[1] || entryFile)));
+  const publicEntry = webEntryPublicPath(entryFile, packageRoot);
   const cacheDir = resolve(packageRoot, WEBAPP_DOCUMENT_CACHE_DIR);
   mkdirSync(cacheDir, { recursive: true });
   const htmlPath = resolve(cacheDir, `${config.envPrefix.toLowerCase()}-index.html`);
@@ -668,12 +693,14 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const configuredFavicon = iconConfig(input.web?.icons?.favicon);
   const configuredAppleTouch = iconConfig(input.web?.icons?.appleTouch) ?? configuredFavicon;
   const configuredManifestIcons = input.web?.icons?.manifest ?? [];
+  const webEntryFile = resolveWebEntry(input.web?.entry);
+  const webPackageRoot = findPackageRoot(dirname(resolve(Bun.main || process.argv[1] || webEntryFile)));
   const generatedRoutePaths = new Set([
-    webEntryPublicPath(input.web?.entry),
+    webEntryPublicPath(webEntryFile, webPackageRoot),
     "/webapp-icon.svg",
-    ...(configuredFavicon ? [`/webapp-favicon${pathExtension(configuredFavicon.src instanceof URL ? configuredFavicon.src.pathname : configuredFavicon.src) || ".png"}`] : []),
-    ...(configuredAppleTouch ? [`/webapp-apple-touch-icon${pathExtension(configuredAppleTouch.src instanceof URL ? configuredAppleTouch.src.pathname : configuredAppleTouch.src) || ".png"}`] : []),
-    ...configuredManifestIcons.map((manifestIcon, index) => `/webapp-icon-${index + 1}${pathExtension(manifestIcon.src instanceof URL ? manifestIcon.src.pathname : manifestIcon.src) || ".png"}`),
+    ...(configuredFavicon ? [`/webapp-favicon${pathExtension(resolveWebAsset(configuredFavicon.src, webPackageRoot)) || ".png"}`] : []),
+    ...(configuredAppleTouch ? [`/webapp-apple-touch-icon${pathExtension(resolveWebAsset(configuredAppleTouch.src, webPackageRoot)) || ".png"}`] : []),
+    ...configuredManifestIcons.map((manifestIcon, index) => `/webapp-icon-${index + 1}${pathExtension(resolveWebAsset(manifestIcon.src, webPackageRoot)) || ".png"}`),
     ...(pwaEnabled(input.web ?? {}) ? ["/site.webmanifest", "/manifest.webmanifest"] : []),
   ]);
   let webDocumentPromise: Promise<WebDocument> | undefined;
@@ -1239,8 +1266,8 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       ...Object.keys(publicRoutes),
     ].map((path) => [path, dynamicHandler]));
     const spaFallbackRoute = {
-      GET: webDocument.bundle as never,
-      HEAD: webDocument.bundle as never,
+      GET: dynamicHandler,
+      HEAD: dynamicHandler,
       POST: dynamicHandler,
       PUT: dynamicHandler,
       PATCH: dynamicHandler,
@@ -1254,8 +1281,8 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         ...publicRouteHandlers,
         "/api/*": dynamicHandler,
         "/.well-known/*": dynamicHandler,
-        "/device": deviceAuthEnabled ? webDocument.bundle as never : dynamicHandler,
-        "/setup": passkeysEnabled ? webDocument.bundle as never : dynamicHandler,
+        "/device": dynamicHandler,
+        "/setup": dynamicHandler,
         "/*": spaFallbackRoute,
       },
       websocket: {
