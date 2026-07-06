@@ -127,7 +127,7 @@ For a functional PWA:
 
 | Field | Default | Use when |
 | --- | --- | --- |
-| `web.entry` | `./web/main.tsx` | The app frontend entrypoint lives somewhere else, such as Clanky's `./frontend.tsx` |
+| `web.entry` | `./web/main.tsx` | The app frontend entrypoint lives somewhere else, such as `./frontend.tsx` |
 | `web.shortName` | `appName` | The installed app label should be shorter than the full name |
 | `web.themeColor` | `#111827` | Browser chrome/install metadata should match product branding |
 | `web.backgroundColor` | `#ffffff` | The manifest background should match the app splash/background |
