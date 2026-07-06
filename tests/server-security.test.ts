@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { RealtimeBus, createWebAppServer, defineRoutes, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
 import { createApiKey } from "../src/server/auth/api-keys";
@@ -275,6 +277,57 @@ describe("server security defaults", () => {
     expect(html).toContain('manifest.href = "/site.webmanifest"');
     expect(html).toContain("webapp.theme");
     expect(html).toContain('<script type="module"');
+  });
+
+  test("embeds theme colors as JavaScript string literals", async () => {
+    const app = createWebAppServer({
+      appName: "Theme Test",
+      envPrefix: "TEST_THEME_LITERAL",
+      web: {
+        ...testWeb,
+        themeColor: String.raw`#123";\nwindow.__bad=true;//`,
+      },
+      store: testStore("theme-literal"),
+      auth: { passkeys: false },
+      routes: defineRoutes({}),
+    });
+
+    const htmlResponse = await app.handleRequest(new Request("http://localhost/app", { headers: { accept: "text/html" } }));
+    const html = await htmlResponse?.text();
+
+    expect(html).toContain(JSON.stringify(String.raw`#123";\nwindow.__bad=true;//`));
+    expect(html).not.toContain('content = resolved === "dark" ? "#123";\\nwindow.__bad=true;//"');
+  });
+
+  test("uses a sanitized temp cache path for generated documents", async () => {
+    expect(() => createWebAppServer({
+      appName: "Bad Cache Test",
+      envPrefix: "TEST/../CACHE PREFIX",
+      web: testWeb,
+      store: testStore("bad-cache-path"),
+      auth: { passkeys: false },
+      routes: defineRoutes({}),
+    })).toThrow("envPrefix must match");
+
+    const envPrefix = "TEST_CACHE_PREFIX";
+    const sanitized = "test_cache_prefix";
+    const app = createWebAppServer({
+      appName: "Cache Test",
+      envPrefix,
+      web: testWeb,
+      store: testStore("cache-path"),
+      auth: { passkeys: false },
+      routes: defineRoutes({}),
+    });
+
+    const server = await app.start();
+    try {
+      const root = join(tmpdir(), "webapp", sanitized);
+      expect(existsSync(root)).toBe(true);
+      expect(readdirSync(root).some((entry) => entry.startsWith("webapp-document-"))).toBe(true);
+    } finally {
+      server.stop(true);
+    }
   });
 
   test("rejects non-local web document entry and icon URLs", () => {

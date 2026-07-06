@@ -161,8 +161,12 @@ function cleanupDocumentCacheDirs(): void {
   }
 }
 
+function safeCachePathSegment(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "app";
+}
+
 function createDocumentCacheDir(envPrefix: string): string {
-  const root = join(tmpdir(), "webapp", envPrefix.toLowerCase());
+  const root = join(tmpdir(), "webapp", safeCachePathSegment(envPrefix));
   mkdirSync(root, { recursive: true });
   const cacheDir = mkdtempSync(join(root, WEBAPP_DOCUMENT_CACHE_PREFIX));
   documentCacheDirs.add(cacheDir);
@@ -397,6 +401,8 @@ function contentTypeForIcon(path: string, explicit?: string): string {
 }
 
 function themeBootScript(themeColor: string): string {
+  const darkThemeColor = JSON.stringify(themeColor);
+  const lightThemeColor = JSON.stringify(DEFAULT_BACKGROUND_COLOR);
   return `(() => {
   const key = "webapp.theme";
   const root = document.documentElement;
@@ -409,7 +415,7 @@ function themeBootScript(themeColor: string): string {
   root.style.colorScheme = resolved;
   root.dataset.theme = preference;
   root.dataset.resolvedTheme = resolved;
-  if (metaThemeColor instanceof HTMLMetaElement) metaThemeColor.content = resolved === "dark" ? "${escapeAttribute(themeColor)}" : "${escapeAttribute(DEFAULT_BACKGROUND_COLOR)}";
+  if (metaThemeColor instanceof HTMLMetaElement) metaThemeColor.content = resolved === "dark" ? ${darkThemeColor} : ${lightThemeColor};
 })();`;
 }
 
