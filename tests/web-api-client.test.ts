@@ -70,6 +70,20 @@ describe("web API client", () => {
     }
   });
 
+  test("preserves explicit websocket protocols", () => {
+    installDom("https://example.test/");
+
+    configureWebAppClient({ wsBaseUrl: "wss://ws.example.test/root" });
+    expect(appWebSocketUrl("/api/ws")).toBe("wss://ws.example.test/api/ws");
+
+    configureWebAppClient({ wsBaseUrl: "ws://localhost:1234/root" });
+    expect(appWebSocketUrl("/api/ws")).toBe("ws://localhost:1234/api/ws");
+
+    configureWebAppClient();
+    expect(appWebSocketUrl("wss://external.example.test/socket")).toBe("wss://external.example.test/socket");
+    expect(appWebSocketUrl("ws://localhost:1234/socket")).toBe("ws://localhost:1234/socket");
+  });
+
   test("normalizes JSON errors and emits auth-required events", async () => {
     configureWebAppClient();
     installDom("https://example.test/prefix/", "https://example.test/prefix/");

@@ -85,7 +85,11 @@ export function appAbsoluteUrl(path: string): string {
 export function appWebSocketUrl(path = "/api/ws"): string {
   const configuredWsBaseUrl = configuredWebSocketBaseUrl ?? configuredApiBaseUrl;
   const url = new URL(configuredWsBaseUrl ? buildAbsoluteUrl(configuredWsBaseUrl, path) : appAbsoluteUrl(path));
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  if (url.protocol === "http:") {
+    url.protocol = "ws:";
+  } else if (url.protocol === "https:") {
+    url.protocol = "wss:";
+  }
   return url.toString();
 }
 

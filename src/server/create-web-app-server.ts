@@ -1303,6 +1303,8 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       OPTIONS: dynamicHandler,
     };
     // Bun only transforms HTMLBundle modules/HMR when the bundle is mounted directly.
+    // Wrapping it in a handler or Response, or adding route-level headers, serves
+    // untransformed module paths and breaks generated document routes.
     const spaDocumentRoute = {
       ...spaFallbackRoute,
       GET: webDocument.bundle as never,
