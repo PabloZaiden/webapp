@@ -134,13 +134,25 @@ export interface WebAppIconsConfig {
 }
 
 type WebDocument = {
-  bundle: HtmlBundleIndex;
+  bundle?: HtmlBundleIndex;
   entryPublicPath: string;
   cacheDir: string;
   html: string;
   manifest: string;
   icon: string;
   generatedPublicRoutes: Record<string, PublicRouteDefinition>;
+};
+
+type CompiledClientAsset = {
+  path: string;
+  contentType: string;
+  role: "script" | "style" | "asset";
+  body: string;
+};
+
+type CompiledClient = {
+  packageRoot: string;
+  assets: CompiledClientAsset[];
 };
 
 const DEFAULT_WEB_ENTRY = "./web/main.tsx";
@@ -446,11 +458,32 @@ function iconConfig(value: string | URL | WebAppIconConfig | undefined): WebAppI
   return typeof value === "object" && !(value instanceof URL) && "src" in value ? value : { src: value };
 }
 
-function generatedHtml(config: RuntimeConfig, web: WebAppDocumentConfig, relativeEntry: string, relativePrelude: string, themeColor: string, faviconPath: string, appleTouchPath: string): string {
+function compiledClient(): CompiledClient | undefined {
+  const value = (globalThis as { [key: symbol]: unknown })[Symbol.for("webapp.compiledClient")];
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<CompiledClient>;
+  return typeof candidate.packageRoot === "string" && Array.isArray(candidate.assets) ? candidate as CompiledClient : undefined;
+}
+
+function generatedHtml(
+  config: RuntimeConfig,
+  web: WebAppDocumentConfig,
+  relativeEntry: string | undefined,
+  relativePrelude: string | undefined,
+  themeColor: string,
+  faviconPath: string,
+  appleTouchPath: string,
+  compiledAssets?: CompiledClientAsset[],
+): string {
   const title = escapeHtml(web.title ?? config.appName);
   const shortName = escapeAttribute(web.shortName ?? config.appName);
   const htmlFaviconPath = faviconPath.replace(/^\//, "./");
   const htmlAppleTouchPath = appleTouchPath.replace(/^\//, "./");
+  const styleTags = compiledAssets?.filter((asset) => asset.role === "style").map((asset) => `    <link rel="stylesheet" href="${escapeAttribute(asset.path)}" />`).join("\n") ?? "";
+  const scriptTags = compiledAssets
+    ? compiledAssets.filter((asset) => asset.role === "script").map((asset) => `    <script type="module" src="${escapeAttribute(asset.path)}"></script>`).join("\n")
+    : `    <script type="module" src="${escapeAttribute(relativePrelude ?? "")}"></script>
+    <script type="module" src="${escapeAttribute(relativeEntry ?? "")}"></script>`;
   const manifestTags = pwaEnabled(web)
     ? `    <link rel="icon" href="${escapeAttribute(htmlFaviconPath)}" />
     <link rel="apple-touch-icon" href="${escapeAttribute(htmlAppleTouchPath)}" />
@@ -473,11 +506,11 @@ function generatedHtml(config: RuntimeConfig, web: WebAppDocumentConfig, relativ
     <meta name="theme-color" content="${escapeAttribute(themeColor)}" />
 ${manifestTags}    <title>${title}</title>
     <script>${themeBootScript(themeColor)}</script>
+${styleTags}
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="${escapeAttribute(relativePrelude)}"></script>
-    <script type="module" src="${escapeAttribute(relativeEntry)}"></script>
+${scriptTags}
   </body>
 </html>
 `;
@@ -485,11 +518,12 @@ ${manifestTags}    <title>${title}</title>
 
 async function createWebDocument(config: RuntimeConfig, webInput: WebAppDocumentConfig | undefined): Promise<WebDocument> {
   const web = webInput ?? {};
-  const entryFile = resolveWebEntry(web.entry);
+  const compiled = compiledClient();
+  const entryFile = compiled ? undefined : resolveWebEntry(web.entry);
   const themeColor = web.themeColor ?? DEFAULT_THEME_COLOR;
   const backgroundColor = web.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
-  const packageRoot = findPackageRoot(dirname(resolve(Bun.main || process.argv[1] || entryFile)));
-  const publicEntry = webEntryPublicPath(entryFile, packageRoot);
+  const packageRoot = compiled?.packageRoot ?? findPackageRoot(dirname(resolve(Bun.main || process.argv[1] || (entryFile ?? "."))));
+  const publicEntry = entryFile ? webEntryPublicPath(entryFile, packageRoot) : "";
   const cacheDir = createDocumentCacheDir(config.envPrefix);
   const htmlPath = resolve(cacheDir, `${config.envPrefix.toLowerCase()}-index.html`);
   const icon = generatedIcon(config.appName, themeColor, backgroundColor);
@@ -521,8 +555,8 @@ import { configureWebAppRenderer } from ${JSON.stringify(frameworkWebPath)};
 
 configureWebAppRenderer(createRoot);
 `);
-  const relativeEntry = toWebPath(relative(cacheDir, entryFile));
-  const relativePrelude = toWebPath(relative(cacheDir, preludePath));
+  const relativeEntry = entryFile ? toWebPath(relative(cacheDir, entryFile)) : undefined;
+  const relativePrelude = entryFile ? toWebPath(relative(cacheDir, preludePath)) : undefined;
   const faviconPath = favicon ? `/webapp-favicon${pathExtension(resolveWebAsset(favicon.src, packageRoot)) || ".png"}` : "/webapp-icon.svg";
   const appleTouchPath = appleTouch ? `/webapp-apple-touch-icon${pathExtension(resolveWebAsset(appleTouch.src, packageRoot)) || ".png"}` : faviconPath;
   if (favicon) {
@@ -538,18 +572,27 @@ configureWebAppRenderer(createRoot);
       await copyWebAsset(manifestIconFile, resolve(cacheDir, `webapp-icon-${index + 1}${ext}`));
     }
   }
-  writeFileSync(htmlPath, generatedHtml(config, web, relativeEntry, relativePrelude, themeColor, faviconPath, appleTouchPath));
-  const bundle = (await import(`${pathToFileURL(htmlPath).href}?v=${Date.now()}-${Math.random()}`)).default;
-  if (!isHtmlBundleIndex(bundle)) {
+  const compiledAssets = compiled?.assets;
+  writeFileSync(htmlPath, generatedHtml(config, web, relativeEntry, relativePrelude, themeColor, faviconPath, appleTouchPath, compiledAssets));
+  const bundle = compiledAssets ? undefined : (await import(`${pathToFileURL(htmlPath).href}?v=${Date.now()}-${Math.random()}`)).default;
+  if (!compiledAssets && !isHtmlBundleIndex(bundle)) {
     throw new Error("Generated web document did not produce a Bun HTMLBundle");
   }
-  const html = await Bun.file(bundle.index).text();
+  const html = bundle ? await Bun.file(bundle.index).text() : await Bun.file(htmlPath).text();
   const generatedPublicRoutes: Record<string, PublicRouteDefinition> = {
     "/webapp-icon.svg": {
       headers: { "content-type": "image/svg+xml; charset=utf-8" },
       GET: icon,
     },
   };
+  if (compiledAssets) {
+    for (const asset of compiledAssets) {
+      generatedPublicRoutes[asset.path] = {
+        headers: { "content-type": asset.contentType },
+        GET: () => Buffer.from(asset.body, "base64"),
+      };
+    }
+  }
   if (favicon) {
     const faviconFile = resolveWebAsset(favicon.src, packageRoot);
     generatedPublicRoutes[faviconPath] = {
@@ -718,10 +761,12 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const configuredFavicon = iconConfig(input.web?.icons?.favicon);
   const configuredAppleTouch = iconConfig(input.web?.icons?.appleTouch) ?? configuredFavicon;
   const configuredManifestIcons = input.web?.icons?.manifest ?? [];
+  const compiled = compiledClient();
   const webEntryFile = resolveWebEntry(input.web?.entry);
   const webPackageRoot = findPackageRoot(dirname(resolve(Bun.main || process.argv[1] || webEntryFile)));
   const generatedRoutePaths = new Set([
     webEntryPublicPath(webEntryFile, webPackageRoot),
+    ...(compiled?.assets.map((asset) => asset.path) ?? []),
     "/webapp-icon.svg",
     ...(configuredFavicon ? [`/webapp-favicon${pathExtension(resolveWebAsset(configuredFavicon.src, webPackageRoot)) || ".png"}`] : []),
     ...(configuredAppleTouch ? [`/webapp-apple-touch-icon${pathExtension(resolveWebAsset(configuredAppleTouch.src, webPackageRoot)) || ".png"}`] : []),
@@ -737,7 +782,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
           throw new Error(`publicRoutes cannot override framework-owned web route: ${path}`);
         }
       }
-      if (hasOwnPublicRoute(publicRoutes, document.entryPublicPath)) {
+      if (document.entryPublicPath && hasOwnPublicRoute(publicRoutes, document.entryPublicPath)) {
         throw new Error(`publicRoutes cannot override framework-owned web route: ${document.entryPublicPath}`);
       }
       return document;
@@ -1305,17 +1350,18 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     // Bun only transforms HTMLBundle modules/HMR when the bundle is mounted directly.
     // Wrapping it in a handler or Response, or adding route-level headers, serves
     // untransformed module paths and breaks generated document routes.
-    const spaDocumentRoute = {
+    const spaDocumentRoute = webDocument.bundle ? {
       ...spaFallbackRoute,
       GET: webDocument.bundle as never,
       HEAD: webDocument.bundle as never,
-    };
+    } : spaFallbackRoute;
+    const entryRoute = webDocument.bundle ? { [webDocument.entryPublicPath]: webDocument.bundle as never } : {};
     const server = Bun.serve<WebAppWebSocketData>({
       hostname: config.host,
       port: config.port,
       routes: {
         ...publicRouteHandlers,
-        [webDocument.entryPublicPath]: webDocument.bundle as never,
+        ...entryRoute,
         "/api/*": dynamicHandler,
         "/.well-known/*": dynamicHandler,
         "/device": deviceAuthEnabled ? spaDocumentRoute : dynamicHandler,
