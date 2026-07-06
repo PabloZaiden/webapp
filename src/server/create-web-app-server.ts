@@ -1302,6 +1302,14 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       DELETE: dynamicHandler,
       OPTIONS: dynamicHandler,
     };
+    // Bun only transforms HTMLBundle modules/HMR when the bundle is mounted directly.
+    // Wrapping it in a handler or Response, or adding route-level headers, serves
+    // untransformed module paths and breaks generated document routes.
+    const spaDocumentRoute = {
+      ...spaFallbackRoute,
+      GET: webDocument.bundle as never,
+      HEAD: webDocument.bundle as never,
+    };
     const server = Bun.serve<WebAppWebSocketData>({
       hostname: config.host,
       port: config.port,
@@ -1310,14 +1318,9 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         [webDocument.entryPublicPath]: webDocument.bundle as never,
         "/api/*": dynamicHandler,
         "/.well-known/*": dynamicHandler,
-        "/device": dynamicHandler,
-        "/setup": dynamicHandler,
-        "/*": {
-          ...spaFallbackRoute,
-          // Bun only transforms HTMLBundle modules/HMR when the bundle is mounted directly.
-          GET: webDocument.bundle as never,
-          HEAD: webDocument.bundle as never,
-        },
+        "/device": deviceAuthEnabled ? spaDocumentRoute : dynamicHandler,
+        "/setup": spaDocumentRoute,
+        "/*": spaDocumentRoute,
       },
       websocket: {
         open(socket) {

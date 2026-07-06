@@ -362,7 +362,7 @@ describe("server security defaults", () => {
         envPrefix: "TEST_PUBLIC_STATIC_INDEX",
         web: testWeb,
         store: testStore("public-static-index"),
-        auth: { passkeys: false },
+        auth: { passkeys: false, deviceAuth: true },
         publicRoutes: {
           "/diagnostics.json": {
             headers: { "content-type": "application/json" },
@@ -376,6 +376,7 @@ describe("server security defaults", () => {
       const diagnostics = await fetch(new URL("/diagnostics.json", server.url));
       const manifest = await fetch(new URL("/site.webmanifest", server.url));
       const fallback = await fetch(new URL("/anything-else", server.url));
+      const devicePage = await fetch(new URL("/device", server.url));
       const postFallback = await fetch(new URL("/anything-else", server.url), { method: "POST" });
 
       expect(diagnostics.headers.get("content-type")).toContain("application/json");
@@ -389,6 +390,10 @@ describe("server security defaults", () => {
       expect(clientScript).toBeTruthy();
       const generatedEntry = await fetch(new URL(clientScript!, server.url));
       expect(generatedEntry.headers.get("content-type")).toContain("javascript");
+      expect(devicePage.headers.get("content-type")).toContain("text/html");
+      const deviceHtml = await devicePage.text();
+      expect(deviceHtml).toContain(clientScript!);
+      expect(deviceHtml).not.toContain('src="webapp-prelude.ts"');
       expect(postFallback.status).toBe(404);
       expect(postFallback.headers.get("content-type")).toContain("application/json");
       expect(await postFallback.json()).toMatchObject({ error: "not_found" });
