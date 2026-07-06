@@ -108,7 +108,6 @@ When `index` is a Bun `HTMLBundle`, place `site.webmanifest`, favicons, and appl
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="MyApp" />
-<meta name="theme-color" content="#111827" />
 ```
 
 Use relative icon paths inside `site.webmanifest` as well:
@@ -121,7 +120,6 @@ Use relative icon paths inside `site.webmanifest` as well:
   "scope": "./",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#111827",
   "icons": [
     { "src": "./web-app-manifest-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
     { "src": "./web-app-manifest-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }

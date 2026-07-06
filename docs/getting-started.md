@@ -52,7 +52,6 @@ Keep install metadata static and relative to `index.html` so Bun can bundle and 
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="MyApp" />
-<meta name="theme-color" content="#111827" />
 ```
 
 Place `site.webmanifest`, icons, and apple-touch icons next to `index.html`, and reference manifest icons with relative paths such as `"./web-app-manifest-192x192.png"`. A single SVG favicon is enough for lightweight examples; production apps should include PNG manifest icons and an Apple touch icon like Clanky. For string, `Blob`, or `Response` HTML indexes, include equivalent tags in the HTML you pass to the server.
