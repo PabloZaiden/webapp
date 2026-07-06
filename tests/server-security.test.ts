@@ -279,6 +279,69 @@ describe("server security defaults", () => {
     expect(html).toContain('<script type="module"');
   });
 
+  test("compiled client documents preserve renderer script order and serve assets", async () => {
+    const compiledClientSymbol = Symbol.for("webapp.compiledClient");
+    const globalWithCompiledClient = globalThis as Record<symbol, unknown>;
+    globalWithCompiledClient[compiledClientSymbol] = {
+      packageRoot: process.cwd(),
+      assets: [
+        {
+          path: "/webapp-compiled/webapp-client-entry.js",
+          contentType: "text/javascript; charset=utf-8",
+          role: "script",
+          scriptOrder: 1,
+          body: Buffer.from("import '/webapp-compiled/chunk.js';\nwindow.__clientLoaded = true;\n").toString("base64"),
+        },
+        {
+          path: "/webapp-compiled/webapp-renderer-prelude.js",
+          contentType: "text/javascript; charset=utf-8",
+          role: "script",
+          scriptOrder: 0,
+          body: Buffer.from("window.__rendererConfigured = true;\n").toString("base64"),
+        },
+        {
+          path: "/webapp-compiled/chunk.js",
+          contentType: "text/javascript; charset=utf-8",
+          role: "asset",
+          body: Buffer.from("export const chunk = true;\n").toString("base64"),
+        },
+        {
+          path: "/webapp-compiled/webapp-client-entry.css",
+          contentType: "text/css; charset=utf-8",
+          role: "style",
+          body: Buffer.from(".compiled { color: red; }\n").toString("base64"),
+        },
+      ],
+    };
+    try {
+      const app = createWebAppServer({
+        appName: "Compiled Test",
+        envPrefix: "TEST_COMPILED_CLIENT",
+        auth: { passkeys: false },
+        routes: defineRoutes({}),
+      });
+
+      const htmlResponse = await app.handleRequest(new Request("http://localhost/"));
+      const html = await htmlResponse?.text();
+      expect(html).toContain('<link rel="stylesheet" href="/webapp-compiled/webapp-client-entry.css" />');
+      const rendererIndex = html?.indexOf('<script type="module" src="/webapp-compiled/webapp-renderer-prelude.js"></script>') ?? -1;
+      const clientIndex = html?.indexOf('<script type="module" src="/webapp-compiled/webapp-client-entry.js"></script>') ?? -1;
+      expect(rendererIndex).toBeGreaterThanOrEqual(0);
+      expect(clientIndex).toBeGreaterThan(rendererIndex);
+
+      const prelude = await app.handleRequest(new Request("http://localhost/webapp-compiled/webapp-renderer-prelude.js"));
+      expect(prelude?.status).toBe(200);
+      expect(prelude?.headers.get("content-type")).toContain("text/javascript");
+      expect(await prelude?.text()).toContain("__rendererConfigured");
+
+      const chunk = await app.handleRequest(new Request("http://localhost/webapp-compiled/chunk.js"));
+      expect(chunk?.status).toBe(200);
+      expect(await chunk?.text()).toContain("chunk = true");
+    } finally {
+      delete globalWithCompiledClient[compiledClientSymbol];
+    }
+  });
+
   test("embeds theme colors as JavaScript string literals", async () => {
     const app = createWebAppServer({
       appName: "Theme Test",

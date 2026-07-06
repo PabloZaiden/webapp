@@ -59,15 +59,17 @@ configureWebAppRenderer(createRoot);
       throw new Error("Browser build failed");
     }
     const assets = browserBuild.outputs
+      .filter((output) => extname(output.path).toLowerCase() !== ".map")
       .map((output) => {
         const ext = extname(output.path).toLowerCase();
         const fileName = basename(output.path);
         const publicPath = `/webapp-compiled/${basename(output.path)}`;
+        const scriptKind = ext === ".js" ? compiledScriptKind(fileName) : undefined;
         return {
           path: publicPath,
           contentType: contentTypeForOutput(ext),
-          role: ext === ".css" ? "style" : ext === ".js" && fileName === "webapp-renderer-prelude.js" ? "script" : ext === ".js" && fileName === "webapp-client-entry.js" ? "script" : "asset",
-          scriptOrder: fileName === "webapp-renderer-prelude.js" ? 0 : 1,
+          role: ext === ".css" ? "style" : scriptKind ? "script" : "asset",
+          ...(scriptKind ? { scriptOrder: scriptKind === "renderer" ? 0 : 1 } : {}),
           body: readFileSync(output.path).toString("base64"),
         };
       });
@@ -121,4 +123,10 @@ function contentTypeForOutput(ext: string): string {
   if (ext === ".webp") return "image/webp";
   if (ext === ".map") return "application/json; charset=utf-8";
   return "application/octet-stream";
+}
+
+function compiledScriptKind(fileName: string): "renderer" | "client" | undefined {
+  if (/^webapp-renderer-prelude(?:[-.][\w-]+)?\.(?:mjs|js)$/.test(fileName)) return "renderer";
+  if (/^webapp-client-entry(?:[-.][\w-]+)?\.(?:mjs|js)$/.test(fileName)) return "client";
+  return undefined;
 }
