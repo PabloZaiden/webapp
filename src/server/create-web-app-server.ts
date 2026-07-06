@@ -587,9 +587,10 @@ configureWebAppRenderer(createRoot);
   };
   if (compiledAssets) {
     for (const asset of compiledAssets) {
+      const body = Buffer.from(asset.body, "base64");
       generatedPublicRoutes[asset.path] = {
         headers: { "content-type": asset.contentType },
-        GET: () => Buffer.from(asset.body, "base64"),
+        GET: () => body,
       };
     }
   }
