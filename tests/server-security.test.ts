@@ -6,7 +6,9 @@ import { createApiKey } from "../src/server/auth/api-keys";
 import { sha256 } from "../src/server/auth/crypto";
 import { readRuntimeConfig } from "../src/server/runtime-config";
 import type { UserRecord, WebAppStore } from "../src/server/auth/store";
-import staticIndex from "./fixtures/static-index.html";
+
+const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
+const testIcon = new URL("./fixtures/web/icon.svg", import.meta.url);
 
 function testStore(name: string) {
   return sqliteWebAppStore({ dataDir: `.cache/tests/${name}-${crypto.randomUUID()}` });
@@ -91,7 +93,6 @@ describe("server security defaults", () => {
     const enabledApp = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST",
-      index: "<html></html>",
       store: testStore("passkey-enabled-config"),
       auth: { passkeys: true },
       routes: defineRoutes({}),
@@ -102,7 +103,6 @@ describe("server security defaults", () => {
     const disabledApp = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST",
-      index: "<html></html>",
       store: testStore("passkey-disabled-config"),
       auth: { passkeys: false },
       routes: defineRoutes({}),
@@ -115,7 +115,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_CONFIG_EXTENSION",
-      index: "<html></html>",
       store: testStore("config-extension"),
       auth: { passkeys: false },
       routes: defineRoutes({}),
@@ -139,7 +138,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_AUTH_STATUS",
-      index: "<html></html>",
       store: testStore("auth-status-anonymous"),
       auth: { passkeys: false },
       routes: defineRoutes({}),
@@ -165,7 +163,6 @@ describe("server security defaults", () => {
       const app = createWebAppServer({
         appName: "Test",
         envPrefix: "TEST_EMPTY_BYPASS",
-        index: "<html></html>",
         store: testStore("empty-bypass-config"),
         auth: { passkeys: true },
         routes: defineRoutes({}),
@@ -186,7 +183,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_IP_PASSKEY",
-      index: "<html></html>",
       store: testStore("ip-passkey"),
       auth: { passkeys: true },
       routes: defineRoutes({}),
@@ -208,22 +204,18 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_PUBLIC_ROUTES",
-      index: "<html>index</html>",
+      web: testWeb,
       store: testStore("public-routes"),
       auth: { passkeys: false },
       publicRoutes: {
-        "/manifest.webmanifest": {
-          headers: { "content-type": "application/manifest+json" },
-          GET: JSON.stringify({ name: "Test" }),
-        },
         "/missing-public": () => undefined,
       },
       routes: defineRoutes({}),
     });
 
-    const manifest = await app.handleRequest(new Request("http://localhost/manifest.webmanifest"));
-    const manifestHead = await app.handleRequest(new Request("http://localhost/manifest.webmanifest", { method: "HEAD" }));
-    const manifestPost = await app.handleRequest(new Request("http://localhost/manifest.webmanifest", { method: "POST" }));
+    const manifest = await app.handleRequest(new Request("http://localhost/site.webmanifest"));
+    const manifestHead = await app.handleRequest(new Request("http://localhost/site.webmanifest", { method: "HEAD" }));
+    const manifestPost = await app.handleRequest(new Request("http://localhost/site.webmanifest", { method: "POST" }));
     const missingPublic = await app.handleRequest(new Request("http://localhost/missing-public"));
     const missingApi = await app.handleRequest(new Request("http://localhost/api/missing"));
     const spa = await app.handleRequest(new Request("http://localhost/projects"));
@@ -231,7 +223,7 @@ describe("server security defaults", () => {
     const spaPost = await app.handleRequest(new Request("http://localhost/projects", { method: "POST" }));
 
     expect(manifest?.headers.get("content-type")).toContain("application/manifest+json");
-    expect(await manifest?.json()).toEqual({ name: "Test" });
+    expect(await manifest?.json()).toMatchObject({ name: "Test", display: "standalone" });
     expect(manifestHead?.status).toBe(200);
     expect(manifestHead?.headers.get("content-type")).toContain("application/manifest+json");
     expect(await manifestHead?.text()).toBe("");
@@ -241,34 +233,51 @@ describe("server security defaults", () => {
     expect(missingPublic?.headers.get("x-frame-options")).toBe("DENY");
     expect(missingApi?.status).toBe(404);
     const spaHtml = await spa?.text();
-    expect(spaHtml).toContain("<html>index</html>");
-    expect(spaHtml).not.toContain('<link rel="manifest"');
+    expect(spaHtml).toContain('<div id="root"></div>');
+    expect(spaHtml).toContain('manifest.href = "/site.webmanifest"');
     expect(spaHead?.status).toBe(200);
     expect(spaPost?.status).toBe(404);
     expect(spaPost?.headers.get("content-type")).toContain("application/json");
     expect(await spaPost?.json()).toMatchObject({ error: "not_found" });
   });
 
-  test("does not generate manifest routes or mutate HTML metadata", async () => {
-    const html = '<!doctype html><html><head><title>App</title></head><body>index</body></html>';
+  test("generates framework-owned manifest routes and HTML metadata", async () => {
     const app = createWebAppServer({
       appName: "Test App",
-      envPrefix: "TEST_NO_NATIVE_MANIFEST",
-      index: html,
-      store: testStore("no-native-manifest"),
+      envPrefix: "TEST_NATIVE_MANIFEST",
+      web: {
+        ...testWeb,
+        shortName: "Test",
+        icons: {
+          favicon: { src: testIcon, type: "image/svg+xml", sizes: "any" },
+          appleTouch: { src: testIcon, type: "image/svg+xml", sizes: "any" },
+          manifest: [{ src: testIcon, type: "image/svg+xml", sizes: "any", purpose: "any maskable" }],
+        },
+      },
+      store: testStore("native-manifest"),
       auth: { passkeys: false },
       routes: defineRoutes({}),
     });
 
     const manifest = await app.handleRequest(new Request("http://localhost/manifest.webmanifest"));
+    const favicon = await app.handleRequest(new Request("http://localhost/webapp-favicon.svg"));
     const htmlResponse = await app.handleRequest(new Request("http://localhost/app", { headers: { accept: "text/html" } }));
 
-    expect(manifest?.headers.get("content-type")).toContain("text/html");
-    expect(await manifest?.text()).toBe(html);
-    expect(await htmlResponse?.text()).toBe(html);
+    expect(manifest?.headers.get("content-type")).toContain("application/manifest+json");
+    expect(await manifest?.json()).toMatchObject({
+      name: "Test App",
+      short_name: "Test",
+      icons: [{ src: "./webapp-icon-1.svg", type: "image/svg+xml", sizes: "any" }],
+    });
+    expect(favicon?.headers.get("content-type")).toContain("image/svg+xml");
+    const html = await htmlResponse?.text();
+    expect(html).toContain("<title>Test App</title>");
+    expect(html).toContain('manifest.href = "/site.webmanifest"');
+    expect(html).toContain("webapp.theme");
+    expect(html).toContain('<script type="module"');
   });
 
-  test("started server serves public routes before static index catchall", async () => {
+  test("started server serves framework document and public routes before SPA catchall", async () => {
     const portPrevious = process.env["TEST_PUBLIC_STATIC_INDEX_PORT"];
     const hostPrevious = process.env["TEST_PUBLIC_STATIC_INDEX_HOST"];
     process.env["TEST_PUBLIC_STATIC_INDEX_PORT"] = "0";
@@ -278,27 +287,30 @@ describe("server security defaults", () => {
       const app = createWebAppServer({
         appName: "Test",
         envPrefix: "TEST_PUBLIC_STATIC_INDEX",
-        index: staticIndex,
+        web: testWeb,
         store: testStore("public-static-index"),
         auth: { passkeys: false },
         publicRoutes: {
-          "/manifest.webmanifest": {
-            headers: { "content-type": "application/manifest+json" },
-            GET: JSON.stringify({ name: "Static Index Test" }),
+          "/diagnostics.json": {
+            headers: { "content-type": "application/json" },
+            GET: JSON.stringify({ ok: true }),
           },
         },
         routes: defineRoutes({}),
       });
-      const server = app.start();
+      const server = await app.start();
       stopServer = () => server.stop(true);
-      const manifest = await fetch(new URL("/manifest.webmanifest", server.url));
+      const diagnostics = await fetch(new URL("/diagnostics.json", server.url));
+      const manifest = await fetch(new URL("/site.webmanifest", server.url));
       const fallback = await fetch(new URL("/anything-else", server.url));
       const postFallback = await fetch(new URL("/anything-else", server.url), { method: "POST" });
 
+      expect(diagnostics.headers.get("content-type")).toContain("application/json");
+      expect(await diagnostics.json()).toEqual({ ok: true });
       expect(manifest.headers.get("content-type")).toContain("application/manifest+json");
-      expect(await manifest.json()).toEqual({ name: "Static Index Test" });
+      expect(await manifest.json()).toMatchObject({ name: "Test" });
       expect(fallback.headers.get("content-type")).toContain("text/html");
-      expect(await fallback.text()).toContain("static index");
+      expect(await fallback.text()).toContain('<div id="root"></div>');
       expect(postFallback.status).toBe(404);
       expect(postFallback.headers.get("content-type")).toContain("application/json");
       expect(await postFallback.json()).toMatchObject({ error: "not_found" });
@@ -321,7 +333,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_UPGRADE_ROUTE",
-      index: "<html></html>",
       store: testStore("upgrade-route"),
       auth: { passkeys: false },
       routes: defineRoutes({
@@ -458,12 +469,11 @@ describe("server security defaults", () => {
       const app = createWebAppServer({
         appName: "Test",
         envPrefix: "TEST_DEVICE_ROUTE",
-        index: "<html></html>",
         store: testStore("device-route-disabled"),
         auth: { deviceAuth: false },
         routes: defineRoutes({}),
       });
-      const server = app.start();
+      const server = await app.start();
       stopServer = () => server.stop(true);
       const response = await fetch(new URL("/device", server.url));
       expect(response.status).toBe(404);
@@ -490,7 +500,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST",
-      index: "<html></html>",
       store,
       routes: defineRoutes({
         "/api/protected": {
@@ -507,7 +516,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST",
-      index: "<html></html>",
       store: testStore("route-helper-auth-error"),
       routes: defineRoutes({
         "/api/current-user": {
@@ -525,7 +533,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_ROUTE_ERROR",
-      index: "<html></html>",
       store: testStore("route-handler-error"),
       auth: { passkeys: false },
       routes: defineRoutes({
@@ -564,7 +571,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_ROUTE_AUTH",
-      index: "<html></html>",
       store,
       auth: { apiKeys: true },
       routes: defineRoutes({
@@ -608,7 +614,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_OWNED",
-      index: "<html></html>",
       store,
       auth: { apiKeys: true },
       routes: defineRoutes({
@@ -643,7 +648,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST",
-      index: "<html></html>",
       store,
       auth: { apiKeys: true },
       routes: defineRoutes({
@@ -670,7 +674,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST",
-      index: "<html></html>",
       store,
       auth: { apiKeys: true },
       routes: defineRoutes({
@@ -697,7 +700,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_API_KEY_CRUD",
-      index: "<html></html>",
       store,
       auth: { apiKeys: true },
       routes: defineRoutes({}),
@@ -746,7 +748,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_API_KEY_EXPIRED",
-      index: "<html></html>",
       store,
       auth: { apiKeys: true },
       routes: defineRoutes({}),
@@ -819,7 +820,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_AUTH_SESSIONS_ACTIVE",
-      index: "<html></html>",
       store,
       auth: { apiKeys: true, deviceAuth: true },
       routes: defineRoutes({}),
@@ -844,7 +844,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_USERS",
-      index: "<html></html>",
       store,
       routes: defineRoutes({}),
     });
@@ -909,7 +908,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_API_KEY_SELF",
-      index: "<html></html>",
       store,
       auth: { apiKeys: true },
       routes: defineRoutes({}),
@@ -936,7 +934,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST",
-      index: "<html></html>",
       store,
       routes: defineRoutes({
         "/api/public": {
@@ -960,7 +957,6 @@ describe("server security defaults", () => {
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_DEVICE_FLOW",
-      index: "<html></html>",
       store,
       auth: { deviceAuth: true },
       routes: defineRoutes({

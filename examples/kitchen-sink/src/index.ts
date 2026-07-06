@@ -1,4 +1,3 @@
-import webIndex from "./index.html";
 import { createWebAppServer, defineRoutes, jsonResponse, parseJson, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
 
 type Event = ResourceRealtimeEvent;
@@ -93,7 +92,15 @@ const publicRoutes = {
 const app = createWebAppServer<Event>({
   appName: "Kitchen Sink",
   envPrefix: "KITCHEN_SINK",
-  index: webIndex,
+  web: {
+    icons: {
+      favicon: { src: "./src/favicon.svg", sizes: "any", type: "image/svg+xml" },
+      appleTouch: { src: "./src/favicon.svg", sizes: "any", type: "image/svg+xml" },
+      manifest: [
+        { src: "./src/favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
+      ],
+    },
+  },
   version: typeof WEBAPP_VERSION === "string" ? WEBAPP_VERSION : "0.0.0-development",
   store,
   auth: { passkeys: true, apiKeys: true, deviceAuth: true },
