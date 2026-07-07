@@ -413,13 +413,15 @@ function contentTypeForIcon(path: string, explicit?: string): string {
   return "application/octet-stream";
 }
 
-function themeBootScript(themeColor: string): string {
-  const darkThemeColor = JSON.stringify(themeColor);
-  const lightThemeColor = JSON.stringify(DEFAULT_BACKGROUND_COLOR);
+function themeBootScript(themeColor: string | undefined): string {
+  const themeColorUpdate = themeColor
+    ? `
+  const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+  if (metaThemeColor instanceof HTMLMetaElement) metaThemeColor.content = resolved === "dark" ? ${JSON.stringify(themeColor)} : ${JSON.stringify(DEFAULT_BACKGROUND_COLOR)};`
+    : "";
   return `(() => {
   const key = "webapp.theme";
   const root = document.documentElement;
-  const metaThemeColor = document.querySelector('meta[name="theme-color"]');
   const stored = window.localStorage.getItem(key);
   const preference = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
   const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -428,7 +430,7 @@ function themeBootScript(themeColor: string): string {
   root.style.colorScheme = resolved;
   root.dataset.theme = preference;
   root.dataset.resolvedTheme = resolved;
-  if (metaThemeColor instanceof HTMLMetaElement) metaThemeColor.content = resolved === "dark" ? ${darkThemeColor} : ${lightThemeColor};
+${themeColorUpdate}
 })();`;
 }
 
@@ -440,7 +442,7 @@ function pwaConfig(web: WebAppDocumentConfig): WebAppPwaConfig {
   return typeof web.pwa === "object" ? web.pwa : {};
 }
 
-function generatedManifest(config: RuntimeConfig, web: WebAppDocumentConfig, themeColor: string, backgroundColor: string, icons: WebAppIconConfig[]): string {
+function generatedManifest(config: RuntimeConfig, web: WebAppDocumentConfig, backgroundColor: string, icons: WebAppIconConfig[]): string {
   const pwa = pwaConfig(web);
   return JSON.stringify({
     name: config.appName,
@@ -449,7 +451,7 @@ function generatedManifest(config: RuntimeConfig, web: WebAppDocumentConfig, the
     scope: pwa.scope ?? "./",
     display: pwa.display ?? "standalone",
     background_color: backgroundColor,
-    theme_color: themeColor,
+    ...(web.themeColor ? { theme_color: web.themeColor } : {}),
     icons,
   }, null, 2);
 }
@@ -471,7 +473,7 @@ function generatedHtml(
   web: WebAppDocumentConfig,
   relativeEntry: string | undefined,
   relativePrelude: string | undefined,
-  themeColor: string,
+  themeColor: string | undefined,
   faviconPath: string,
   appleTouchPath: string,
   compiledAssets?: CompiledClientAsset[],
@@ -480,6 +482,7 @@ function generatedHtml(
   const shortName = escapeAttribute(web.shortName ?? config.appName);
   const htmlFaviconPath = faviconPath.replace(/^\//, "./");
   const htmlAppleTouchPath = appleTouchPath.replace(/^\//, "./");
+  const themeMetaTag = themeColor ? `    <meta name="theme-color" content="${escapeAttribute(themeColor)}" />\n` : "";
   const styleTags = compiledAssets?.filter((asset) => asset.role === "style").map((asset) => `    <link rel="stylesheet" href="${escapeAttribute(asset.path)}" />`).join("\n") ?? "";
   const scriptTags = compiledAssets
     ? compiledAssets
@@ -508,7 +511,7 @@ function generatedHtml(
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="${escapeAttribute(themeColor)}" />
+${themeMetaTag}\
 ${manifestTags}    <title>${title}</title>
     <script>${themeBootScript(themeColor)}</script>
 ${styleTags}
@@ -525,13 +528,13 @@ async function createWebDocument(config: RuntimeConfig, webInput: WebAppDocument
   const web = webInput ?? {};
   const compiled = compiledClient();
   const entryFile = compiled ? undefined : resolveWebEntry(web.entry);
-  const themeColor = web.themeColor ?? DEFAULT_THEME_COLOR;
+  const iconThemeColor = web.themeColor ?? DEFAULT_THEME_COLOR;
   const backgroundColor = web.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
   const packageRoot = compiled?.packageRoot ?? findPackageRoot(dirname(resolve(Bun.main || process.argv[1] || (entryFile ?? "."))));
   const publicEntry = entryFile ? webEntryPublicPath(entryFile, packageRoot) : "";
   const cacheDir = createDocumentCacheDir(config.envPrefix);
   const htmlPath = resolve(cacheDir, `${config.envPrefix.toLowerCase()}-index.html`);
-  const icon = generatedIcon(config.appName, themeColor, backgroundColor);
+  const icon = generatedIcon(config.appName, iconThemeColor, backgroundColor);
   const favicon = iconConfig(web.icons?.favicon);
   const appleTouch = iconConfig(web.icons?.appleTouch) ?? favicon;
   const manifestIconConfigs = web.icons?.manifest?.length ? web.icons.manifest : undefined;
@@ -547,7 +550,7 @@ async function createWebDocument(config: RuntimeConfig, webInput: WebAppDocument
         };
       })
     : [{ src: "./webapp-icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" }];
-  const manifest = pwaEnabled(web) ? generatedManifest(config, web, themeColor, backgroundColor, manifestIcons) : "";
+  const manifest = pwaEnabled(web) ? generatedManifest(config, web, backgroundColor, manifestIcons) : "";
   writeFileSync(resolve(cacheDir, "webapp-icon.svg"), icon);
   if (manifest) {
     writeFileSync(resolve(cacheDir, "site.webmanifest"), manifest);
@@ -578,7 +581,7 @@ configureWebAppRenderer(createRoot);
     }
   }
   const compiledAssets = compiled?.assets;
-  writeFileSync(htmlPath, generatedHtml(config, web, relativeEntry, relativePrelude, themeColor, faviconPath, appleTouchPath, compiledAssets));
+  writeFileSync(htmlPath, generatedHtml(config, web, relativeEntry, relativePrelude, web.themeColor, faviconPath, appleTouchPath, compiledAssets));
   const bundle = compiledAssets ? undefined : (await import(`${pathToFileURL(htmlPath).href}?v=${Date.now()}-${Math.random()}`)).default;
   if (!compiledAssets && !isHtmlBundleIndex(bundle)) {
     throw new Error("Generated web document did not produce a Bun HTMLBundle");

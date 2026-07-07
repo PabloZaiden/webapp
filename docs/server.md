@@ -129,7 +129,7 @@ For a functional PWA:
 | --- | --- | --- |
 | `web.entry` | `./web/main.tsx` | The app frontend entrypoint lives somewhere else, such as `./frontend.tsx` |
 | `web.shortName` | `appName` | The installed app label should be shorter than the full name |
-| `web.themeColor` | `#111827` | Browser chrome/install metadata should match product branding |
+| `web.themeColor` | Not emitted unless set | Browser chrome/install metadata should match product branding; the generated default icon still uses `#111827` when unset |
 | `web.backgroundColor` | `#ffffff` | The manifest background should match the app splash/background |
 | `web.icons.favicon` | Generated initials SVG | Browser tabs should use product artwork instead of initials |
 | `web.icons.appleTouch` | `favicon` or generated initials SVG | iOS home-screen/Dock should use product artwork |
