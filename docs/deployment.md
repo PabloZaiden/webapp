@@ -17,6 +17,26 @@ await buildWebAppBinary({
 });
 ```
 
+The binary builder compiles the browser bundle with the framework defaults needed for `webapp` apps, including Tailwind CSS v4 processing. If an app needs extra browser build behavior, add Bun plugins or browser-only defines under `web.build`:
+
+```ts
+await buildWebAppBinary({
+  entrypoint: "src/index.ts",
+  outfile: "./dist/my-app",
+  web: {
+    entry: "./frontend.tsx",
+    build: {
+      plugins: [myBrowserPlugin],
+      define: {
+        "process.env.MY_BROWSER_FLAG": JSON.stringify("enabled"),
+      },
+    },
+  },
+});
+```
+
+App-provided plugins run before the framework defaults. Use `web.build.disableDefaultPlugins` only for specialized builds that intentionally replace the framework browser pipeline.
+
 Run the binary with the same CLI contract:
 
 ```bash

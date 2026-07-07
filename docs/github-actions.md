@@ -415,6 +415,8 @@ await buildWebAppBinary({
 });
 ```
 
+`buildWebAppBinary` includes the framework browser build defaults, including Tailwind CSS v4 processing. Apps that need additional browser-only transforms can pass Bun plugins or defines through `web.build.plugins` and `web.build.define`; app plugins run before the framework defaults.
+
 ## Adaptation checklist
 
 1. Replace `my-app` everywhere with the binary name.

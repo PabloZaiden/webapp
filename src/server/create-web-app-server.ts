@@ -1,5 +1,5 @@
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -181,7 +181,7 @@ function safeCachePathSegment(value: string): string {
 function createDocumentCacheDir(envPrefix: string): string {
   const root = join(tmpdir(), "webapp", safeCachePathSegment(envPrefix));
   mkdirSync(root, { recursive: true });
-  const cacheDir = mkdtempSync(join(root, WEBAPP_DOCUMENT_CACHE_PREFIX));
+  const cacheDir = realpathSync(mkdtempSync(join(root, WEBAPP_DOCUMENT_CACHE_PREFIX)));
   documentCacheDirs.add(cacheDir);
   if (!documentCacheCleanupRegistered) {
     documentCacheCleanupRegistered = true;
