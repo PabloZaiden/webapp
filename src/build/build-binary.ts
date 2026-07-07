@@ -1,3 +1,5 @@
+import type { BunPlugin } from "bun";
+import tailwindPlugin from "bun-plugin-tailwind";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
 
@@ -15,6 +17,11 @@ export interface BuildWebAppBinaryOptions {
   define?: Record<string, string>;
   web?: {
     entry?: string;
+    build?: {
+      plugins?: BunPlugin[];
+      define?: Record<string, string>;
+      disableDefaultPlugins?: boolean;
+    };
   };
 }
 
@@ -41,6 +48,10 @@ configureWebAppRenderer(createRoot);
 `);
     writeFileSync(clientEntry, `import ${JSON.stringify(webEntry)};
 `);
+    const browserPlugins = [
+      ...(options.web?.build?.plugins ?? []),
+      ...(options.web?.build?.disableDefaultPlugins ? [] : [tailwindPlugin]),
+    ];
     const browserBuild = await Bun.build({
       entrypoints: [rendererEntry, clientEntry],
       outdir: browserOutDir,
@@ -50,7 +61,8 @@ configureWebAppRenderer(createRoot);
       publicPath: "/webapp-compiled/",
       minify: true,
       sourcemap: "external",
-      define: options.define,
+      define: { ...options.define, ...options.web?.build?.define },
+      plugins: browserPlugins,
     });
     if (!browserBuild.success) {
       for (const log of browserBuild.logs) {
