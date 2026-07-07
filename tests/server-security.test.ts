@@ -218,6 +218,7 @@ describe("server security defaults", () => {
     const manifest = await app.handleRequest(new Request("http://localhost/site.webmanifest"));
     const manifestHead = await app.handleRequest(new Request("http://localhost/site.webmanifest", { method: "HEAD" }));
     const manifestPost = await app.handleRequest(new Request("http://localhost/site.webmanifest", { method: "POST" }));
+    const defaultIcon = await app.handleRequest(new Request("http://localhost/webapp-icon.svg"));
     const missingPublic = await app.handleRequest(new Request("http://localhost/missing-public"));
     const missingApi = await app.handleRequest(new Request("http://localhost/api/missing"));
     const spa = await app.handleRequest(new Request("http://localhost/projects"));
@@ -237,6 +238,7 @@ describe("server security defaults", () => {
     const spaHtml = await spa?.text();
     expect(spaHtml).toContain('<div id="root"></div>');
     expect(spaHtml).toContain('manifest.href = "/site.webmanifest"');
+    expect(await defaultIcon?.text()).toContain('fill="#111827"');
     expect(spaHead?.status).toBe(200);
     expect(spaPost?.status).toBe(404);
     expect(spaPost?.headers.get("content-type")).toContain("application/json");
@@ -356,9 +358,13 @@ describe("server security defaults", () => {
     });
 
     const htmlResponse = await app.handleRequest(new Request("http://localhost/app", { headers: { accept: "text/html" } }));
+    const manifestResponse = await app.handleRequest(new Request("http://localhost/site.webmanifest"));
     const html = await htmlResponse?.text();
+    const manifest = await manifestResponse?.json() as Record<string, unknown>;
 
     expect(html).toContain(JSON.stringify(String.raw`#123";\nwindow.__bad=true;//`));
+    expect(html).toContain('name="theme-color"');
+    expect(manifest.theme_color).toBe(String.raw`#123";\nwindow.__bad=true;//`);
     expect(html).not.toContain('content = resolved === "dark" ? "#123";\\nwindow.__bad=true;//"');
   });
 
