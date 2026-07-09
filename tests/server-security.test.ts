@@ -931,6 +931,17 @@ describe("server security defaults", () => {
       updatedAt: now,
       expiresAt: isoOffset(3600),
     };
+    const duplicateActiveSession = {
+      id: crypto.randomUUID(),
+      userId: owner.id,
+      familyId: crypto.randomUUID(),
+      clientId: "active-client",
+      scope: "*",
+      refreshTokenHash: sha256("duplicate-active-refresh"),
+      createdAt: isoOffset(-60),
+      updatedAt: isoOffset(-60),
+      expiresAt: isoOffset(3600),
+    };
     const revokedSession = {
       id: crypto.randomUUID(),
       userId: owner.id,
@@ -966,6 +977,7 @@ describe("server security defaults", () => {
       expiresAt: isoOffset(3600),
     };
     store.saveRefreshSession(activeSession);
+    store.saveRefreshSession(duplicateActiveSession);
     store.saveRefreshSession(revokedSession);
     store.saveRefreshSession(expiredSession);
     store.saveRefreshSession(otherUserSession);
@@ -984,6 +996,7 @@ describe("server security defaults", () => {
     expect(listed.map((session) => ({ id: session.id, active: session.active, clientId: session.clientId })))
       .toEqual([{ id: activeSession.id, active: true, clientId: "active-client" }]);
     expect(store.listRefreshSessions(owner.id).map((session) => session.id)).not.toContain(expiredSession.id);
+    expect(store.listRefreshSessions(owner.id).find((session) => session.id === duplicateActiveSession.id)?.revokedAt).toBeTruthy();
     expect(store.listRefreshSessions(owner.id).map((session) => session.id)).toContain(revokedSession.id);
   });
 
@@ -1105,7 +1118,7 @@ describe("server security defaults", () => {
     process.env["TEST_DEVICE_FLOW_DISABLE_PASSKEY"] = "true";
     const store = testStore("device-flow");
     store.initialize();
-    configuredUser(store);
+    const user = configuredUser(store);
     const app = createWebAppServer({
       appName: "Test",
       envPrefix: "TEST_DEVICE_FLOW",
@@ -1171,6 +1184,48 @@ describe("server security defaults", () => {
     })));
     expect(refreshed.access_token).toBeTruthy();
     expect(refreshed.refresh_token).not.toBe(token.refresh_token);
+
+    const refreshedAgain = await responseJson<{ access_token: string; refresh_token: string }>(await app.handleRequest(new Request("http://localhost/api/auth/refresh", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshed.refresh_token, client_id: "test-cli" }),
+    })));
+    expect(refreshedAgain.refresh_token).not.toBe(refreshed.refresh_token);
+
+    const sessionsResponse = await app.handleRequest(new Request("http://localhost/api/auth/sessions", {
+      headers: { authorization: `Bearer ${refreshedAgain.access_token}` },
+    }));
+    expect(sessionsResponse?.status).toBe(200);
+    const sessions = await responseJson<Array<{ id: string; active: boolean; clientId: string }>>(sessionsResponse);
+    expect(sessions.map((session) => ({ active: session.active, clientId: session.clientId })))
+      .toEqual([{ active: true, clientId: "test-cli" }]);
+    expect(store.listRefreshSessions(user.id).filter((session) => !session.revokedAt)).toHaveLength(1);
+
+    const secondDevice = await responseJson<{ device_code: string; user_code: string }>(await app.handleRequest(new Request("http://localhost/api/auth/device", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_id: "test-cli", scope: "write" }),
+    })));
+    const secondApproval = await app.handleRequest(new Request("http://localhost/api/auth/device/approve", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost" },
+      body: JSON.stringify({ user_code: secondDevice.user_code }),
+    }));
+    expect(secondApproval?.status).toBe(200);
+    const secondToken = await responseJson<{ access_token: string; refresh_token: string }>(await app.handleRequest(new Request("http://localhost/api/auth/token", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: secondDevice.device_code, client_id: "test-cli" }),
+    })));
+    expect(secondToken.refresh_token).not.toBe(refreshedAgain.refresh_token);
+    const replacedSessionsResponse = await app.handleRequest(new Request("http://localhost/api/auth/sessions", {
+      headers: { authorization: `Bearer ${secondToken.access_token}` },
+    }));
+    expect(replacedSessionsResponse?.status).toBe(200);
+    const replacedSessions = await responseJson<Array<{ id: string; active: boolean; clientId: string }>>(replacedSessionsResponse);
+    expect(replacedSessions.map((session) => ({ active: session.active, clientId: session.clientId })))
+      .toEqual([{ active: true, clientId: "test-cli" }]);
+    expect(store.listRefreshSessions(user.id).filter((session) => !session.revokedAt)).toHaveLength(1);
 
     const staleRefresh = await app.handleRequest(new Request("http://localhost/api/auth/refresh", {
       method: "POST",

@@ -208,6 +208,35 @@ function createRefreshRecord(userId: string, clientId: string, scope: string, fa
   };
 }
 
+function revokeExistingClientSessions(store: WebAppStore, userId: string, clientId: string, revokedAt: string): void {
+  for (const session of store.listRefreshSessions(userId)) {
+    if (session.clientId === clientId && !session.revokedAt && !isExpired(session.expiresAt)) {
+      store.revokeRefreshSession(session.id, revokedAt, userId);
+    }
+  }
+}
+
+function activeRefreshSessions(store: WebAppStore, userId: string): RefreshSessionRecord[] {
+  return store.listRefreshSessions(userId)
+    .filter((session) => !session.revokedAt && !isExpired(session.expiresAt))
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+}
+
+function uniqueActiveClientSessions(store: WebAppStore, userId: string): RefreshSessionRecord[] {
+  const seenClientIds = new Set<string>();
+  const sessions: RefreshSessionRecord[] = [];
+  const duplicateRevokedAt = nowIso();
+  for (const session of activeRefreshSessions(store, userId)) {
+    if (seenClientIds.has(session.clientId)) {
+      store.revokeRefreshSession(session.id, duplicateRevokedAt, userId);
+    } else {
+      seenClientIds.add(session.clientId);
+      sessions.push(session);
+    }
+  }
+  return sessions;
+}
+
 export async function exchangeDeviceCode(store: WebAppStore, config: RuntimeConfig, deviceCode: string, clientId?: string): Promise<TokenResponse> {
   store.deleteExpiredDeviceAuthRequests(nowIso());
   const record = store.getDeviceAuthByDeviceCodeHash(sha256(deviceCode));
@@ -237,6 +266,7 @@ export async function exchangeDeviceCode(store: WebAppStore, config: RuntimeConf
     throw new AuthError("invalid_grant", "Approving user no longer exists", 400);
   }
   const user = toCurrentUser(userRecord);
+  revokeExistingClientSessions(store, user.id, record.clientId, nowIso());
   const refresh = createRefreshRecord(user.id, record.clientId, record.scope);
   store.saveRefreshSession(refresh.record);
   const access = await issueAccessToken(store, config, {
@@ -305,8 +335,7 @@ export async function verifyAccessToken(store: WebAppStore, config: RuntimeConfi
 
 export function listAuthSessions(store: WebAppStore, userId: string): AuthSessionSummary[] {
   store.deleteExpiredRefreshSessions?.(nowIso());
-  return store.listRefreshSessions(userId)
-    .filter((session) => !session.revokedAt && !isExpired(session.expiresAt))
+  return uniqueActiveClientSessions(store, userId)
     .map((session) => ({
       id: session.id,
       clientId: session.clientId,
