@@ -190,7 +190,7 @@ function useMobileViewportHeight() {
       timers.add(timer);
     };
 
-    const handleKeyboardBoundary = () => {
+    const handleViewportTransition = () => {
       scheduleSync();
       scheduleDelayedSync(120);
       scheduleDelayedSync(320);
@@ -200,9 +200,10 @@ function useMobileViewportHeight() {
     viewport?.addEventListener("resize", scheduleSync);
     viewport?.addEventListener("scroll", scheduleSync);
     window.addEventListener("resize", scheduleSync);
+    window.addEventListener("orientationchange", handleViewportTransition);
     mobileQuery.addEventListener("change", scheduleSync);
-    document.addEventListener("focusin", handleKeyboardBoundary);
-    document.addEventListener("focusout", handleKeyboardBoundary);
+    document.addEventListener("focusin", handleViewportTransition);
+    document.addEventListener("focusout", handleViewportTransition);
 
     return () => {
       if (frame) {
@@ -214,9 +215,10 @@ function useMobileViewportHeight() {
       viewport?.removeEventListener("resize", scheduleSync);
       viewport?.removeEventListener("scroll", scheduleSync);
       window.removeEventListener("resize", scheduleSync);
+      window.removeEventListener("orientationchange", handleViewportTransition);
       mobileQuery.removeEventListener("change", scheduleSync);
-      document.removeEventListener("focusin", handleKeyboardBoundary);
-      document.removeEventListener("focusout", handleKeyboardBoundary);
+      document.removeEventListener("focusin", handleViewportTransition);
+      document.removeEventListener("focusout", handleViewportTransition);
       clearViewportHeight();
     };
   }, []);
