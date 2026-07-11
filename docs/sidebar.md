@@ -38,6 +38,8 @@ Sidebar nodes support:
 
 Search is intentionally app-defined: `getNodes({ search })` receives raw search text and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
 
+On mobile widths, the drawer can be opened with a horizontal swipe starting within the left edge of the viewport, in addition to the header button. The gesture must move at least 64px to the right without moving more than 48px vertically.
+
 Use `actions` when an entity needs commands in the sidebar. `WebAppRoot` finds the active route-backed sidebar node and automatically renders its `ActionMenuItem[]` in the title-bar three-line menu, so the sidebar right-click menu and header menu stay consistent from one source of truth. Use `header.getActions` only for extra route-level actions that are not represented by the active sidebar node.
 
 ```tsx
