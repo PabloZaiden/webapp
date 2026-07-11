@@ -108,6 +108,7 @@ textarea::placeholder {
   height: var(--wapp-viewport-height);
   min-height: var(--wapp-viewport-height);
   overflow: hidden;
+  overscroll-behavior-x: none;
   background: var(--wapp-bg);
 }
 
@@ -1894,6 +1895,10 @@ textarea::placeholder {
 
   .wapp-main-header {
     padding: 0.875rem 1rem;
+  }
+
+  .wapp-main {
+    touch-action: pan-y;
   }
 
   .wapp-main-content {

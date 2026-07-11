@@ -224,6 +224,85 @@ function useMobileViewportHeight() {
   }, []);
 }
 
+const MOBILE_SIDEBAR_BREAKPOINT = 900;
+const SIDEBAR_SWIPE_EDGE_WIDTH = 24;
+const SIDEBAR_SWIPE_DISTANCE = 64;
+const SIDEBAR_SWIPE_VERTICAL_TOLERANCE = 48;
+
+function useMobileSidebarSwipe(sidebarOpen: boolean, setSidebarOpen: (open: boolean) => void) {
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+
+    let tracking = false;
+    let startX = 0;
+    let startY = 0;
+
+    const reset = () => {
+      tracking = false;
+    };
+
+    const handleTouchStart = (event: TouchEvent) => {
+      if (sidebarOpen || window.innerWidth > MOBILE_SIDEBAR_BREAKPOINT || event.touches.length !== 1) {
+        reset();
+        return;
+      }
+
+      const touch = event.touches[0];
+      if (!touch || touch.clientX > SIDEBAR_SWIPE_EDGE_WIDTH) {
+        reset();
+        return;
+      }
+
+      tracking = true;
+      startX = touch.clientX;
+      startY = touch.clientY;
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      if (!tracking) {
+        return;
+      }
+      if (event.touches.length !== 1) {
+        reset();
+        return;
+      }
+
+      const touch = event.touches[0];
+      if (!touch) {
+        reset();
+        return;
+      }
+
+      const deltaX = touch.clientX - startX;
+      const deltaY = Math.abs(touch.clientY - startY);
+      if (deltaX <= 0 || deltaY > SIDEBAR_SWIPE_VERTICAL_TOLERANCE || deltaY > deltaX) {
+        reset();
+        return;
+      }
+      if (deltaX < SIDEBAR_SWIPE_DISTANCE) {
+        return;
+      }
+
+      event.preventDefault();
+      setSidebarOpen(true);
+      reset();
+    };
+
+    document.addEventListener("touchstart", handleTouchStart, { passive: true });
+    document.addEventListener("touchmove", handleTouchMove, { passive: false });
+    document.addEventListener("touchend", reset);
+    document.addEventListener("touchcancel", reset);
+    return () => {
+      document.removeEventListener("touchstart", handleTouchStart);
+      document.removeEventListener("touchmove", handleTouchMove);
+      document.removeEventListener("touchend", reset);
+      document.removeEventListener("touchcancel", reset);
+    };
+  }, [setSidebarOpen, sidebarOpen]);
+}
+
 async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -1079,6 +1158,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const sidebarTreeState = useSidebarCollapsedState(appName);
+  useMobileSidebarSwipe(sidebarOpen, setSidebarOpen);
   const toggleSidebarCollapsed = useCallback(() => {
     setSidebarCollapsed((current) => {
       const nextCollapsed = !current;

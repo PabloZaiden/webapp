@@ -913,6 +913,76 @@ test("mobile sidebar backdrop closes the open sidebar", async () => {
   }
 });
 
+test("mobile left-edge swipe opens the sidebar", async () => {
+  const restoreFetch = mockConfigFetch();
+  const previousInnerWidth = window.innerWidth;
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 390 });
+  try {
+    const { shell } = await renderShortcutWebApp();
+
+    fireEvent.touchStart(document, {
+      touches: [{ clientX: 8, clientY: 240 }],
+    });
+    fireEvent.touchMove(document, {
+      touches: [{ clientX: 80, clientY: 248 }],
+      cancelable: true,
+    });
+
+    await waitFor(() => expect(shell.classList.contains("sidebar-open")).toBe(true));
+  } finally {
+    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: previousInnerWidth });
+    restoreFetch();
+  }
+});
+
+test("mobile sidebar swipe ignores touches away from the left edge", async () => {
+  const restoreFetch = mockConfigFetch();
+  const previousInnerWidth = window.innerWidth;
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 390 });
+  try {
+    const { shell } = await renderShortcutWebApp();
+
+    fireEvent.touchStart(document, {
+      touches: [{ clientX: 40, clientY: 240 }],
+    });
+    fireEvent.touchMove(document, {
+      touches: [{ clientX: 120, clientY: 240 }],
+      cancelable: true,
+    });
+
+    expect(shell.classList.contains("sidebar-open")).toBe(false);
+  } finally {
+    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: previousInnerWidth });
+    restoreFetch();
+  }
+});
+
+test("mobile sidebar swipe cancels after diagonal movement", async () => {
+  const restoreFetch = mockConfigFetch();
+  const previousInnerWidth = window.innerWidth;
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 390 });
+  try {
+    const { shell } = await renderShortcutWebApp();
+
+    fireEvent.touchStart(document, {
+      touches: [{ clientX: 8, clientY: 240 }],
+    });
+    fireEvent.touchMove(document, {
+      touches: [{ clientX: 40, clientY: 280 }],
+      cancelable: true,
+    });
+    fireEvent.touchMove(document, {
+      touches: [{ clientX: 80, clientY: 280 }],
+      cancelable: true,
+    });
+
+    expect(shell.classList.contains("sidebar-open")).toBe(false);
+  } finally {
+    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: previousInnerWidth });
+    restoreFetch();
+  }
+});
+
 test("mobile sidebar backdrop uses the modal overlay blur tokens", () => {
   const css = readFileSync(new URL("../src/web/styles.css", import.meta.url), "utf8");
   const rootRule = cssRule(css, ":root");
