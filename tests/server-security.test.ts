@@ -11,15 +11,20 @@ import type { UserRecord, WebAppStore } from "../src/server/auth/store";
 
 const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
 const testIcon = new URL("./fixtures/web/icon.svg", import.meta.url);
-const fixedViewportMeta = '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />';
+const fixedViewportTokens = ["width=device-width", "initial-scale=1", "maximum-scale=1", "user-scalable=no", "viewport-fit=cover"] as const;
 
 function testStore(name: string) {
   return sqliteWebAppStore({ dataDir: `.cache/tests/${name}-${crypto.randomUUID()}` });
 }
 
 function expectFixedViewportMetadata(html: string | undefined): void {
-  expect(html).toContain(fixedViewportMeta);
-  expect(html?.match(/<meta name="viewport"/g) ?? []).toHaveLength(1);
+  const viewportTags = html?.match(/<meta\b(?=[^>]*\bname\s*=\s*["']viewport["'])[^>]*>/gi) ?? [];
+  expect(viewportTags).toHaveLength(1);
+  const viewportContent = viewportTags[0]?.match(/\bcontent\s*=\s*["']([^"']*)["']/i)?.[1] ?? "";
+  const viewportTokens = viewportContent.split(",").map((token) => token.trim()).filter(Boolean);
+  for (const token of fixedViewportTokens) {
+    expect(viewportTokens).toContain(token);
+  }
 }
 
 function configuredUser(store: WebAppStore, username = "owner", role: UserRecord["role"] = "owner"): UserRecord {
