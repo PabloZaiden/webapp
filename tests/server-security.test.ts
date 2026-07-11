@@ -11,9 +11,20 @@ import type { UserRecord, WebAppStore } from "../src/server/auth/store";
 
 const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
 const testIcon = new URL("./fixtures/web/icon.svg", import.meta.url);
+const fixedViewportTokens = ["width=device-width", "initial-scale=1", "maximum-scale=1", "user-scalable=no", "viewport-fit=cover"] as const;
 
 function testStore(name: string) {
   return sqliteWebAppStore({ dataDir: `.cache/tests/${name}-${crypto.randomUUID()}` });
+}
+
+function expectFixedViewportMetadata(html: string | undefined): void {
+  const viewportTags = html?.match(/<meta\b(?=[^>]*\bname\s*=\s*["']viewport["'])[^>]*>/gi) ?? [];
+  expect(viewportTags).toHaveLength(1);
+  const viewportContent = viewportTags[0]?.match(/\bcontent\s*=\s*["']([^"']*)["']/i)?.[1] ?? "";
+  const viewportTokens = viewportContent.split(",").map((token) => token.trim()).filter(Boolean);
+  for (const token of fixedViewportTokens) {
+    expect(viewportTokens).toContain(token);
+  }
 }
 
 function configuredUser(store: WebAppStore, username = "owner", role: UserRecord["role"] = "owner"): UserRecord {
@@ -275,10 +286,24 @@ describe("server security defaults", () => {
     });
     expect(favicon?.headers.get("content-type")).toContain("image/svg+xml");
     const html = await htmlResponse?.text();
+    expectFixedViewportMetadata(html);
     expect(html).toContain("<title>Test App</title>");
     expect(html).toContain('manifest.href = "/site.webmanifest"');
     expect(html).toContain("webapp.theme");
     expect(html).toContain('<script type="module"');
+  });
+
+  test("keeps fixed viewport metadata when PWA is disabled", async () => {
+    const app = createWebAppServer({
+      appName: "No PWA Test",
+      envPrefix: "TEST_NO_PWA_VIEWPORT",
+      web: { ...testWeb, pwa: false },
+      auth: { passkeys: false },
+      routes: defineRoutes({}),
+    });
+
+    const htmlResponse = await app.handleRequest(new Request("http://localhost/", { headers: { accept: "text/html" } }));
+    expectFixedViewportMetadata(await htmlResponse?.text());
   });
 
   test("compiled client documents preserve renderer script order and serve assets", async () => {
@@ -325,6 +350,7 @@ describe("server security defaults", () => {
 
       const htmlResponse = await app.handleRequest(new Request("http://localhost/"));
       const html = await htmlResponse?.text();
+      expectFixedViewportMetadata(html);
       expect(html).toContain('<link rel="stylesheet" href="/webapp-compiled/webapp-client-entry.css" />');
       const rendererIndex = html?.indexOf('<script type="module" src="/webapp-compiled/webapp-renderer-prelude.js"></script>') ?? -1;
       const clientIndex = html?.indexOf('<script type="module" src="/webapp-compiled/webapp-client-entry.js"></script>') ?? -1;
