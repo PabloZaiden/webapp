@@ -916,7 +916,7 @@ test("mobile sidebar backdrop closes the open sidebar", async () => {
 test("mobile left-edge swipe opens the sidebar", async () => {
   const restoreFetch = mockConfigFetch();
   const previousInnerWidth = window.innerWidth;
-  Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 390 });
   try {
     const { shell } = await renderShortcutWebApp();
 
@@ -930,7 +930,7 @@ test("mobile left-edge swipe opens the sidebar", async () => {
 
     await waitFor(() => expect(shell.classList.contains("sidebar-open")).toBe(true));
   } finally {
-    Object.defineProperty(window, "innerWidth", { configurable: true, value: previousInnerWidth });
+    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: previousInnerWidth });
     restoreFetch();
   }
 });
@@ -938,7 +938,7 @@ test("mobile left-edge swipe opens the sidebar", async () => {
 test("mobile sidebar swipe ignores touches away from the left edge", async () => {
   const restoreFetch = mockConfigFetch();
   const previousInnerWidth = window.innerWidth;
-  Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 390 });
   try {
     const { shell } = await renderShortcutWebApp();
 
@@ -952,7 +952,33 @@ test("mobile sidebar swipe ignores touches away from the left edge", async () =>
 
     expect(shell.classList.contains("sidebar-open")).toBe(false);
   } finally {
-    Object.defineProperty(window, "innerWidth", { configurable: true, value: previousInnerWidth });
+    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: previousInnerWidth });
+    restoreFetch();
+  }
+});
+
+test("mobile sidebar swipe cancels after diagonal movement", async () => {
+  const restoreFetch = mockConfigFetch();
+  const previousInnerWidth = window.innerWidth;
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 390 });
+  try {
+    const { shell } = await renderShortcutWebApp();
+
+    fireEvent.touchStart(document, {
+      touches: [{ clientX: 8, clientY: 240 }],
+    });
+    fireEvent.touchMove(document, {
+      touches: [{ clientX: 40, clientY: 280 }],
+      cancelable: true,
+    });
+    fireEvent.touchMove(document, {
+      touches: [{ clientX: 80, clientY: 280 }],
+      cancelable: true,
+    });
+
+    expect(shell.classList.contains("sidebar-open")).toBe(false);
+  } finally {
+    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: previousInnerWidth });
     restoreFetch();
   }
 });
