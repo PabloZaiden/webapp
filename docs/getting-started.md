@@ -41,7 +41,7 @@ const app = createWebAppServer({
 await app.runFromCli();
 ```
 
-The framework generates the HTML document, React mount point, viewport metadata, PWA manifest, default SVG icons, and the theme prepaint script. By default it uses `./web/main.tsx` relative to the Bun entry file as the frontend entrypoint, so apps only need to create that file. Override document defaults only when the app needs different metadata:
+The framework generates the HTML document, React mount point, fixed-scale viewport metadata, PWA manifest, default SVG icons, and the theme prepaint script. The generated viewport prevents pinch-to-zoom on iPhone and iPad while preserving normal scrolling. By default it uses `./web/main.tsx` relative to the Bun entry file as the frontend entrypoint, so apps only need to create that file. Override document defaults only when the app needs different metadata:
 
 ```ts
 createWebAppServer({
@@ -66,6 +66,8 @@ createWebAppServer({
   routes,
 });
 ```
+
+Do not create an app-owned `index.html` or add global touch handlers to control zoom. The framework owns the viewport policy so the same behavior applies to development, compiled clients, and installed PWAs without disabling scrolling.
 
 PWA support is on by default, with generated initials icons unless the app provides `web.icons`. Icon paths are relative to the app package root; production apps should provide at least 192x192 and 512x512 PNG manifest icons plus an Apple touch icon. Set `web.pwa: false` only for apps that deliberately should not be installable. The standard theme preference key is `webapp.theme`; apps should not use app-specific theme storage keys.
 

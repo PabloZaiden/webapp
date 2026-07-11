@@ -96,7 +96,9 @@ Built-in endpoints include:
 
 ## Framework-owned web document and PWA metadata
 
-`createWebAppServer` owns the browser document. Apps do not provide `index.html`; the framework generates a Bun `HTMLBundle` internally so Bun hot reload and asset rewriting keep working. By default the frontend entrypoint is `./web/main.tsx` relative to the Bun entry file.
+`createWebAppServer` owns the browser document. Apps do not provide `index.html`; the framework generates a Bun `HTMLBundle` internally so Bun hot reload and asset rewriting keep working. By default the frontend entrypoint is `./web/main.tsx` relative to the Bun entry file. The generated viewport keeps the app at `initial-scale=1` with `maximum-scale=1` and `user-scalable=no`, so iPhone and iPad pinch-to-zoom cannot change the app scale while normal scrolling remains enabled.
+
+Do not replace this behavior with global touch event handlers, `preventDefault()` calls, or `touch-action: none`: those approaches can disable scrolling and other touch interactions. Applications should keep the document framework-owned rather than adding an app-owned `index.html`.
 
 ```ts
 createWebAppServer({
