@@ -1,7 +1,9 @@
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ApiKeySummary, AuthSessionSummary, CreatedApiKeyResponse, CreatedUserResponse, DeviceVerificationDetails, PasskeyAuthStatusResponse, ThemePreference, UserSetupDetails, WebAppConfigResponse, WebAppUserRole, WebAppUserSummary } from "../contracts";
-import { ActionMenu, Badge, Button, ConfirmDialog, ContextMenu, DangerZone, Dialog, EmptyState, FormSection, IconButton, Panel, SelectField, TextField, type ContextMenuPosition } from "./components";
+import { appFetch, appJson } from "./api-client";
+import { ActionMenu, Badge, Button, ConfirmDialog, ContextMenu, DangerZone, Dialog, EmptyState, ErrorState, FormSection, IconButton, LoadingState, Panel, SelectField, TextField, type ContextMenuPosition } from "./components";
+import { useLiveQuery } from "./realtime/useRealtime";
 import type { ActionMenuItem, SidebarAction, SidebarBuildContext, SidebarNode, WebAppRoute } from "./sidebar/types";
 
 type SettingsSection = {
@@ -303,27 +305,12 @@ function useMobileSidebarSwipe(sidebarOpen: boolean, setSidebarOpen: (open: bool
   }, [setSidebarOpen, sidebarOpen]);
 }
 
-async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...init.headers,
-    },
-  });
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({})) as { message?: string; error?: string };
-    throw new Error(data.message ?? data.error ?? `Request failed with ${response.status}`);
-  }
-  return await response.json() as T;
-}
-
 function useConfig() {
   const [config, setConfig] = useState<WebAppConfigResponse>();
   const [error, setError] = useState<string>();
   const refresh = useCallback(async () => {
     try {
-      setConfig(await json<WebAppConfigResponse>("/api/config"));
+      setConfig(await appJson<WebAppConfigResponse>("/api/config"));
       setError(undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -473,9 +460,9 @@ function PasskeyAuthScreen({ status, refresh }: { status: PasskeyAuthStatusRespo
     setError(undefined);
     try {
       const body = endpoint === "bootstrap" ? JSON.stringify({ username }) : "{}";
-      const options = await json<PublicKeyCredentialCreationOptionsJSON>(`/api/passkey-auth/${endpoint}/options`, { method: "POST", body });
+      const options = await appJson<PublicKeyCredentialCreationOptionsJSON>(`/api/passkey-auth/${endpoint}/options`, { method: "POST", body });
       const credential = await startRegistration({ optionsJSON: options as never });
-      await json(`/api/passkey-auth/${endpoint}/verify`, { method: "POST", body: JSON.stringify(credential) });
+      await appJson(`/api/passkey-auth/${endpoint}/verify`, { method: "POST", body: JSON.stringify(credential) });
       await refresh();
       window.location.reload();
     } catch (err) {
@@ -488,9 +475,9 @@ function PasskeyAuthScreen({ status, refresh }: { status: PasskeyAuthStatusRespo
     setBusy(true);
     setError(undefined);
     try {
-      const options = await json<PublicKeyCredentialRequestOptionsJSON>("/api/passkey-auth/authentication/options", { method: "POST", body: "{}" });
+      const options = await appJson<PublicKeyCredentialRequestOptionsJSON>("/api/passkey-auth/authentication/options", { method: "POST", body: "{}" });
       const credential = await startAuthentication({ optionsJSON: options as never });
-      await json("/api/passkey-auth/authentication/verify", { method: "POST", body: JSON.stringify(credential) });
+      await appJson("/api/passkey-auth/authentication/verify", { method: "POST", body: JSON.stringify(credential) });
       await refresh();
       window.location.reload();
     } catch (err) {
@@ -531,7 +518,7 @@ function UserSetupScreen({ refresh }: { refresh: () => Promise<void> }) {
       setError("Setup token is missing");
       return;
     }
-    void json<UserSetupDetails>(`/api/user-setup?token=${encodeURIComponent(token)}`)
+    void appJson<UserSetupDetails>(`/api/user-setup?token=${encodeURIComponent(token)}`)
       .then(setDetails)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [token]);
@@ -540,9 +527,9 @@ function UserSetupScreen({ refresh }: { refresh: () => Promise<void> }) {
     setBusy(true);
     setError(undefined);
     try {
-      const options = await json<PublicKeyCredentialCreationOptionsJSON>("/api/user-setup/options", { method: "POST", body: JSON.stringify({ token }) });
+      const options = await appJson<PublicKeyCredentialCreationOptionsJSON>("/api/user-setup/options", { method: "POST", body: JSON.stringify({ token }) });
       const credential = await startRegistration({ optionsJSON: options as never });
-      await json("/api/user-setup/verify", { method: "POST", body: JSON.stringify({ token, response: credential }) });
+      await appJson("/api/user-setup/verify", { method: "POST", body: JSON.stringify({ token, response: credential }) });
       window.history.replaceState(null, "", "/");
       await refresh();
       window.location.reload();
@@ -584,7 +571,7 @@ function DeviceVerificationScreen() {
     setBusy(true);
     setError(undefined);
     try {
-      setDetails(await json<DeviceVerificationDetails>(`/api/auth/device/verification?user_code=${encodeURIComponent(userCode.trim())}`));
+      setDetails(await appJson<DeviceVerificationDetails>(`/api/auth/device/verification?user_code=${encodeURIComponent(userCode.trim())}`));
     } catch (err) {
       setDetails(undefined);
       setError(err instanceof Error ? err.message : String(err));
@@ -600,7 +587,7 @@ function DeviceVerificationScreen() {
     setBusy(true);
     setError(undefined);
     try {
-      setDetails(await json<DeviceVerificationDetails>(`/api/auth/device/${action}`, {
+      setDetails(await appJson<DeviceVerificationDetails>(`/api/auth/device/${action}`, {
         method: "POST",
         body: JSON.stringify({ user_code: details.userCode }),
       }));
@@ -760,26 +747,40 @@ function isScopeVisible(scope: "user" | "admin" | "owner" | undefined, config: W
   return Boolean(config.currentUser?.isOwner);
 }
 
+function ResourceState({ loading, error, hasData, refresh }: { loading: boolean; error?: Error; hasData: boolean; refresh: () => Promise<void> }): ReactNode {
+  if (!hasData && loading) {
+    return <LoadingState />;
+  }
+  if (!error) {
+    return null;
+  }
+  return (
+    <ErrorState
+      description={error.message}
+      action={<Button type="button" loading={loading} onClick={() => void refresh()}>Retry</Button>}
+    />
+  );
+}
+
 function UserManagement({ config }: { config: WebAppConfigResponse }) {
-  const [users, setUsers] = useState<WebAppUserSummary[]>([]);
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<WebAppUserRole>("user");
   const [setupLink, setSetupLink] = useState<string>();
   const [userToDelete, setUserToDelete] = useState<WebAppUserSummary>();
   const [error, setError] = useState<string>();
 
-  const refreshUsers = useCallback(async () => {
-    if (config.userManagement.canManageUsers) {
-      setUsers(await json<WebAppUserSummary[]>("/api/users"));
-    }
-  }, [config.userManagement.canManageUsers]);
-
-  useEffect(() => void refreshUsers().catch(() => undefined), [refreshUsers]);
+  const loadUsers = useCallback(
+    () => config.userManagement.canManageUsers
+      ? appJson<WebAppUserSummary[]>("/api/users")
+      : Promise.resolve([]),
+    [config.userManagement.canManageUsers],
+  );
+  const { data: users, error: usersLoadError, loading: usersLoading, refresh: refreshUsers } = useLiveQuery<WebAppUserSummary[]>({ load: loadUsers, realtime: false });
 
   async function createUser() {
     try {
       setError(undefined);
-      const result = await json<CreatedUserResponse>("/api/users", { method: "POST", body: JSON.stringify({ username, role }) });
+      const result = await appJson<CreatedUserResponse>("/api/users", { method: "POST", body: JSON.stringify({ username, role }) });
       setUsername("");
       setRole("user");
       setSetupLink(result.setupLink.url);
@@ -792,7 +793,7 @@ function UserManagement({ config }: { config: WebAppConfigResponse }) {
   async function updateRole(user: WebAppUserSummary, nextRole: WebAppUserRole) {
     try {
       setError(undefined);
-      await json(`/api/users/${encodeURIComponent(user.id)}/role`, { method: "PATCH", body: JSON.stringify({ role: nextRole }) });
+      await appJson(`/api/users/${encodeURIComponent(user.id)}/role`, { method: "PATCH", body: JSON.stringify({ role: nextRole }) });
       await refreshUsers();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -802,7 +803,7 @@ function UserManagement({ config }: { config: WebAppConfigResponse }) {
   async function resetUser(user: WebAppUserSummary) {
     try {
       setError(undefined);
-      const result = await json<CreatedUserResponse>(`/api/users/${encodeURIComponent(user.id)}/reset`, { method: "POST", body: "{}" });
+      const result = await appJson<CreatedUserResponse>(`/api/users/${encodeURIComponent(user.id)}/reset`, { method: "POST", body: "{}" });
       setSetupLink(result.setupLink.url);
       await refreshUsers();
     } catch (err) {
@@ -813,7 +814,7 @@ function UserManagement({ config }: { config: WebAppConfigResponse }) {
   async function deleteUser(user: WebAppUserSummary) {
     try {
       setError(undefined);
-      await json(`/api/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
+      await appJson(`/api/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
       setUserToDelete(undefined);
       await refreshUsers();
     } catch (err) {
@@ -840,26 +841,29 @@ function UserManagement({ config }: { config: WebAppConfigResponse }) {
         {setupLink ? <code className="wapp-token">{setupLink}</code> : null}
       </div>
       <br />
-      <div className="wapp-list">
-        {users.map((user) => (
-          <div className="wapp-list-row" key={user.id}>
-            <span>
-              <strong>{user.username}</strong>
-              <small>{user.role} · passkey {user.passkeyConfigured ? "configured" : "pending"} · created {user.createdAt}</small>
-            </span>
-            <div className="wapp-row-actions">
-              {user.role !== "owner" ? (
-                <select className="wapp-inline-select" aria-label={`Role for ${user.username}`} value={user.role} onChange={(event) => void updateRole(user, event.currentTarget.value as WebAppUserRole)}>
-                  <option value="user">User</option>
-                  <option value="admin">Admin</option>
-                </select>
-              ) : <Badge variant="success">Owner</Badge>}
-              {user.role !== "owner" ? <Button type="button" onClick={() => void resetUser(user)}>Reset</Button> : null}
-              <Button type="button" variant="danger" disabled={user.role === "owner"} onClick={() => setUserToDelete(user)}>Delete</Button>
+      <ResourceState loading={usersLoading} error={usersLoadError} hasData={users !== undefined} refresh={refreshUsers} />
+      {users?.length ? (
+        <div className="wapp-list">
+          {users.map((user) => (
+            <div className="wapp-list-row" key={user.id}>
+              <span>
+                <strong>{user.username}</strong>
+                <small>{user.role} · passkey {user.passkeyConfigured ? "configured" : "pending"} · created {user.createdAt}</small>
+              </span>
+              <div className="wapp-row-actions">
+                {user.role !== "owner" ? (
+                  <select className="wapp-inline-select" aria-label={`Role for ${user.username}`} value={user.role} onChange={(event) => void updateRole(user, event.currentTarget.value as WebAppUserRole)}>
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                ) : <Badge variant="success">Owner</Badge>}
+                {user.role !== "owner" ? <Button type="button" onClick={() => void resetUser(user)}>Reset</Button> : null}
+                <Button type="button" variant="danger" disabled={user.role === "owner"} onClick={() => setUserToDelete(user)}>Delete</Button>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : users !== undefined && !usersLoadError ? <EmptyState title="No users" /> : null}
       <ConfirmDialog
         open={Boolean(userToDelete)}
         title="Delete user?"
@@ -910,9 +914,7 @@ function useCountdownReload(active: boolean, onComplete: () => void, durationSec
   };
 }
 
-function SettingsView({ config, refresh, customSections, theme, setTheme }: { config: WebAppConfigResponse; refresh: () => Promise<void>; customSections: SettingsSection[]; theme: ThemePreference; setTheme: (theme: ThemePreference) => void }) {
-  const [apiKeys, setApiKeys] = useState<ApiKeySummary[]>([]);
-  const [authSessions, setAuthSessions] = useState<AuthSessionSummary[]>([]);
+function SettingsView({ config, refresh, customSections, theme, setTheme, themeLoading, themeLoadError, retryThemeLoad }: { config: WebAppConfigResponse; refresh: () => Promise<void>; customSections: SettingsSection[]; theme: ThemePreference; setTheme: (theme: ThemePreference) => void; themeLoading: boolean; themeLoadError?: Error; retryThemeLoad: () => Promise<void> }) {
   const [createdToken, setCreatedToken] = useState<string>();
   const [apiKeyToDelete, setApiKeyToDelete] = useState<ApiKeySummary>();
   const [authSessionToRevoke, setAuthSessionToRevoke] = useState<AuthSessionSummary>();
@@ -923,23 +925,24 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
   const reloadPage = useCallback(() => window.location.reload(), []);
   const { countdown, progressPercent } = useCountdownReload(killRequested, reloadPage);
 
-  const refreshApiKeys = useCallback(async () => {
-    if (config.apiKeys.enabled) {
-      setApiKeys(await json<ApiKeySummary[]>("/api/api-keys"));
-    }
-  }, [config.apiKeys.enabled]);
+  const loadApiKeys = useCallback(
+    () => config.apiKeys.enabled
+      ? appJson<ApiKeySummary[]>("/api/api-keys")
+      : Promise.resolve<ApiKeySummary[]>([]),
+    [config.apiKeys.enabled],
+  );
+  const { data: apiKeys, error: apiKeysLoadError, loading: apiKeysLoading, refresh: refreshApiKeys } = useLiveQuery<ApiKeySummary[]>({ load: loadApiKeys, realtime: false });
 
-  const refreshAuthSessions = useCallback(async () => {
-    if (config.deviceAuth.enabled) {
-      setAuthSessions(await json<AuthSessionSummary[]>("/api/auth/sessions"));
-    }
-  }, [config.deviceAuth.enabled]);
-
-  useEffect(() => void refreshApiKeys().catch(() => undefined), [refreshApiKeys]);
-  useEffect(() => void refreshAuthSessions().catch(() => undefined), [refreshAuthSessions]);
+  const loadAuthSessions = useCallback(
+    () => config.deviceAuth.enabled
+      ? appJson<AuthSessionSummary[]>("/api/auth/sessions")
+      : Promise.resolve<AuthSessionSummary[]>([]),
+    [config.deviceAuth.enabled],
+  );
+  const { data: authSessions, error: authSessionsLoadError, loading: authSessionsLoading, refresh: refreshAuthSessions } = useLiveQuery<AuthSessionSummary[]>({ load: loadAuthSessions, realtime: false });
 
   async function createKey() {
-    const result = await json<CreatedApiKeyResponse>("/api/api-keys", { method: "POST", body: JSON.stringify({ name: "Browser key", scopes: ["*"] }) });
+    const result = await appJson<CreatedApiKeyResponse>("/api/api-keys", { method: "POST", body: JSON.stringify({ name: "Browser key", scopes: ["*"] }) });
     setCreatedToken(result.token);
     await refreshApiKeys();
   }
@@ -947,7 +950,7 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
   async function deleteKey(id: string) {
     try {
       setError(undefined);
-      await json(`/api/api-keys/${encodeURIComponent(id)}`, { method: "DELETE" });
+      await appJson(`/api/api-keys/${encodeURIComponent(id)}`, { method: "DELETE" });
       setApiKeyToDelete(undefined);
       await refreshApiKeys();
     } catch (err) {
@@ -958,9 +961,9 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
   async function setupPasskey() {
     try {
       setError(undefined);
-      const options = await json<PublicKeyCredentialCreationOptionsJSON>("/api/passkey-auth/owner-setup/options", { method: "POST", body: "{}" });
+      const options = await appJson<PublicKeyCredentialCreationOptionsJSON>("/api/passkey-auth/owner-setup/options", { method: "POST", body: "{}" });
       const credential = await startRegistration({ optionsJSON: options as never });
-      await json("/api/passkey-auth/owner-setup/verify", { method: "POST", body: JSON.stringify(credential) });
+      await appJson("/api/passkey-auth/owner-setup/verify", { method: "POST", body: JSON.stringify(credential) });
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -968,12 +971,12 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
   }
 
   async function logout() {
-    await json("/api/passkey-auth/logout", { method: "POST", body: "{}" });
+    await appJson("/api/passkey-auth/logout", { method: "POST", body: "{}" });
     await refresh();
   }
 
   async function deleteConfiguredPasskey() {
-    await json("/api/passkey-auth/passkey", { method: "DELETE" });
+    await appJson("/api/passkey-auth/passkey", { method: "DELETE" });
     setConfirmDeletePasskey(false);
     await refresh();
   }
@@ -981,7 +984,7 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
   async function revokeAuthSession(session: AuthSessionSummary) {
     try {
       setError(undefined);
-      await json(`/api/auth/sessions/${session.id}`, { method: "DELETE" });
+      await appJson(`/api/auth/sessions/${session.id}`, { method: "DELETE" });
       setAuthSessionToRevoke(undefined);
       await refreshAuthSessions();
     } catch (err) {
@@ -992,10 +995,7 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
   async function killServer() {
     setError(undefined);
     setConfirmKillServer(false);
-    const response = await fetch("/api/server/kill", { method: "POST" });
-    if (!response.ok) {
-      throw new Error("Failed to kill server. Please try again.");
-    }
+    await appFetch("/api/server/kill", { method: "POST" });
     setKillRequested(true);
   }
 
@@ -1011,17 +1011,24 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
         <SelectField label="Theme" value={theme} onChange={(event) => {
           const next = event.currentTarget.value as ThemePreference;
           setTheme(next);
-          void json("/api/preferences/theme", { method: "PUT", body: JSON.stringify({ theme: next }) }).catch((err) => setError(String(err)));
+          void appJson("/api/preferences/theme", { method: "PUT", body: JSON.stringify({ theme: next }) }).catch((err) => setError(String(err)));
         }}>
           <option value="system">System</option>
           <option value="light">Light</option>
           <option value="dark">Dark</option>
         </SelectField>
+        {themeLoading ? <LoadingState title="Loading saved theme" /> : null}
+        {themeLoadError ? (
+          <ErrorState
+            description={themeLoadError.message}
+            action={<Button type="button" loading={themeLoading} onClick={() => void retryThemeLoad()}>Retry</Button>}
+          />
+        ) : null}
       </FormSection>
 
       {config.currentUser?.isAdmin ? (
         <FormSection title="Developer Settings">
-          <SelectField label={config.logLevel.fromEnv ? `Log level (${config.logLevel.level}, controlled by env)` : "Log level"} value={config.logLevel.level} disabled={config.logLevel.fromEnv} onChange={(event) => void json("/api/preferences/log-level", { method: "PUT", body: JSON.stringify({ level: event.currentTarget.value }) }).then(refresh)}>
+          <SelectField label={config.logLevel.fromEnv ? `Log level (${config.logLevel.level}, controlled by env)` : "Log level"} value={config.logLevel.level} disabled={config.logLevel.fromEnv} onChange={(event) => void appJson("/api/preferences/log-level", { method: "PUT", body: JSON.stringify({ level: event.currentTarget.value }) }).then(refresh)}>
             {["trace", "debug", "info", "warn", "error"].map((level) => <option key={level} value={level}>{level}</option>)}
           </SelectField>
         </FormSection>
@@ -1052,7 +1059,8 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
             </div>
             <div className="wapp-row-actions"><Button type="button" onClick={() => void createKey().catch((err) => setError(String(err)))}>Create API key</Button></div>
             {createdToken ? <code className="wapp-token">{createdToken}</code> : null}
-            {apiKeys.length ? (
+            <ResourceState loading={apiKeysLoading} error={apiKeysLoadError} hasData={apiKeys !== undefined} refresh={refreshApiKeys} />
+            {apiKeys?.length ? (
               <div className="wapp-list">
                 {apiKeys.map((key) => (
                   <div className="wapp-list-row" key={key.id}>
@@ -1061,7 +1069,7 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
                   </div>
                 ))}
               </div>
-            ) : null}
+            ) : apiKeys !== undefined && !apiKeysLoadError ? <EmptyState title="No API keys" /> : null}
           </div>
         ) : null}
         {config.deviceAuth.enabled ? (
@@ -1070,13 +1078,14 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
               <strong>Device auth sessions</strong>
               <p>Refresh-token sessions created through the device flow.</p>
             </div>
+            <ResourceState loading={authSessionsLoading} error={authSessionsLoadError} hasData={authSessions !== undefined} refresh={refreshAuthSessions} />
             <div className="wapp-list">
-              {authSessions.length ? authSessions.map((session) => (
+              {authSessions?.length ? authSessions.map((session) => (
                 <div className="wapp-list-row" key={session.id}>
                   <span><strong>{session.clientId}</strong><small>{session.scope} · {session.updatedAt}</small></span>
                   <Button type="button" variant="danger" onClick={() => setAuthSessionToRevoke(session)}>Revoke</Button>
                 </div>
-              )) : <EmptyState title="No device sessions" />}
+              )) : authSessions !== undefined && !authSessionsLoadError ? <EmptyState title="No device sessions" /> : null}
             </div>
           </div>
         ) : null}
@@ -1152,6 +1161,8 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   const { config, error, refresh } = useConfig();
   const { route, navigate } = useRoute(homeRoute);
   const { theme, setTheme } = useTheme();
+  const [themeLoading, setThemeLoading] = useState(false);
+  const [themeLoadError, setThemeLoadError] = useState<Error>();
   const [search, setSearch] = useState("");
   const sidebarSearchId = useId();
   const sidebarSearchInputRef = useRef<HTMLInputElement>(null);
@@ -1223,12 +1234,28 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   }, [augmentPinningActions, baseNodes, currentPins, filteredNodes, pinningEnabled, sidebar.pinning, sidebarSearchActive]);
   const activeActionNodes = useMemo(() => augmentPinningActions(baseNodes), [augmentPinningActions, baseNodes]);
 
-  useEffect(() => {
-    if (!config?.currentUser) return;
-    void json<{ theme: ThemePreference }>("/api/preferences/theme")
-      .then((result) => setTheme(result.theme))
-      .catch(() => undefined);
+  const retryThemeLoad = useCallback(async () => {
+    if (!config?.currentUser) {
+      setThemeLoading(false);
+      setThemeLoadError(undefined);
+      return;
+    }
+
+    setThemeLoading(true);
+    setThemeLoadError(undefined);
+    try {
+      const result = await appJson<{ theme: ThemePreference }>("/api/preferences/theme");
+      setTheme(result.theme);
+    } catch (err) {
+      setThemeLoadError(err instanceof Error ? err : new Error(String(err)));
+    } finally {
+      setThemeLoading(false);
+    }
   }, [config?.currentUser?.id, setTheme]);
+
+  useEffect(() => {
+    void retryThemeLoad();
+  }, [retryThemeLoad]);
 
   useEffect(() => {
     function handleSidebarShortcut(event: KeyboardEvent) {
@@ -1275,7 +1302,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   const effectiveVersion = version ?? config.version;
   let view: ReactNode;
   if (route.view === "settings") {
-    view = <SettingsView config={config} refresh={refresh} customSections={settings?.sections ?? []} theme={theme} setTheme={setTheme} />;
+    view = <SettingsView config={config} refresh={refresh} customSections={settings?.sections ?? []} theme={theme} setTheme={setTheme} themeLoading={themeLoading} themeLoadError={themeLoadError} retryThemeLoad={retryThemeLoad} />;
   } else {
     const registeredView = routes[route.view];
     view = typeof registeredView === "function"

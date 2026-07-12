@@ -5,12 +5,13 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { Button, ConfirmModal, Modal } from "../src/web/components";
-import type { WebAppConfigResponse } from "../src/contracts";
+import type { ApiKeySummary, AuthSessionSummary, ThemePreference, WebAppConfigResponse, WebAppUserSummary } from "../src/contracts";
+import { configureWebAppClient, onAuthRequired } from "../src/web/api-client";
 import type { BadgeVariant, SidebarNode } from "../src/web/sidebar/types";
 import { WebAppRoot } from "../src/web/WebAppRoot";
 import { configureWebAppRenderer, renderWebApp } from "../src/web/render";
 
-GlobalRegistrator.register();
+GlobalRegistrator.register({ url: "http://localhost/" });
 configureWebAppRenderer(createRoot);
 
 afterEach(() => {
@@ -18,10 +19,11 @@ afterEach(() => {
   document.body.innerHTML = "";
   document.body.style.overflow = "";
   localStorage.clear();
-  window.history.replaceState(null, "", "/");
+  configureWebAppClient();
+  window.history.replaceState(null, "", "http://localhost/");
 });
 
-function mockConfigFetch() {
+function mockConfigFetch(onRequest?: (input: RequestInfo | URL, init?: RequestInit) => void) {
   const previousFetch = globalThis.fetch;
   const config: WebAppConfigResponse = {
     appName: "Test App",
@@ -56,7 +58,8 @@ function mockConfigFetch() {
     return new URL(String(rawUrl), "http://localhost").pathname;
   }
 
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    onRequest?.(input, init);
     if (fetchPath(input) === "/api/config") {
       return Response.json(config);
     }
@@ -120,6 +123,96 @@ function mockSettingsFetch(sessions: Array<{ id: string; clientId: string; scope
   };
 }
 
+type BuiltInResponsePath = "/api/users" | "/api/api-keys" | "/api/auth/sessions" | "/api/preferences/theme";
+type BuiltInFetchOptions = {
+  userManagement?: boolean;
+  apiKeysEnabled?: boolean;
+  deviceAuthEnabled?: boolean;
+  users?: WebAppUserSummary[];
+  apiKeys?: ApiKeySummary[];
+  sessions?: AuthSessionSummary[];
+  theme?: ThemePreference;
+  responses?: Partial<Record<BuiltInResponsePath, Array<() => Response>>>;
+};
+
+function mockBuiltInFetch(options: BuiltInFetchOptions = {}) {
+  const previousFetch = globalThis.fetch;
+  const responseSequences = new Map<string, Array<() => Response>>(
+    Object.entries(options.responses ?? {}).map(([path, responses]) => [path, [...responses]]),
+  );
+  const requestCounts = new Map<string, number>();
+  const config: WebAppConfigResponse = {
+    appName: "Test App",
+    version: "1.0.0",
+    currentUser: { id: "owner", username: "owner", role: "owner", isOwner: true, isAdmin: true },
+    passkeyAuth: {
+      enabled: false,
+      passkeyConfigured: false,
+      passkeyDisabled: true,
+      passkeyRequired: false,
+      authenticated: true,
+      bootstrapRequired: false,
+      ownerPasskeySetupRequired: false,
+    },
+    userManagement: {
+      enabled: Boolean(options.userManagement),
+      canManageUsers: Boolean(options.userManagement),
+    },
+    logLevel: {
+      level: "info",
+      fromEnv: false,
+    },
+    deviceAuth: {
+      enabled: Boolean(options.deviceAuthEnabled),
+    },
+    apiKeys: {
+      enabled: Boolean(options.apiKeysEnabled),
+    },
+  };
+
+  function fetchPath(input: RequestInfo | URL) {
+    const rawUrl = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+    return new URL(String(rawUrl), "http://localhost").pathname;
+  }
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = fetchPath(input);
+    requestCounts.set(path, (requestCounts.get(path) ?? 0) + 1);
+    const queuedResponse = responseSequences.get(path)?.shift();
+    if (queuedResponse) {
+      return queuedResponse();
+    }
+    if (path === "/api/config") {
+      return Response.json(config);
+    }
+    if (path === "/api/users" && (init?.method ?? "GET") === "GET") {
+      return Response.json(options.users ?? []);
+    }
+    if (path === "/api/api-keys" && (init?.method ?? "GET") === "GET") {
+      return Response.json(options.apiKeys ?? []);
+    }
+    if (path === "/api/auth/sessions" && (init?.method ?? "GET") === "GET") {
+      return Response.json(options.sessions ?? []);
+    }
+    if (path === "/api/preferences/theme" && (init?.method ?? "GET") === "GET") {
+      return Response.json({ theme: options.theme ?? "system" });
+    }
+    if (path.startsWith("/api/users/") || path.startsWith("/api/api-keys/") || path.startsWith("/api/auth/sessions/")) {
+      return Response.json({});
+    }
+    return Response.json({ error: "Not found", message: "Not found" }, { status: 404 });
+  }) as typeof fetch;
+
+  return {
+    restoreFetch() {
+      globalThis.fetch = previousFetch;
+    },
+    requestCount(path: BuiltInResponsePath) {
+      return requestCounts.get(path) ?? 0;
+    },
+  };
+}
+
 async function renderShortcutWebApp() {
   const view = render(createElement(WebAppRoot, {
     appName: "Test App",
@@ -159,6 +252,26 @@ async function renderSettingsWebApp() {
 
   fireEvent.click(await waitFor(() => view.getByLabelText("Open settings")));
   await waitFor(() => expect(view.getByText("Device auth sessions")).toBeTruthy());
+
+  return view;
+}
+
+async function renderBuiltInSettingsWebApp() {
+  const view = render(createElement(WebAppRoot, {
+    appName: "Test App",
+    homeRoute: { view: "home" },
+    sidebar: {
+      search: false,
+      pinning: false,
+      getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+    },
+    routes: {
+      home: createElement("p", null, "Home"),
+    },
+  }));
+
+  fireEvent.click(await waitFor(() => view.getByLabelText("Open settings")));
+  await waitFor(() => expect(view.getByText("Display Settings")).toBeTruthy());
 
   return view;
 }
@@ -400,6 +513,19 @@ test("mockConfigFetch matches config requests from string, URL, and Request inpu
     await expect(fetch("/api/config").then((response) => response.json())).resolves.toMatchObject({ appName: "Test App" });
     await expect(fetch(new URL("http://localhost/api/config")).then((response) => response.json())).resolves.toMatchObject({ appName: "Test App" });
     await expect(fetch(new Request("http://localhost/api/config")).then((response) => response.json())).resolves.toMatchObject({ appName: "Test App" });
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("WebAppRoot routes built-in requests through the configured API base URL", async () => {
+  const requested: string[] = [];
+  configureWebAppClient({ apiBaseUrl: "https://api.example.test/root" });
+  const restoreFetch = mockConfigFetch((input) => requested.push(String(input)));
+
+  try {
+    await renderShortcutWebApp();
+    expect(requested).toContain("https://api.example.test/api/config");
   } finally {
     restoreFetch();
   }
@@ -808,6 +934,208 @@ test("settings device sessions show empty state when no active sessions are retu
     expect(getByText("No device sessions")).toBeTruthy();
   } finally {
     restoreFetch();
+  }
+});
+
+test("user-management list failures are distinct from empty results and support retry", async () => {
+  const user: WebAppUserSummary = {
+    id: "user-1",
+    username: "alice",
+    role: "user",
+    passkeyConfigured: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const mock = mockBuiltInFetch({
+    userManagement: true,
+    responses: {
+      "/api/users": [
+        () => Response.json({ message: "Users unavailable" }, { status: 503 }),
+        () => Response.json([user]),
+      ],
+    },
+  });
+  try {
+    const view = await renderBuiltInSettingsWebApp();
+
+    await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
+    expect(view.getByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(view.queryByText("No users")).toBeNull();
+
+    fireEvent.click(view.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(view.getByText("alice")).toBeTruthy());
+    expect(mock.requestCount("/api/users")).toBe(2);
+  } finally {
+    mock.restoreFetch();
+  }
+});
+
+test("successful empty built-in lists render empty states without failures", async () => {
+  const mock = mockBuiltInFetch({ apiKeysEnabled: true, deviceAuthEnabled: true });
+  try {
+    const view = await renderBuiltInSettingsWebApp();
+
+    await waitFor(() => expect(view.getByText("No API keys")).toBeTruthy());
+    expect(view.getByText("No device sessions")).toBeTruthy();
+    expect(view.queryByRole("alert")).toBeNull();
+  } finally {
+    mock.restoreFetch();
+  }
+});
+
+test("API-key failures can be retried without hiding an independent empty session list", async () => {
+  const key: ApiKeySummary = {
+    id: "key-1",
+    name: "Automation key",
+    prefix: "wapp_test",
+    scopes: ["*"],
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  const mock = mockBuiltInFetch({
+    apiKeysEnabled: true,
+    deviceAuthEnabled: true,
+    responses: {
+      "/api/api-keys": [
+        () => Response.json({ message: "API keys unavailable" }, { status: 503 }),
+        () => Response.json([key]),
+      ],
+    },
+  });
+  try {
+    const view = await renderBuiltInSettingsWebApp();
+
+    await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
+    expect(view.getByText("No device sessions")).toBeTruthy();
+    expect(view.queryByText("No API keys")).toBeNull();
+
+    fireEvent.click(view.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(view.getByText("Automation key")).toBeTruthy());
+    expect(view.queryByRole("alert")).toBeNull();
+    expect(mock.requestCount("/api/api-keys")).toBe(2);
+  } finally {
+    mock.restoreFetch();
+  }
+});
+
+test("device-session failures can be retried without treating them as empty", async () => {
+  const session: AuthSessionSummary = {
+    id: "session-1",
+    clientId: "cli",
+    scope: "*",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    expiresAt: "2026-01-02T00:00:00.000Z",
+    active: true,
+  };
+  const mock = mockBuiltInFetch({
+    deviceAuthEnabled: true,
+    responses: {
+      "/api/auth/sessions": [
+        () => Response.json({ message: "Sessions unavailable" }, { status: 503 }),
+        () => Response.json([session]),
+      ],
+    },
+  });
+  try {
+    const view = await renderBuiltInSettingsWebApp();
+
+    await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
+    expect(view.queryByText("No device sessions")).toBeNull();
+
+    fireEvent.click(view.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(view.getByText("cli")).toBeTruthy());
+    expect(mock.requestCount("/api/auth/sessions")).toBe(2);
+  } finally {
+    mock.restoreFetch();
+  }
+});
+
+test("failed list refresh preserves previously loaded user data", async () => {
+  const user: WebAppUserSummary = {
+    id: "user-1",
+    username: "alice",
+    role: "user",
+    passkeyConfigured: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const mock = mockBuiltInFetch({
+    userManagement: true,
+    responses: {
+      "/api/users": [
+        () => Response.json([user]),
+        () => Response.json({ message: "Users refresh unavailable" }, { status: 503 }),
+      ],
+    },
+  });
+  try {
+    const view = await renderBuiltInSettingsWebApp();
+    const roleSelect = await waitFor(() => view.getByLabelText("Role for alice"));
+
+    fireEvent.change(roleSelect, { target: { value: "admin" } });
+
+    await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
+    expect(view.getByText("alice")).toBeTruthy();
+    expect(mock.requestCount("/api/users")).toBe(2);
+  } finally {
+    mock.restoreFetch();
+  }
+});
+
+test("authentication-required list responses keep shared auth handling and show failure UI", async () => {
+  const events: string[] = [];
+  const unsubscribe = onAuthRequired(() => events.push("auth"));
+  const mock = mockBuiltInFetch({
+    apiKeysEnabled: true,
+    responses: {
+      "/api/api-keys": [
+        () => Response.json(
+          { error: "authentication_required", message: "Login required" },
+          { status: 401, headers: { "x-webapp-passkey-required": "true" } },
+        ),
+      ],
+    },
+  });
+  try {
+    const view = await renderBuiltInSettingsWebApp();
+
+    await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
+    expect(events).toEqual(["auth"]);
+    expect(view.queryByText("No API keys")).toBeNull();
+  } finally {
+    unsubscribe();
+    mock.restoreFetch();
+  }
+});
+
+test("theme preference failures preserve the local theme and can be retried", async () => {
+  localStorage.setItem("webapp.theme", "light");
+  const mock = mockBuiltInFetch({
+    theme: "dark",
+    responses: {
+      "/api/preferences/theme": [
+        () => Response.json({ message: "Theme unavailable" }, { status: 503 }),
+        () => Response.json({ theme: "dark" }),
+      ],
+    },
+  });
+  try {
+    const view = await renderBuiltInSettingsWebApp();
+    const theme = await waitFor(() => view.getByLabelText("Theme") as HTMLSelectElement);
+
+    await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
+    expect(theme.value).toBe("light");
+
+    fireEvent.click(view.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect((view.getByLabelText("Theme") as HTMLSelectElement).value).toBe("dark"));
+    expect(view.queryByRole("alert")).toBeNull();
+    expect(mock.requestCount("/api/preferences/theme")).toBe(2);
+  } finally {
+    mock.restoreFetch();
   }
 });
 
