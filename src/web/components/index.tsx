@@ -53,7 +53,7 @@ export function Panel({ title, description, actions, children, className = "" }:
 
 export function EmptyState({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
-    <div className="wapp-empty-state">
+    <div className="wapp-empty-state" role="status" aria-label="Empty state">
       <strong>{title}</strong>
       {description ? <span>{description}</span> : null}
       {action}

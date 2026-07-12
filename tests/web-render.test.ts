@@ -962,9 +962,9 @@ test("settings device sessions omit inactive state labels", async () => {
 test("settings device sessions show empty state when no active sessions are returned", async () => {
   const restoreFetch = mockSettingsFetch([]);
   try {
-    const { getByText } = await renderSettingsWebApp();
+    const { getByRole } = await renderSettingsWebApp();
 
-    expect(getByText("No device sessions")).toBeTruthy();
+    expect(getByRole("status", { name: "Empty state" })).toBeTruthy();
   } finally {
     restoreFetch();
   }
@@ -992,10 +992,11 @@ test("user-management list failures are distinct from empty results and support 
     const view = await renderBuiltInSettingsWebApp();
 
     await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
-    expect(view.getByRole("button", { name: "Retry" })).toBeTruthy();
-    expect(view.queryByText("No users")).toBeNull();
+    const alert = view.getByRole("alert");
+    expect(within(alert).getByRole("button")).toBeTruthy();
+    expect(view.queryByRole("status", { name: "Empty state" })).toBeNull();
 
-    fireEvent.click(view.getByRole("button", { name: "Retry" }));
+    fireEvent.click(within(alert).getByRole("button"));
 
     await waitFor(() => expect(view.getByText("alice")).toBeTruthy());
     expect(mock.requestCount("/api/users")).toBe(2);
@@ -1009,8 +1010,7 @@ test("successful empty built-in lists render empty states without failures", asy
   try {
     const view = await renderBuiltInSettingsWebApp();
 
-    await waitFor(() => expect(view.getByText("No API keys")).toBeTruthy());
-    expect(view.getByText("No device sessions")).toBeTruthy();
+    await waitFor(() => expect(view.getAllByRole("status", { name: "Empty state" })).toHaveLength(2));
     expect(view.queryByRole("alert")).toBeNull();
   } finally {
     mock.restoreFetch();
@@ -1039,10 +1039,12 @@ test("API-key failures can be retried without hiding an independent empty sessio
     const view = await renderBuiltInSettingsWebApp();
 
     await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
-    expect(view.getByText("No device sessions")).toBeTruthy();
-    expect(view.queryByText("No API keys")).toBeNull();
+    const alert = view.getByRole("alert");
+    expect(within(alert).getByRole("button")).toBeTruthy();
+    expect(view.getByRole("status", { name: "Empty state" })).toBeTruthy();
+    expect(view.getAllByRole("status", { name: "Empty state" })).toHaveLength(1);
 
-    fireEvent.click(view.getByRole("button", { name: "Retry" }));
+    fireEvent.click(within(alert).getByRole("button"));
 
     await waitFor(() => expect(view.getByText("Automation key")).toBeTruthy());
     expect(view.queryByRole("alert")).toBeNull();
@@ -1075,9 +1077,11 @@ test("device-session failures can be retried without treating them as empty", as
     const view = await renderBuiltInSettingsWebApp();
 
     await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
-    expect(view.queryByText("No device sessions")).toBeNull();
+    const alert = view.getByRole("alert");
+    expect(within(alert).getByRole("button")).toBeTruthy();
+    expect(view.queryByRole("status", { name: "Empty state" })).toBeNull();
 
-    fireEvent.click(view.getByRole("button", { name: "Retry" }));
+    fireEvent.click(within(alert).getByRole("button"));
 
     await waitFor(() => expect(view.getByText("cli")).toBeTruthy());
     expect(mock.requestCount("/api/auth/sessions")).toBe(2);
@@ -1137,7 +1141,7 @@ test("authentication-required list responses keep shared auth handling and show 
 
     await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
     expect(events).toEqual(["auth"]);
-    expect(view.queryByText("No API keys")).toBeNull();
+    expect(view.queryByRole("status", { name: "Empty state" })).toBeNull();
   } finally {
     unsubscribe();
     mock.restoreFetch();
@@ -1162,7 +1166,7 @@ test("theme preference failures preserve the local theme and can be retried", as
     await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
     expect(theme.value).toBe("light");
 
-    fireEvent.click(view.getByRole("button", { name: "Retry" }));
+    fireEvent.click(within(view.getByRole("alert")).getByRole("button"));
 
     await waitFor(() => expect((view.getByLabelText("Theme") as HTMLSelectElement).value).toBe("dark"));
     expect(view.queryByRole("alert")).toBeNull();
