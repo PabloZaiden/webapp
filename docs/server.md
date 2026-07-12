@@ -3,9 +3,15 @@
 Use `createWebAppServer` with `defineRoutes`. Route patterns support exact path segments and `:params`.
 
 ```ts
+import { z } from "zod";
+
+const projectCreateSchema = z.object({ name: z.string() });
+const projectUpdateSchema = z.object({ name: z.string().optional() });
+
 const routes = defineRoutes<AppEvent>({
   "/api/projects": {
     auth: "user",
+    requestSchema: projectCreateSchema,
     description: "List or create projects.",
     cliPath: "projects",
     tags: ["projects"],
@@ -14,7 +20,7 @@ const routes = defineRoutes<AppEvent>({
     },
     async POST(req, ctx) {
       const user = ctx.requireUser();
-      const body = await parseJson<{ name: string }>(req);
+      const body = await parseJson(req, projectCreateSchema);
       const project = createProject(user.id, body.name);
       ctx.userRealtime.publishEntityChanged("projects", project.id);
       return jsonResponse(project);
@@ -23,9 +29,10 @@ const routes = defineRoutes<AppEvent>({
   "/api/projects/:id": {
     auth: "user",
     scopes: ["projects:write"],
+    requestSchema: projectUpdateSchema,
     async PATCH(req, ctx) {
       const project = ctx.requireOwned(await findProject(ctx.params.id));
-      Object.assign(project, await parseJson<Partial<Project>>(req));
+      Object.assign(project, await parseJson(req, projectUpdateSchema));
       ctx.userRealtime.publishEntityChanged("projects", project.id);
       return jsonResponse(project);
     },
@@ -36,6 +43,14 @@ const routes = defineRoutes<AppEvent>({
   },
 });
 ```
+
+`parseJson(req, schema)` parses and validates the body at runtime. Malformed JSON
+returns a 400 `invalid_json` response, while a JSON value that does not satisfy
+the schema returns a 400 `invalid_request_body` response with field details.
+Use `parseOptionalJson(req, schema)` only for endpoints that deliberately allow
+an empty body; malformed non-empty JSON is still rejected. `parseUnknownJson`
+returns `unknown` and is intentionally unvalidated, so application handlers
+should prefer a schema-backed parser.
 
 Route defaults are intentionally secure:
 
@@ -55,7 +70,7 @@ Route definitions can include optional metadata. This keeps the API route table 
 | `description` | Human-readable route description |
 | `cliPath` | CLI-friendly path; defaults to the API path without `/api/` |
 | `tags` | Grouping labels for docs/CLI |
-| `requestSchema`, `querySchema`, `responseSchema` | Optional schema objects for CLI/docs |
+| `requestSchema`, `querySchema`, `responseSchema` | Optional schema objects for CLI/docs; use the same runtime `requestSchema` with `parseJson` when a route accepts a body |
 | `catalog: false` | Exclude a route from generated catalogs |
 
 Use `createRouteCatalog(routes)` and `findRouteCatalogEntry(catalog, input)` to power app CLI commands without maintaining a second route catalog.

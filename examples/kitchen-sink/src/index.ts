@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { createWebAppServer, defineRoutes, jsonResponse, parseJson, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
 import favicon from "./favicon.svg";
 
@@ -23,9 +24,19 @@ function ensureSeedProjects(userId: string) {
   );
 }
 
+const projectCreateSchema = z.object({
+  name: z.string(),
+});
+
+const projectUpdateSchema = z.object({
+  name: z.string().optional(),
+  status: z.enum(["idle", "running", "failed"]).optional(),
+});
+
 const routes = defineRoutes<Event>({
   "/api/projects": {
     auth: "user",
+    requestSchema: projectCreateSchema,
     GET: (_req, ctx) => {
       const user = ctx.requireUser();
       ensureSeedProjects(user.id);
@@ -33,7 +44,7 @@ const routes = defineRoutes<Event>({
     },
     async POST(req, ctx) {
       const user = ctx.requireUser();
-      const body = await parseJson<{ name: string }>(req);
+      const body = await parseJson(req, projectCreateSchema);
       const project = { id: crypto.randomUUID(), userId: user.id, name: body.name, status: "idle" as const, updatedAt: new Date().toISOString() };
       projects.unshift(project);
       ctx.userRealtime.publishEntityChanged("projects", project.id);
@@ -42,9 +53,10 @@ const routes = defineRoutes<Event>({
   },
   "/api/projects/:id": {
     auth: "user",
+    requestSchema: projectUpdateSchema,
     async PATCH(req, ctx) {
       const project = ctx.requireOwned(projects.find((item) => item.id === ctx.params.id));
-      Object.assign(project, await parseJson<Partial<Project>>(req), { updatedAt: new Date().toISOString() });
+      Object.assign(project, await parseJson(req, projectUpdateSchema), { updatedAt: new Date().toISOString() });
       ctx.userRealtime.publishEntityChanged("projects", project.id);
       return jsonResponse(project);
     },
