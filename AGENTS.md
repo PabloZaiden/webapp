@@ -4,7 +4,7 @@
 
 - Keep development cross-platform across macOS and Linux on both arm64 and x86-64.
 - Do not hard-code OS-specific executable paths, browser paths, GNU-only flags, or architecture-specific binaries.
-- Keep Bun native hot reload as the development path: one Bun server serves the React UI, API routes and websockets.
+- Keep Bun native hot reload as the development path: one Bun server serves the React UI, API routes and WebSockets.
 - When adding CI, Docker or release automation for framework apps, follow `docs/github-actions.md`.
 
 ## Browser and UI validation
@@ -53,7 +53,7 @@
 
 - Prefer a smaller suite of high-value tests over broad regression accumulation.
 - Test stable, externally observable behavior and contracts, not implementation details.
-- Do not add automated tests for visual appearance or layout, including exact colors, spacing, blur, CSS variables, selectors, class names, DOM structure, or screenshot pixel baselines.
+- Do not make automated tests assert on visual or layout implementation details, including exact colors, spacing, blur, CSS variables, selector or class-name values, DOM structure, or screenshot pixel baselines. Playwright selectors and locators may be used for interactions, but tests should assert stable user-visible behavior rather than selector or class-name implementation details.
 - Validate visual changes manually with temporary Playwright screenshots stored outside the repository or in a git-ignored location. Do not turn those checks into implementation-pinning regression tests unless an explicit product requirement calls for visual testing.
 - Do not add tests whose purpose is only to prove the absence of an old implementation, filename, warning, bug symptom, or removed behavior when positive behavior covers the contract.
 - Do not pin incidental copy, punctuation, generated markup, framework warning text, or internal object identity unless it is a documented public contract.
