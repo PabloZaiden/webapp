@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import type { ApiKeySummary, AuthSessionSummary, CreatedApiKeyResponse, CreatedUserResponse, DeviceVerificationDetails, PasskeyAuthStatusResponse, ThemePreference, UserSetupDetails, WebAppConfigResponse, WebAppUserRole, WebAppUserSummary } from "../contracts";
 import { appFetch, appJson } from "./api-client";
 import { ActionMenu, Badge, Button, ConfirmDialog, ContextMenu, DangerZone, Dialog, EmptyState, ErrorState, FormSection, IconButton, LoadingState, Panel, SelectField, TextField, type ContextMenuPosition } from "./components";
+import { MOBILE_MEDIA_QUERY, MOBILE_STATE_ATTRIBUTE, MOBILE_VIEWPORT_FINAL_SETTLE_DELAY_MS, MOBILE_VIEWPORT_FIRST_SETTLE_DELAY_MS } from "./mobile";
 import { useLiveQuery } from "./realtime/useRealtime";
 import type { ActionMenuItem, SidebarAction, SidebarBuildContext, SidebarNode, WebAppRoute } from "./sidebar/types";
 
@@ -143,14 +144,40 @@ function useRoute(defaultRoute: WebAppRoute) {
   return { route, navigate };
 }
 
-function useMobileViewportHeight() {
+function useMobileBreakpoint(): boolean {
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.matchMedia(MOBILE_MEDIA_QUERY).matches);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+
+    const query = window.matchMedia(MOBILE_MEDIA_QUERY);
+    const root = document.documentElement;
+    const sync = () => {
+      const next = query.matches;
+      setIsMobile(next);
+      root.toggleAttribute(MOBILE_STATE_ATTRIBUTE, next);
+    };
+
+    sync();
+    query.addEventListener("change", sync);
+    return () => {
+      query.removeEventListener("change", sync);
+      root.removeAttribute(MOBILE_STATE_ATTRIBUTE);
+    };
+  }, []);
+
+  return isMobile;
+}
+
+function useMobileViewportHeight(isMobile: boolean) {
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
 
     const root = document.documentElement;
-    const mobileQuery = window.matchMedia("(max-width: 900px)");
     const viewport = window.visualViewport;
     const timers = new Set<number>();
     let frame = 0;
@@ -161,7 +188,7 @@ function useMobileViewportHeight() {
 
     const sync = () => {
       frame = 0;
-      if (!mobileQuery.matches) {
+      if (!isMobile) {
         clearViewportHeight();
         return;
       }
@@ -184,7 +211,7 @@ function useMobileViewportHeight() {
       frame = requestAnimationFrame(sync);
     };
 
-    const scheduleDelayedSync = (delay: number) => {
+    const scheduleViewportRetry = (delay: number) => {
       const timer = window.setTimeout(() => {
         timers.delete(timer);
         scheduleSync();
@@ -194,8 +221,10 @@ function useMobileViewportHeight() {
 
     const handleViewportTransition = () => {
       scheduleSync();
-      scheduleDelayedSync(120);
-      scheduleDelayedSync(320);
+      if (isMobile) {
+        scheduleViewportRetry(MOBILE_VIEWPORT_FIRST_SETTLE_DELAY_MS);
+        scheduleViewportRetry(MOBILE_VIEWPORT_FINAL_SETTLE_DELAY_MS);
+      }
     };
 
     scheduleSync();
@@ -203,7 +232,6 @@ function useMobileViewportHeight() {
     viewport?.addEventListener("scroll", scheduleSync);
     window.addEventListener("resize", scheduleSync);
     window.addEventListener("orientationchange", handleViewportTransition);
-    mobileQuery.addEventListener("change", scheduleSync);
     document.addEventListener("focusin", handleViewportTransition);
     document.addEventListener("focusout", handleViewportTransition);
 
@@ -218,20 +246,18 @@ function useMobileViewportHeight() {
       viewport?.removeEventListener("scroll", scheduleSync);
       window.removeEventListener("resize", scheduleSync);
       window.removeEventListener("orientationchange", handleViewportTransition);
-      mobileQuery.removeEventListener("change", scheduleSync);
       document.removeEventListener("focusin", handleViewportTransition);
       document.removeEventListener("focusout", handleViewportTransition);
       clearViewportHeight();
     };
-  }, []);
+  }, [isMobile]);
 }
 
-const MOBILE_SIDEBAR_BREAKPOINT = 900;
 const SIDEBAR_SWIPE_EDGE_WIDTH = 24;
 const SIDEBAR_SWIPE_DISTANCE = 64;
 const SIDEBAR_SWIPE_VERTICAL_TOLERANCE = 48;
 
-function useMobileSidebarSwipe(sidebarOpen: boolean, setSidebarOpen: (open: boolean) => void) {
+function useMobileSidebarSwipe(isMobile: boolean, sidebarOpen: boolean, setSidebarOpen: (open: boolean) => void) {
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") {
       return;
@@ -246,7 +272,7 @@ function useMobileSidebarSwipe(sidebarOpen: boolean, setSidebarOpen: (open: bool
     };
 
     const handleTouchStart = (event: TouchEvent) => {
-      if (sidebarOpen || window.innerWidth > MOBILE_SIDEBAR_BREAKPOINT || event.touches.length !== 1) {
+      if (sidebarOpen || !isMobile || event.touches.length !== 1) {
         reset();
         return;
       }
@@ -302,7 +328,7 @@ function useMobileSidebarSwipe(sidebarOpen: boolean, setSidebarOpen: (open: bool
       document.removeEventListener("touchend", reset);
       document.removeEventListener("touchcancel", reset);
     };
-  }, [setSidebarOpen, sidebarOpen]);
+  }, [isMobile, setSidebarOpen, sidebarOpen]);
 }
 
 function useConfig() {
@@ -1161,7 +1187,8 @@ function SettingsView({ config, refresh, customSections, theme, setTheme, themeL
 }
 
 export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRouteChange, settings, version }: WebAppRootProps) {
-  useMobileViewportHeight();
+  const isMobile = useMobileBreakpoint();
+  useMobileViewportHeight(isMobile);
   const { config, error, refresh } = useConfig();
   const { route, navigate } = useRoute(homeRoute);
   const { theme, setTheme } = useTheme();
@@ -1173,7 +1200,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const sidebarTreeState = useSidebarCollapsedState(appName);
-  useMobileSidebarSwipe(sidebarOpen, setSidebarOpen);
+  useMobileSidebarSwipe(isMobile, sidebarOpen, setSidebarOpen);
   const toggleSidebarCollapsed = useCallback(() => {
     setSidebarCollapsed((current) => {
       const nextCollapsed = !current;

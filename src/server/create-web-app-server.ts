@@ -47,6 +47,7 @@ import { createRealtimeBus, type RealtimeBus, type WebSocketData } from "./realt
 import { readRuntimeConfig, safeRuntimeConfig, type RuntimeConfig } from "./runtime-config";
 import { matchRoute, type RouteAuth, type RouteTable, type UserIdSelector, type UserOwnedResource, type UserScopedRealtimePublisher } from "./routes";
 import { checkSameOrigin } from "./same-origin";
+import { MOBILE_MEDIA_QUERY, MOBILE_STATE_ATTRIBUTE } from "../web/mobile";
 import {
   authenticationResponseSchema,
   createApiKeyRequestSchema,
@@ -451,6 +452,14 @@ ${themeColorUpdate}
 })();`;
 }
 
+function mobileStateBootScript(): string {
+  return `(() => {
+  const root = document.documentElement;
+  const query = window.matchMedia(${JSON.stringify(MOBILE_MEDIA_QUERY)});
+  root.toggleAttribute(${JSON.stringify(MOBILE_STATE_ATTRIBUTE)}, query.matches);
+})();`;
+}
+
 function pwaEnabled(web: WebAppDocumentConfig): boolean {
   return typeof web.pwa === "object" ? web.pwa.enabled !== false : web.pwa !== false;
 }
@@ -530,6 +539,7 @@ function generatedHtml(
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 ${themeMetaTag}\
 ${manifestTags}    <title>${title}</title>
+    <script>${mobileStateBootScript()}</script>
     <script>${themeBootScript(themeColor)}</script>
 ${styleTags}
   </head>

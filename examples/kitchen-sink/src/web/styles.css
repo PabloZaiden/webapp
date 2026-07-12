@@ -30,8 +30,6 @@
   font-size: 0.8125rem;
 }
 
-@media (max-width: 900px) {
-  .sink-inline {
-    grid-template-columns: 1fr;
-  }
+:root[data-wapp-mobile] .sink-inline {
+  grid-template-columns: 1fr;
 }

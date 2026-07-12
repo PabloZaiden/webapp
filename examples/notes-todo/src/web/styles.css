@@ -97,10 +97,8 @@
   color: var(--wapp-muted);
 }
 
-@media (max-width: 900px) {
-  .notes-grid,
-  .notes-inline-form,
-  .notes-stats {
-    grid-template-columns: 1fr;
-  }
+:root[data-wapp-mobile] .notes-grid,
+:root[data-wapp-mobile] .notes-inline-form,
+:root[data-wapp-mobile] .notes-stats {
+  grid-template-columns: 1fr;
 }

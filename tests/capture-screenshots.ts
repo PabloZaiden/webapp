@@ -2,7 +2,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { chromium, type Page } from "playwright";
 import { sqliteWebAppStore } from "../src/server/auth/sqlite-store";
 
-const outDir = "artifacts/screenshots";
+const outDir = process.env.WEBAPP_SCREENSHOT_DIR ?? "artifacts/screenshots";
 const dataRoot = ".cache/screenshots";
 mkdirSync(outDir, { recursive: true });
 rmSync(dataRoot, { recursive: true, force: true });
@@ -95,6 +95,50 @@ async function assertNoHorizontalOverflow(page: Page, label: string): Promise<vo
   }
 }
 
+async function assertMobileShellBehavior(page: Page, appUrl: string, brandLabel: string): Promise<void> {
+  await page.goto(appUrl, { waitUntil: "domcontentloaded" });
+  const showSidebar = page.getByRole("button", { name: "Show sidebar" });
+  await showSidebar.waitFor({ state: "visible" });
+
+  await showSidebar.click();
+  await page.getByRole("button", { name: brandLabel, exact: true }).waitFor({ state: "visible" });
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await showSidebar.waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "Collapse sidebar" }).waitFor({ state: "visible" });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await showSidebar.waitFor({ state: "visible" });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await showSidebar.waitFor({ state: "visible" });
+}
+
+async function assertMobileSwipeOpensSidebar(page: Page, appUrl: string, brandLabel: string): Promise<void> {
+  await page.goto(appUrl, { waitUntil: "domcontentloaded" });
+  const brand = page.getByRole("button", { name: brandLabel, exact: true });
+  await brand.waitFor({ state: "hidden" });
+
+  await page.evaluate(() => {
+    const touch = (clientX: number, clientY: number) => new Touch({
+      identifier: 1,
+      target: document.body,
+      clientX,
+      clientY,
+    });
+    document.dispatchEvent(new TouchEvent("touchstart", {
+      bubbles: true,
+      touches: [touch(8, 240)],
+    }));
+    document.dispatchEvent(new TouchEvent("touchmove", {
+      bubbles: true,
+      cancelable: true,
+      touches: [touch(80, 248)],
+    }));
+  });
+
+  await brand.waitFor({ state: "visible" });
+}
+
 const notes = startExample("notes-todo", 3301);
 const kitchen = startExample("kitchen-sink", 3302);
 
@@ -130,10 +174,17 @@ try {
     const notesMobile = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: "light" });
     await notesMobile.goto("http://127.0.0.1:3301/", { waitUntil: "domcontentloaded" });
     await assertNoHorizontalOverflow(notesMobile, "notes-mobile-light");
+    await assertMobileShellBehavior(notesMobile, "http://127.0.0.1:3301/", "Notes TODO");
     await capture(notesMobile, "notes-mobile-light");
-    await notesMobile.locator(".wapp-shell").evaluate((element) => element.classList.add("sidebar-open"));
+    await notesMobile.getByRole("button", { name: "Show sidebar" }).click();
+    await notesMobile.getByRole("button", { name: "Notes TODO", exact: true }).waitFor({ state: "visible" });
     await capture(notesMobile, "notes-mobile-sidebar-light");
     await notesMobile.close();
+
+    const notesMobileTouchContext = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "light", hasTouch: true });
+    const notesMobileTouch = await notesMobileTouchContext.newPage();
+    await assertMobileSwipeOpensSidebar(notesMobileTouch, "http://127.0.0.1:3301/", "Notes TODO");
+    await notesMobileTouchContext.close();
 
     const kitchenLight = await browser.newPage({ viewport: { width: 1440, height: 920 }, colorScheme: "light" });
     await kitchenLight.goto("http://127.0.0.1:3302/", { waitUntil: "domcontentloaded" });
