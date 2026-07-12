@@ -116,7 +116,7 @@ const routes = defineRoutes<NotesTodoEvent>({
     async POST(req, ctx) {
       const user = ctx.requireUser();
       const body = await parseJson(req, createSectionSchema);
-      if (body.parentId && !sectionBelongsToUser(body.parentId, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
+      if (body.parentId !== undefined && !sectionBelongsToUser(body.parentId, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
       const section = { id: crypto.randomUUID(), userId: user.id, title: body.title, parentId: body.parentId };
       sections.push(section);
       ctx.userRealtime.publishEntityChanged("sections", section.id);
@@ -148,8 +148,11 @@ const routes = defineRoutes<NotesTodoEvent>({
       const user = ctx.requireUser();
       const note = ctx.requireOwned(notes.find((item) => item.id === ctx.params.id));
       const body = await parseJson(req, updateNoteSchema);
-      if (body.sectionId && !sectionBelongsToUser(body.sectionId, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
-      Object.assign(note, body, { userId: user.id, updatedAt: nowIso() });
+      if (body.sectionId !== undefined && !sectionBelongsToUser(body.sectionId, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
+      if (body.title !== undefined) note.title = body.title;
+      if (body.body !== undefined) note.body = body.body;
+      if (body.sectionId !== undefined) note.sectionId = body.sectionId;
+      note.updatedAt = nowIso();
       ctx.userRealtime.publishEntityChanged("notes", note.id);
       return jsonResponse(note);
     },
@@ -186,8 +189,12 @@ const routes = defineRoutes<NotesTodoEvent>({
       const user = ctx.requireUser();
       const todo = ctx.requireOwned(todos.find((item) => item.id === ctx.params.id));
       const body = await parseJson(req, updateTodoSchema);
-      if (body.sectionId && !sectionBelongsToUser(body.sectionId, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
-      Object.assign(todo, body, { userId: user.id, updatedAt: nowIso() });
+      if (body.sectionId !== undefined && !sectionBelongsToUser(body.sectionId, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
+      if (body.title !== undefined) todo.title = body.title;
+      if (body.completed !== undefined) todo.completed = body.completed;
+      if (body.priority !== undefined) todo.priority = body.priority;
+      if (body.sectionId !== undefined) todo.sectionId = body.sectionId;
+      todo.updatedAt = nowIso();
       ctx.userRealtime.publishEntityChanged("todos", todo.id);
       return jsonResponse(todo);
     },
@@ -227,7 +234,7 @@ const publicRoutes = {
   },
 };
 
-const app = createWebAppServer<NotesTodoEvent>({
+export const app = createWebAppServer<NotesTodoEvent>({
   appName: "Notes TODO",
   envPrefix: "NOTES_TODO",
   web: {
@@ -247,4 +254,6 @@ const app = createWebAppServer<NotesTodoEvent>({
   routes,
 });
 
-await app.runFromCli();
+if (import.meta.main) {
+  await app.runFromCli();
+}

@@ -4,7 +4,7 @@ const target = getBunCompileTargetFromArgs();
 const suffix = target ? `-${target.replace("bun-", "")}` : "";
 
 await buildWebAppBinary({
-  entrypoint: "src/index.ts",
+  entrypoint: "src/binary-entrypoint.ts",
   outfile: `dist/notes-todo${suffix}`,
   target,
   define: {
