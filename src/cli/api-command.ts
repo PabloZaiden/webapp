@@ -3,9 +3,9 @@ import { findRouteCatalogEntry, type RouteCatalogEntry } from "../server/route-c
 import { getAuthorizedHeaders, refreshDeviceCredentials, type DeviceCredentialsStore, type StoredDeviceCredentials } from "./device-auth";
 import { readOption, type CliCommandResult } from "./runtime";
 
-export interface ApiCliCredentialsStore extends DeviceCredentialsStore {
+export type ApiCliCredentialsStore = DeviceCredentialsStore & {
   read(): Promise<StoredDeviceCredentials | undefined>;
-}
+};
 
 export interface ApiCliCommandOptions {
   catalog: readonly RouteCatalogEntry[];

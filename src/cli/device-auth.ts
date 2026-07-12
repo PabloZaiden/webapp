@@ -12,11 +12,21 @@ export interface StoredDeviceCredentials {
   updatedAt: string;
 }
 
-export type DeviceCredentialsStore = {
+type DeviceCredentialsStoreWrite = {
   write(value: StoredDeviceCredentials): Promise<void>;
-  read?: () => Promise<StoredDeviceCredentials | undefined>;
+};
+
+type ReadableDeviceCredentialsStore = DeviceCredentialsStoreWrite & {
+  read(): Promise<StoredDeviceCredentials | undefined>;
   withLock?: <T>(callback: () => Promise<T>, options?: JsonFileStoreLockOptions) => Promise<T>;
 };
+
+export type DeviceCredentialsStore =
+  | (DeviceCredentialsStoreWrite & {
+      read?: () => Promise<StoredDeviceCredentials | undefined>;
+      withLock?: never;
+    })
+  | ReadableDeviceCredentialsStore;
 
 export function normalizeBaseUrl(value: string): string {
   const url = new URL(value.trim());
@@ -169,11 +179,8 @@ export async function refreshDeviceCredentials(input: {
   const fetchFn = input.fetchFn ?? fetch;
   const store = input.store;
   if (store?.withLock) {
-    if (!store.read) {
-      throw new Error("Credentials store cannot be reread after acquiring refresh lock");
-    }
     return store.withLock(async () => {
-      const current = await store.read!();
+      const current = await store.read();
       if (!current) {
         throw new Error("Credentials store is unavailable after acquiring refresh lock");
       }
