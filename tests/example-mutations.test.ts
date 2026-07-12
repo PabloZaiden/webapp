@@ -1,27 +1,36 @@
 import { describe, expect, test } from "bun:test";
+import type { ServerWebSocket } from "bun";
 import type { CurrentUser } from "../src/contracts";
 import { createApiKey } from "../src/server/auth/api-keys";
 import type { WebAppServer } from "../src/server/create-web-app-server";
+import type { WebSocketData } from "../src/server/realtime/bus";
 import type { UserRecord, WebAppStore } from "../src/server/auth/store";
 
 const kitchenDataDir = `.cache/tests/example-mutations-kitchen-${crypto.randomUUID()}`;
 const notesDataDir = `.cache/tests/example-mutations-notes-${crypto.randomUUID()}`;
-const previousKitchenDataDir = process.env["KITCHEN_SINK_DATA_DIR"];
-const previousNotesDataDir = process.env["NOTES_TODO_DATA_DIR"];
-process.env["KITCHEN_SINK_DATA_DIR"] = kitchenDataDir;
-process.env["NOTES_TODO_DATA_DIR"] = notesDataDir;
-const kitchen = await import("../examples/kitchen-sink/src/index.ts");
-const notesTodo = await import("../examples/notes-todo/src/index.ts");
-if (previousKitchenDataDir === undefined) {
-  delete process.env["KITCHEN_SINK_DATA_DIR"];
-} else {
-  process.env["KITCHEN_SINK_DATA_DIR"] = previousKitchenDataDir;
-}
-if (previousNotesDataDir === undefined) {
-  delete process.env["NOTES_TODO_DATA_DIR"];
-} else {
-  process.env["NOTES_TODO_DATA_DIR"] = previousNotesDataDir;
-}
+const { kitchen, notesTodo } = await (async () => {
+  const previousKitchenDataDir = process.env["KITCHEN_SINK_DATA_DIR"];
+  const previousNotesDataDir = process.env["NOTES_TODO_DATA_DIR"];
+  try {
+    process.env["KITCHEN_SINK_DATA_DIR"] = kitchenDataDir;
+    process.env["NOTES_TODO_DATA_DIR"] = notesDataDir;
+    return {
+      kitchen: await import("../examples/kitchen-sink/src/index.ts"),
+      notesTodo: await import("../examples/notes-todo/src/index.ts"),
+    };
+  } finally {
+    if (previousKitchenDataDir === undefined) {
+      delete process.env["KITCHEN_SINK_DATA_DIR"];
+    } else {
+      process.env["KITCHEN_SINK_DATA_DIR"] = previousKitchenDataDir;
+    }
+    if (previousNotesDataDir === undefined) {
+      delete process.env["NOTES_TODO_DATA_DIR"];
+    } else {
+      process.env["NOTES_TODO_DATA_DIR"] = previousNotesDataDir;
+    }
+  }
+})();
 
 function configureApiKey(store: WebAppStore, username: string): { user: UserRecord; token: string } {
   const now = new Date().toISOString();
@@ -64,14 +73,41 @@ async function apiRequest<T>(
   return await app.handleRequest(new Request(`http://localhost${path}`, { ...init, headers }));
 }
 
+const unsupportedSocketMethod = (): never => {
+  throw new Error("This test socket method is not implemented");
+};
+
 function captureEvents<T>(app: WebAppServer<T>, userId: string) {
   const messages: string[] = [];
   const socket = {
     data: { userId },
-    send(payload: string) {
+    send(payload) {
+      if (typeof payload !== "string") {
+        throw new TypeError("The test socket only accepts string messages");
+      }
       messages.push(payload);
+      return 0;
     },
-  } as never;
+    sendText: unsupportedSocketMethod,
+    sendBinary: unsupportedSocketMethod,
+    close: unsupportedSocketMethod,
+    terminate: unsupportedSocketMethod,
+    ping: unsupportedSocketMethod,
+    pong: unsupportedSocketMethod,
+    publish: unsupportedSocketMethod,
+    publishText: unsupportedSocketMethod,
+    publishBinary: unsupportedSocketMethod,
+    subscribe: unsupportedSocketMethod,
+    unsubscribe: unsupportedSocketMethod,
+    isSubscribed: unsupportedSocketMethod,
+    subscriptions: [],
+    cork<TValue = unknown>(_callback: (socket: ServerWebSocket<TValue>) => TValue): TValue {
+      return unsupportedSocketMethod();
+    },
+    remoteAddress: "127.0.0.1",
+    readyState: 1,
+    getBufferedAmount: unsupportedSocketMethod,
+  } satisfies ServerWebSocket<WebSocketData>;
   app.realtime.add(socket);
   return {
     messages,
