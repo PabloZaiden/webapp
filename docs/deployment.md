@@ -82,7 +82,7 @@ The container should set:
 ```dockerfile
 ENV MY_APP_HOST=0.0.0.0
 ENV MY_APP_PORT=3000
-ENV MY_APP_DATA_DIR=/data
+ENV MY_APP_DATA_DIR=/app/data
 ```
 
 The framework has no external frontend asset directory, so the compiled binary contains the server and Bun HTML import graph.

@@ -15,7 +15,7 @@ RUN set -eu; \
       linux/arm64) expected="examples/kitchen-sink/dist/kitchen-sink-linux-arm64" ;; \
       *) \
         echo "Unsupported target platform: ${TARGETOS}/${TARGETARCH}. Supported platforms are linux/amd64 and linux/arm64." >&2; \
-        exit 1 \
+        exit 1; \
         ;; \
     esac; \
     if [ "${APP_BINARY}" != "${expected}" ]; then \
