@@ -1,8 +1,71 @@
 import { expect, test } from "bun:test";
 import type { BunPlugin } from "bun";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { buildWebAppBinary } from "../src/build/build-binary";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import {
+  BUN_COMPILE_TARGETS,
+  buildWebAppBinary,
+  getBunCompileTargetFromArgs,
+} from "../src/build/build-binary";
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+test("getBunCompileTargetFromArgs accepts every supported target and no target", () => {
+  expect(getBunCompileTargetFromArgs(["bun", "src/build.ts"])).toBeUndefined();
+
+  for (const target of BUN_COMPILE_TARGETS) {
+    expect(getBunCompileTargetFromArgs(["bun", "src/build.ts", `--target=${target}`])).toBe(target);
+  }
+});
+
+test("getBunCompileTargetFromArgs rejects invalid target arguments with supported choices", () => {
+  const invalidCases = [
+    { args: ["--target="], expected: `Invalid Bun compile target ""` },
+    { args: ["--target=bun-freebsd-x64"], expected: `"bun-freebsd-x64"` },
+    {
+      args: ["--target=bun-linux-x64", "--target=bun-linux-arm64"],
+      expected: "Duplicate Bun compile target options",
+    },
+    { args: ["--target"], expected: "Malformed Bun compile target option" },
+    { args: ["--target", "bun-linux-x64"], expected: "--target bun-linux-x64" },
+    { args: ["--target-bun-linux-x64"], expected: "--target-bun-linux-x64" },
+  ];
+
+  for (const testCase of invalidCases) {
+    let thrown: unknown;
+    try {
+      getBunCompileTargetFromArgs(testCase.args);
+    } catch (error) {
+      thrown = error;
+    }
+
+    const message = errorMessage(thrown);
+    expect(message).toContain(testCase.expected);
+    for (const target of BUN_COMPILE_TARGETS) {
+      expect(message).toContain(target);
+    }
+  }
+});
+
+test("buildWebAppBinary rejects an invalid runtime target before creating output directories", async () => {
+  const fixtureRoot = resolve(".cache/tests/build-binary-runtime-target", crypto.randomUUID());
+  const outfile = join(fixtureRoot, "dist", "fixture-app");
+  const invalidOptions = JSON.parse(JSON.stringify({
+    entrypoint: join(fixtureRoot, "src", "index.ts"),
+    outfile,
+    target: "bun-freebsd-x64",
+  }));
+
+  rmSync(fixtureRoot, { recursive: true, force: true });
+  try {
+    await expect(buildWebAppBinary(invalidOptions)).rejects.toThrow("bun-freebsd-x64");
+    expect(existsSync(dirname(outfile))).toBe(false);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
 
 test("buildWebAppBinary processes Tailwind CSS and app-provided browser plugins", async () => {
   const id = crypto.randomUUID();

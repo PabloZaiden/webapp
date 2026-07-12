@@ -452,6 +452,8 @@ await buildWebAppBinary({
 });
 ```
 
+`getBunCompileTargetFromArgs` accepts one `--target=<value>` option and validates it against the framework's exported `BUN_COMPILE_TARGETS` list before the build starts. Omitted targets build for the local Bun runtime; malformed, duplicate, empty, or unsupported target options fail immediately.
+
 `buildWebAppBinary` includes the framework browser build defaults, including Tailwind CSS v4 processing. Apps that need additional browser-only transforms can pass Bun plugins or defines through `web.build.plugins` and `web.build.define`; app plugins run before the framework defaults.
 
 ## Adaptation checklist
