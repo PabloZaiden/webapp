@@ -77,7 +77,29 @@ docker buildx build \
 
 Use the same mapping for either example: Docker `linux/amd64` requires the Bun `bun-linux-x64` build and `*-linux-x64` artifact, while Docker `linux/arm64` requires `bun-linux-arm64` and `*-linux-arm64`. To build an x64 image from an ARM64 host, select `--platform linux/amd64` and the x64 artifact explicitly; Docker Desktop or Buildx may need emulation enabled. Omitting `APP_BINARY`, selecting an unsupported target, or pairing the wrong artifact with the target fails during the image build.
 
-The example Dockerfiles default to `node:22-bookworm` as a readily available Linux runtime base because the app itself is already a self-contained Bun binary. The container writes application data to `/app/data`; mount a Docker volume there when data must persist beyond the container.
+The example Dockerfiles default to `node:22-bookworm` as a readily available Linux runtime base because the app itself is already a self-contained Bun binary. The container writes both framework and example application data to `/app/data`; mount a Docker volume there when data must persist beyond the container.
+
+### Example application data files
+
+Each example uses the configured data directory for two separate persistence
+boundaries:
+
+| Application | Framework database | Application database |
+| --- | --- | --- |
+| Notes TODO | `webapp.sqlite` | `notes-todo.sqlite` |
+| Kitchen Sink | `webapp.sqlite` | `kitchen-sink.sqlite` |
+
+`webapp.sqlite` contains framework authentication and settings state. The
+example database contains only that example's sections, notes, todos, or
+projects; application-specific tables are not added to the framework store.
+The example starts by creating or migrating its schema, and owner seed data is
+transactional and idempotent across restarts.
+
+Persist the complete `/app/data` directory, not just `webapp.sqlite`, when
+deploying an example. A container filesystem, process restart, replacement
+deployment, or reverse proxy does not provide durability by itself. Retain
+and back up the volume mounted at `/app/data`; changing the data directory
+intentionally starts a new application state.
 
 The container should set:
 
