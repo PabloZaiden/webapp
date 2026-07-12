@@ -49,22 +49,40 @@ Keep server and CLI modes in the same binary. App-specific commands and framewor
 
 ## Docker
 
-Examples include Dockerfiles that copy a Bun-compiled Linux binary into a runtime image. Build the binary for the container architecture first, then build the image:
+The example Dockerfiles copy a Bun-compiled Linux binary into a runtime image. They intentionally require `APP_BINARY`; there is no architecture-specific default. Build the binary for the container architecture first, then pass both the Docker platform and matching binary path:
 
 ```bash
-bun run --cwd examples/notes-todo build --target=bun-linux-arm64
-docker build -f examples/notes-todo/Dockerfile -t webapp-notes-todo:local .
+# Linux amd64 (Bun calls this target x64)
+bun run --cwd examples/notes-todo build --target=bun-linux-x64
+docker buildx build \
+  --platform linux/amd64 \
+  --build-arg APP_BINARY=examples/notes-todo/dist/notes-todo-linux-x64 \
+  --file examples/notes-todo/Dockerfile \
+  --tag webapp-notes-todo:local \
+  --load \
+  .
 
+# Linux arm64
 bun run --cwd examples/kitchen-sink build --target=bun-linux-arm64
-docker build -f examples/kitchen-sink/Dockerfile -t webapp-kitchen-sink:local .
+docker buildx build \
+  --platform linux/arm64 \
+  --build-arg APP_BINARY=examples/kitchen-sink/dist/kitchen-sink-linux-arm64 \
+  --file examples/kitchen-sink/Dockerfile \
+  --tag webapp-kitchen-sink:local \
+  --load \
+  .
 ```
 
-The example Dockerfiles default to `node:22-bookworm` as a readily available Linux runtime base because the app itself is already a self-contained Bun binary. Use `--target=bun-linux-x64` and pass `--build-arg APP_BINARY=examples/notes-todo/dist/notes-todo-linux-x64` when building an x64 container from a different host. The container should set:
+Use the same mapping for either example: Docker `linux/amd64` requires the Bun `bun-linux-x64` build and `*-linux-x64` artifact, while Docker `linux/arm64` requires `bun-linux-arm64` and `*-linux-arm64`. To build an x64 image from an ARM64 host, select `--platform linux/amd64` and the x64 artifact explicitly; Docker Desktop or Buildx may need emulation enabled. Omitting `APP_BINARY`, selecting an unsupported target, or pairing the wrong artifact with the target fails during the image build.
+
+The example Dockerfiles default to `node:22-bookworm` as a readily available Linux runtime base because the app itself is already a self-contained Bun binary. The container writes application data to `/app/data`; mount a Docker volume there when data must persist beyond the container.
+
+The container should set:
 
 ```dockerfile
 ENV MY_APP_HOST=0.0.0.0
 ENV MY_APP_PORT=3000
-ENV MY_APP_DATA_DIR=/data
+ENV MY_APP_DATA_DIR=/app/data
 ```
 
 The framework has no external frontend asset directory, so the compiled binary contains the server and Bun HTML import graph.

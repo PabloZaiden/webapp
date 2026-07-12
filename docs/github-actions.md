@@ -75,6 +75,39 @@ CMD ["/app/my-app", "serve"]
 
 For apps that need extra OS packages, add them to the runtime `apt-get install` list. Keep `ca-certificates`, `curl` and `tini`.
 
+### Prebuilt-binary Dockerfiles
+
+The Dockerfile above builds the binary inside Docker, so it does not use `APP_BINARY`. The repository examples use a different pattern: they copy a prebuilt binary and require the caller to provide the artifact explicitly. Keep the platform and artifact mapping below in local commands and GitHub Actions:
+
+| Docker platform | Bun build target | Required artifact suffix |
+| --- | --- | --- |
+| `linux/amd64` | `bun-linux-x64` | `linux-x64` |
+| `linux/arm64` | `bun-linux-arm64` | `linux-arm64` |
+
+For a prebuilt-binary Dockerfile, do not add an architecture-specific `APP_BINARY` default. Build and image commands should select the same platform and artifact, for example:
+
+```bash
+bun run --cwd examples/notes-todo build --target=bun-linux-x64
+docker buildx build \
+  --platform linux/amd64 \
+  --build-arg APP_BINARY=examples/notes-todo/dist/notes-todo-linux-x64 \
+  --file examples/notes-todo/Dockerfile \
+  --tag webapp-notes-todo:amd64 \
+  --load \
+  .
+
+bun run --cwd examples/notes-todo build --target=bun-linux-arm64
+docker buildx build \
+  --platform linux/arm64 \
+  --build-arg APP_BINARY=examples/notes-todo/dist/notes-todo-linux-arm64 \
+  --file examples/notes-todo/Dockerfile \
+  --tag webapp-notes-todo:arm64 \
+  --load \
+  .
+```
+
+Validate `TARGETOS` and `TARGETARCH` in the Dockerfile before copying the artifact, so omitted, unsupported, or mismatched inputs fail during the build rather than at container startup. When building ARM64 images on an x64 GitHub runner, configure QEMU and Buildx before the build.
+
 ## Pull request workflow
 
 Place this at `.github/workflows/pr.yml`.
@@ -209,6 +242,8 @@ Place this at `.github/workflows/docker-main.yml`.
 
 It publishes `ghcr.io/<owner>/<repo>:main` after merges to `main`, updates `package.json` to a pre-release version based on the latest GitHub release, and runs a container health smoke test.
 
+Keep the `platforms` value explicit. The sample uses `linux/amd64` because `load: true` loads one runnable image for the smoke test; do not omit the value and rely on the runner architecture. To publish a multi-platform `main` image, configure QEMU, use `platforms: linux/amd64,linux/arm64`, and smoke-test platform-specific loaded images before pushing the multi-platform manifest, because Docker cannot load a multi-platform result into the local image store as one runnable tag.
+
 ```yaml
 name: Docker Main
 
@@ -331,6 +366,8 @@ If `bun run build` already builds a local default binary and your `src/build.ts`
 Place this at `.github/workflows/docker-release.yml`.
 
 It publishes versioned GHCR images when a GitHub release is published:
+
+This release workflow is intentionally multi-platform. Keep both QEMU and Buildx setup steps and keep `platforms: linux/amd64,linux/arm64` explicit; the target platform, not the runner's architecture, determines the image binary.
 
 ```yaml
 name: Docker Release

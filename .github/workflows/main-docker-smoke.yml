@@ -24,21 +24,112 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@68827325e0b33c7199eb31dd4e31fbe9023e06e3 # v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
       - name: Build Linux example binaries
         run: |
           bun run --cwd examples/kitchen-sink build --target=bun-linux-x64
+          bun run --cwd examples/kitchen-sink build --target=bun-linux-arm64
           bun run --cwd examples/notes-todo build --target=bun-linux-x64
+          bun run --cwd examples/notes-todo build --target=bun-linux-arm64
 
       - name: Build Docker images
+        shell: bash
         run: |
-          docker build \
-            -f examples/kitchen-sink/Dockerfile \
-            --build-arg APP_BINARY=examples/kitchen-sink/dist/kitchen-sink-linux-x64 \
-            -t webapp-kitchen-sink:ci .
-          docker build \
-            -f examples/notes-todo/Dockerfile \
-            --build-arg APP_BINARY=examples/notes-todo/dist/notes-todo-linux-x64 \
-            -t webapp-notes-todo:ci .
+          set -euo pipefail
+
+          build_image() {
+            local example="$1"
+            local platform="$2"
+            local app_binary="$3"
+            local arch="${platform#*/}"
+
+            docker buildx build \
+              --file "examples/${example}/Dockerfile" \
+              --platform "$platform" \
+              --build-arg "APP_BINARY=${app_binary}" \
+              --tag "webapp-${example}:${arch}-ci" \
+              --load \
+              .
+          }
+
+          build_image \
+            kitchen-sink \
+            linux/amd64 \
+            examples/kitchen-sink/dist/kitchen-sink-linux-x64
+          build_image \
+            kitchen-sink \
+            linux/arm64 \
+            examples/kitchen-sink/dist/kitchen-sink-linux-arm64
+          build_image \
+            notes-todo \
+            linux/amd64 \
+            examples/notes-todo/dist/notes-todo-linux-x64
+          build_image \
+            notes-todo \
+            linux/arm64 \
+            examples/notes-todo/dist/notes-todo-linux-arm64
+
+      - name: Verify Docker argument validation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          assert_build_fails_with() {
+            local expected="$1"
+            shift
+            local log
+            log="$(mktemp)"
+
+            if "$@" >"$log" 2>&1; then
+              cat "$log"
+              rm -f "$log"
+              echo "Expected Docker build to fail with: ${expected}" >&2
+              return 1
+            fi
+
+            if ! grep --fixed-strings --quiet "$expected" "$log"; then
+              cat "$log"
+              rm -f "$log"
+              echo "Docker build failed without expected message: ${expected}" >&2
+              return 1
+            fi
+            rm -f "$log"
+          }
+
+          assert_build_fails_with \
+            "APP_BINARY is required" \
+            docker buildx build \
+              --progress=plain \
+              --platform linux/amd64 \
+              --file examples/kitchen-sink/Dockerfile \
+              --tag webapp-kitchen-sink:missing-binary \
+              .
+
+          assert_build_fails_with \
+            "does not match target linux/amd64" \
+            docker buildx build \
+              --progress=plain \
+              --platform linux/amd64 \
+              --build-arg APP_BINARY=examples/kitchen-sink/dist/kitchen-sink-linux-arm64 \
+              --file examples/kitchen-sink/Dockerfile \
+              --tag webapp-kitchen-sink:mismatched-binary \
+              .
+
+          assert_build_fails_with \
+            "Unsupported target platform: linux/ppc64le" \
+            docker buildx build \
+              --progress=plain \
+              --platform linux/amd64 \
+              --build-arg TARGETARCH=ppc64le \
+              --build-arg APP_BINARY=examples/kitchen-sink/dist/kitchen-sink-linux-x64 \
+              --file examples/kitchen-sink/Dockerfile \
+              --tag webapp-kitchen-sink:unsupported-platform \
+              .
 
       - name: Smoke test Docker containers
         shell: bash
@@ -46,28 +137,61 @@ jobs:
           set -euo pipefail
 
           wait_for_health() {
-            local port="$1"
+            local container="$1"
+            local port="$2"
             for _ in {1..60}; do
               if curl --fail --silent "http://127.0.0.1:${port}/api/health" >/dev/null; then
                 return 0
               fi
               sleep 0.5
             done
-            echo "Container on port ${port} did not become healthy" >&2
+            echo "Container ${container} on port ${port} did not become healthy" >&2
+            docker logs "${container}" || true
             return 1
           }
 
-          docker run -d --name webapp-kitchen-sink -p 3402:8080 -e KITCHEN_SINK_DISABLE_PASSKEY=true webapp-kitchen-sink:ci
-          docker run -d --name webapp-notes-todo -p 3401:8080 -e NOTES_TODO_DISABLE_PASSKEY=true webapp-notes-todo:ci
+          docker run -d \
+            --name webapp-kitchen-sink-amd64 \
+            --platform linux/amd64 \
+            -p 3402:8080 \
+            -e KITCHEN_SINK_DISABLE_PASSKEY=true \
+            webapp-kitchen-sink:amd64-ci
+          docker run -d \
+            --name webapp-kitchen-sink-arm64 \
+            --platform linux/arm64 \
+            -p 3502:8080 \
+            -e KITCHEN_SINK_DISABLE_PASSKEY=true \
+            webapp-kitchen-sink:arm64-ci
+          docker run -d \
+            --name webapp-notes-todo-amd64 \
+            --platform linux/amd64 \
+            -p 3401:8080 \
+            -e NOTES_TODO_DISABLE_PASSKEY=true \
+            webapp-notes-todo:amd64-ci
+          docker run -d \
+            --name webapp-notes-todo-arm64 \
+            --platform linux/arm64 \
+            -p 3501:8080 \
+            -e NOTES_TODO_DISABLE_PASSKEY=true \
+            webapp-notes-todo:arm64-ci
 
           cleanup() {
-            docker logs webapp-kitchen-sink || true
-            docker logs webapp-notes-todo || true
-            docker rm -f webapp-kitchen-sink webapp-notes-todo >/dev/null 2>&1 || true
+            for container in \
+              webapp-kitchen-sink-amd64 \
+              webapp-kitchen-sink-arm64 \
+              webapp-notes-todo-amd64 \
+              webapp-notes-todo-arm64; do
+              docker logs "$container" || true
+              docker rm -f "$container" >/dev/null 2>&1 || true
+            done
           }
           trap cleanup EXIT
 
-          wait_for_health 3402
-          wait_for_health 3401
+          wait_for_health webapp-kitchen-sink-amd64 3402
+          wait_for_health webapp-kitchen-sink-arm64 3502
+          wait_for_health webapp-notes-todo-amd64 3401
+          wait_for_health webapp-notes-todo-arm64 3501
           curl --fail --silent http://127.0.0.1:3402/api/public/ping >/dev/null
+          curl --fail --silent http://127.0.0.1:3502/api/public/ping >/dev/null
           curl --fail --silent http://127.0.0.1:3401/api/public/ping >/dev/null
+          curl --fail --silent http://127.0.0.1:3501/api/public/ping >/dev/null
