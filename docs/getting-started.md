@@ -118,6 +118,7 @@ Use the framework URL helpers for browser API calls, websocket URLs and app-loca
 import {
   appAbsoluteUrl,
   appFetch,
+  appJson,
   appPath,
   appRequest,
   appWebSocketUrl,
@@ -127,7 +128,7 @@ import {
 
 configureWebAppClient();
 
-const config = await appFetch("/api/config").then((res) => res.json());
+const config = await appJson("/api/config");
 setWebAppPublicBasePath(config.publicBasePath);
 
 const downloadUrl = appPath("/api/items/export");
@@ -136,7 +137,7 @@ const socket = new WebSocket(appWebSocketUrl("/api/ws"));
 const rawResponse = await appRequest("/api/items");
 ```
 
-`appFetch` is the framework JSON API helper and throws `WebAppApiError` for non-OK responses. Use `appRequest` when the app needs a raw `Response`, such as downloads, custom error handling, or compatibility wrappers.
+`appJson` is the framework helper for successful JSON responses and builds on `appFetch`. Both `appJson` and `appFetch` honor configured URLs, credentials, auth-required events, and `WebAppApiError` responses. Use `appFetch` when a successful response body does not need to be parsed, and use `appRequest` when the app needs a raw response without the framework's error normalization, such as downloads or custom error handling. `appJson` intentionally rejects successful empty or non-JSON responses instead of fabricating a default value.
 
 Recommended dev script:
 

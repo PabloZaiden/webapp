@@ -98,13 +98,14 @@ export async function appRequest(input: RequestInfo | URL, init?: RequestInit): 
 }
 
 export async function appFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("accept")) {
+    headers.set("accept", "application/json");
+  }
   const response = await appRequest(input, {
     ...init,
     credentials: init?.credentials ?? "same-origin",
-    headers: {
-      accept: "application/json",
-      ...init?.headers,
-    },
+    headers,
   });
   if (response.headers.get("x-webapp-passkey-required") === "true" || response.headers.get("x-passkey-auth-required") === "true") {
     emitAuthRequired();
@@ -119,6 +120,15 @@ export async function appFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     throw new WebAppApiError(body?.message ?? `Request failed with status ${response.status}`, response.status, body?.error, body?.details);
   }
   return response;
+}
+
+export async function appJson<T>(input: RequestInfo | URL, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (!headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+  const response = await appFetch(input, { ...init, headers });
+  return await response.json() as T;
 }
 
 function normalizeOptionalBaseUrl(rawValue?: string | null): string | undefined {
