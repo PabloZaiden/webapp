@@ -1,5 +1,19 @@
 # Release and publishing
 
+## CLI credential support boundary
+
+Release artifacts and compile targets must not be described as equivalent to
+supported authenticated CLI workflows. The persisted CLI credential and
+device-auth CLI workflow is supported only on Linux. For that workflow, the
+supported standalone binary targets are Linux x64 and Linux arm64; use the
+corresponding `bun-linux-x64` and `bun-linux-arm64` artifacts.
+
+A release process may produce Darwin or Windows compile outputs through Bun or
+a reusable binary workflow, but those outputs are not documented as supported
+for local credential persistence or device-auth CLI operation. Generic CLI
+commands, public-token commands, Docker server images, and server-side
+device-auth endpoints have separate support scopes.
+
 ## Pull requests
 
 `PR Checks` runs on every pull request:

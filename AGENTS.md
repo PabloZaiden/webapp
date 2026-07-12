@@ -2,7 +2,10 @@
 
 ## Cross-platform and framework conventions
 
-- Keep development cross-platform across macOS and Linux on both arm64 and x86-64.
+- Keep development and generic framework tooling cross-platform across macOS
+  and Linux on both arm64 and x86-64. The persisted CLI credential and
+  device-auth workflow is an intentional Linux-only exception; do not add
+  OS-specific credential fallbacks to broaden it.
 - Do not hard-code OS-specific executable paths, browser paths, GNU-only flags, or architecture-specific binaries.
 - Keep Bun native hot reload as the development path: one Bun server serves the React UI, API routes and WebSockets.
 - When adding CI, Docker or release automation for framework apps, follow `docs/github-actions.md`.
@@ -37,9 +40,16 @@
 
 ## Platform and deployment assumptions
 
-- Preserve the project-wide macOS/Linux arm64/x86-64 support boundary. Do not make defaults silently select one CPU architecture when multiple architectures are supported.
+- Preserve the project-wide macOS/Linux arm64/x86-64 support boundary for
+  general framework development and generic CLI/build behavior. Do not make
+  defaults silently select one CPU architecture when multiple architectures
+  are supported.
 - Validate enumerated build and CLI arguments before passing them to lower layers.
 - If a component is intentionally Linux-only, document and enforce that support boundary instead of implying unsupported cross-platform behavior.
+- Treat the persisted file-backed CLI credential and device-auth CLI workflow
+  as Linux-only, even when Bun can compile a Darwin or Windows target. Do not
+  add `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, or `os.homedir()` fallbacks for
+  this workflow.
 - Trust proxy-derived headers only through explicit configuration with a documented deployment trust model.
 - State whether application data is persistent in examples. Do not pair durable-looking deployment configuration with silently ephemeral user data.
 

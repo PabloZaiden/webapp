@@ -19,6 +19,14 @@ await buildWebAppBinary({
 
 `getBunCompileTargetFromArgs` accepts at most one `--target=<value>` argument. Supported compile targets come from the `BUN_COMPILE_TARGETS` export from `@pablozaiden/webapp/build`; use that collection when selecting a target. Empty, malformed, duplicate, and unsupported values fail before the builder creates output directories or invokes Bun. Omit the option for the default local Bun binary.
 
+The compile-target list describes binaries Bun can produce; it is not a
+promise that every target supports every framework workflow. The persisted CLI
+credential and device-auth CLI workflow is supported only when the resulting
+CLI runs on Linux. Use `bun-linux-x64` or `bun-linux-arm64` for supported
+authenticated CLI binaries. `bun-darwin-x64`, `bun-darwin-arm64`, and
+`bun-windows-x64` remain valid compile targets, but they do not represent
+supported local credential persistence or device-auth CLI operation.
+
 The binary builder compiles the browser bundle with the framework defaults needed for `webapp` apps, including Tailwind CSS v4 processing. If an app needs extra browser build behavior, add Bun plugins or browser-only defines under `web.build`:
 
 ```ts
@@ -46,6 +54,11 @@ MY_APP_PORT=3300 ./dist/my-app serve
 ./dist/my-app version
 ./dist/my-app api items
 ```
+
+The generic command contract and public-token commands are not the Linux-only
+credential boundary. If `api` uses persisted device-auth credentials or
+automatic bearer-token refresh, run it with a Linux x64 or Linux arm64 binary
+and follow the credential-storage requirements in `docs/cli.md`.
 
 Keep server and CLI modes in the same binary. App-specific commands and framework-backed commands should be subcommands of that binary rather than separate executables.
 

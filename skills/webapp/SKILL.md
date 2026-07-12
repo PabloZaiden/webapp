@@ -17,7 +17,10 @@ Use this skill when building an app with `@pablozaiden/webapp`.
 - The generated viewport uses fixed-scale tokens. On iPhone/iPad and other mobile browsers that honor those tokens, it prevents pinch-to-zoom while preserving scrolling; clients that ignore them are unaffected. Do not add global touch handlers, `preventDefault()` calls, or `touch-action: none` to solve zoom.
 - PWA is enabled by default. Lightweight examples may use generated initials icons, but production apps should set `web.icons` with favicon, Apple-touch, and 192x192/512x512 manifest PNGs. Icon paths are relative to the app package root.
 - Keep the product as one app and one binary with subcommands (`serve`, `version`, app-specific commands, and optional framework-backed `auth`/`api`/`schema` commands). Do not split web/server/CLI into separate apps or binaries unless there is a real package boundary.
-- Keep generated apps and tooling cross-platform across macOS and Linux on arm64 and x86-64.
+- Keep generated apps and generic tooling cross-platform across macOS and
+  Linux on arm64 and x86-64. The persisted CLI credential and device-auth
+  workflow is a documented Linux-only exception; do not add OS-specific
+  credential fallbacks for it.
 - Use Playwright for all browser automation and screenshots; do not hard-code Chrome, browser executable paths, or OS-specific browser automation.
 - When screenshots are captured to validate a visual change, review them against the specific goal; capture alone is not validation.
 - Configure env through a single uppercase `envPrefix`; read framework env as `{PREFIX}_...`.

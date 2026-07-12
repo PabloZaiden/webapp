@@ -7,6 +7,20 @@ Use these templates for applications built with `@pablozaiden/webapp`. They foll
 3. Published GitHub releases upload standalone binaries.
 4. Published GitHub releases publish semver Docker images to GHCR.
 
+## CLI credential support boundary
+
+These templates can build or publish artifacts for more than one platform,
+but a compile artifact is not automatically a supported authenticated CLI
+workflow. The persisted CLI credential and device-auth CLI workflow is
+supported only when the resulting CLI runs on Linux. Use Linux x64 or Linux
+arm64 binaries for that workflow; see `docs/cli.md` for the required `HOME`
+and credential-file behavior.
+
+If a reusable binary-release workflow also emits Darwin or Windows artifacts,
+label those as compile outputs only. Do not imply that they support local
+credential persistence or device-auth CLI refreshes, and do not add
+OS-specific credential fallbacks to make them appear supported.
+
 Replace these placeholders before committing:
 
 | Placeholder | Example | Meaning |
@@ -334,6 +348,13 @@ Place this at `.github/workflows/binary-release.yml`.
 
 It delegates cross-platform binary builds to the reusable binary release workflow and uploads checksummed assets to the GitHub release.
 
+The reusable workflow may produce compile outputs for several operating
+systems. For an authenticated CLI release, the supported outputs are the
+Linux x64 and Linux arm64 binaries; any Darwin or Windows outputs must remain
+clearly labeled as compile artifacts rather than supported persisted
+credential/device-auth CLIs. This documentation does not change the reusable
+workflow's target selection.
+
 ```yaml
 name: Binary Release
 
@@ -453,6 +474,11 @@ await buildWebAppBinary({
 ```
 
 `getBunCompileTargetFromArgs` accepts one `--target=<value>` option and validates it against the framework's exported `BUN_COMPILE_TARGETS` list before the build starts. Omitted targets build for the local Bun runtime; malformed, duplicate, empty, or unsupported target options fail immediately.
+
+The accepted compile target still describes what Bun can build, not the
+supported operating system for local persisted CLI credentials. Use the Linux
+targets for credential-backed CLI releases, even if the same build script can
+produce Darwin or Windows binaries.
 
 `buildWebAppBinary` includes the framework browser build defaults, including Tailwind CSS v4 processing. Apps that need additional browser-only transforms can pass Bun plugins or defines through `web.build.plugins` and `web.build.define`; app plugins run before the framework defaults.
 

@@ -14,6 +14,19 @@ bun run dev:kitchen-sink
 
 Both examples run with Bun native hot reload through `bun --hot`, with no standalone frontend build server and no external `WEB_DIST_DIR`.
 
+## CLI credential support
+
+The persisted CLI credential and device-auth CLI workflow exposed by
+`@pablozaiden/webapp/cli` is supported only on Linux (x64 and arm64). This
+includes device-code login, local credential persistence, bearer-token refresh,
+and credential-backed API CLI calls.
+
+Bun can compile binaries for macOS and Windows, but those compile targets do
+not imply supported local credential persistence or device-auth CLI operation
+on those systems. Generic CLI dispatch and public-token commands are separate
+and are not covered by this Linux-only credential boundary. See
+`docs/cli.md` before building an authenticated CLI workflow.
+
 ## Main exports
 
 | Export | Use |
