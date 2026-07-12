@@ -1,4 +1,4 @@
-import { createJsonFileStore, type JsonFileStore } from "./credentials";
+import { createJsonFileStore, type JsonFileStore, type JsonFileStoreLockOptions } from "./credentials";
 
 export interface StoredDeviceCredentials {
   baseUrl: string;
@@ -11,6 +11,22 @@ export interface StoredDeviceCredentials {
   createdAt: string;
   updatedAt: string;
 }
+
+type DeviceCredentialsStoreWrite = {
+  write(value: StoredDeviceCredentials): Promise<void>;
+};
+
+type ReadableDeviceCredentialsStore = DeviceCredentialsStoreWrite & {
+  read(): Promise<StoredDeviceCredentials | undefined>;
+  withLock?: <T>(callback: () => Promise<T>, options?: JsonFileStoreLockOptions) => Promise<T>;
+};
+
+export type DeviceCredentialsStore =
+  | (DeviceCredentialsStoreWrite & {
+      read?: () => Promise<StoredDeviceCredentials | undefined>;
+      withLock?: never;
+    })
+  | ReadableDeviceCredentialsStore;
 
 export function normalizeBaseUrl(value: string): string {
   const url = new URL(value.trim());
@@ -90,46 +106,91 @@ function tokenError(body: unknown, status: number): string {
   return `Request failed with status ${status}`;
 }
 
-function tokenCredentials(baseUrl: string, clientId: string, tokenSet: Record<string, unknown>, now: Date): StoredDeviceCredentials {
-  const expiresIn = Number(tokenSet["expires_in"] ?? 0);
+function tokenCredentials(baseUrl: string, clientId: string, tokenSet: unknown, now: Date): StoredDeviceCredentials {
+  if (!tokenSet || typeof tokenSet !== "object" || Array.isArray(tokenSet)) {
+    throw new Error("Token response is invalid");
+  }
+  const record = tokenSet as Record<string, unknown>;
+  const accessToken = record["access_token"];
+  const refreshToken = record["refresh_token"];
+  const tokenType = record["token_type"];
+  const expiresIn = record["expires_in"];
+  const scope = record["scope"];
+  if (
+    typeof accessToken !== "string" ||
+    accessToken.length === 0 ||
+    typeof refreshToken !== "string" ||
+    refreshToken.length === 0 ||
+    tokenType !== "Bearer" ||
+    typeof expiresIn !== "number" ||
+    !Number.isFinite(expiresIn) ||
+    expiresIn < 0 ||
+    (scope !== undefined && typeof scope !== "string")
+  ) {
+    throw new Error("Token response is invalid");
+  }
   return {
     baseUrl,
     clientId,
-    accessToken: String(tokenSet["access_token"] ?? ""),
-    refreshToken: String(tokenSet["refresh_token"] ?? ""),
+    accessToken,
+    refreshToken,
     tokenType: "Bearer",
-    scope: String(tokenSet["scope"] ?? ""),
+    scope: scope ?? "",
     accessTokenExpiresAt: new Date(now.getTime() + expiresIn * 1000).toISOString(),
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
 }
 
-export async function refreshDeviceCredentials(input: {
-  credentials: StoredDeviceCredentials;
-  store?: { write(value: StoredDeviceCredentials): Promise<void> };
-  fetchFn?: typeof fetch;
-  now?: () => Date;
-}): Promise<StoredDeviceCredentials | undefined> {
-  if (!isExpired(input.credentials, (input.now ?? (() => new Date()))())) {
-    return input.credentials;
-  }
-  const now = input.now?.() ?? new Date();
-  const { response, body } = await requestJson(input.fetchFn ?? fetch, `${input.credentials.baseUrl}/api/auth/token`, {
+async function refreshCredentialsOnce(
+  credentials: StoredDeviceCredentials,
+  store: DeviceCredentialsStore | undefined,
+  fetchFn: typeof fetch,
+  now: () => Date,
+): Promise<StoredDeviceCredentials | undefined> {
+  const issuedAt = now();
+  const { response, body } = await requestJson(fetchFn, `${credentials.baseUrl}/api/auth/token`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       grant_type: "refresh_token",
-      refresh_token: input.credentials.refreshToken,
-      client_id: input.credentials.clientId,
+      refresh_token: credentials.refreshToken,
+      client_id: credentials.clientId,
     }),
   });
   if (!response.ok) {
     return undefined;
   }
-  const next = tokenCredentials(input.credentials.baseUrl, input.credentials.clientId, body as Record<string, unknown>, now);
-  await input.store?.write(next);
+  const next = tokenCredentials(credentials.baseUrl, credentials.clientId, body, issuedAt);
+  await store?.write(next);
   return next;
+}
+
+export async function refreshDeviceCredentials(input: {
+  credentials: StoredDeviceCredentials;
+  store?: DeviceCredentialsStore;
+  fetchFn?: typeof fetch;
+  now?: () => Date;
+}): Promise<StoredDeviceCredentials | undefined> {
+  const now = input.now ?? (() => new Date());
+  if (!isExpired(input.credentials, now())) {
+    return input.credentials;
+  }
+  const fetchFn = input.fetchFn ?? fetch;
+  const store = input.store;
+  if (store?.withLock) {
+    return store.withLock(async () => {
+      const current = await store.read();
+      if (!current) {
+        throw new Error("Credentials store is unavailable after acquiring refresh lock");
+      }
+      if (!isExpired(current, now())) {
+        return current;
+      }
+      return refreshCredentialsOnce(current, store, fetchFn, now);
+    });
+  }
+  return refreshCredentialsOnce(input.credentials, store, fetchFn, now);
 }
 
 export async function runDeviceAuthCommand(input: {
@@ -168,7 +229,7 @@ export async function runDeviceAuthCommand(input: {
       }),
     });
     if (token.response.ok) {
-      await input.store.write(tokenCredentials(baseUrl, input.clientId, token.body as Record<string, unknown>, now()));
+      await input.store.write(tokenCredentials(baseUrl, input.clientId, token.body, now()));
       out(`Authenticated with ${baseUrl}`);
       return 0;
     }
