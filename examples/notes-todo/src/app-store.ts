@@ -123,7 +123,6 @@ function createSchema(db: Database): void {
       title TEXT NOT NULL,
       body TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      UNIQUE (id, user_id),
       FOREIGN KEY (section_id, user_id)
         REFERENCES notes_todo_sections (id, user_id)
         ON DELETE RESTRICT
@@ -141,7 +140,6 @@ function createSchema(db: Database): void {
       completed INTEGER NOT NULL CHECK (completed IN (0, 1)),
       priority TEXT NOT NULL CHECK (priority IN ('low', 'normal', 'high')),
       updated_at TEXT NOT NULL,
-      UNIQUE (id, user_id),
       FOREIGN KEY (section_id, user_id)
         REFERENCES notes_todo_sections (id, user_id)
         ON DELETE RESTRICT

@@ -62,8 +62,7 @@ function createSchema(db: Database): void {
       user_id TEXT NOT NULL,
       name TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('idle', 'running', 'failed')),
-      updated_at TEXT NOT NULL,
-      UNIQUE (id, user_id)
+      updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_kitchen_sink_projects_user
       ON kitchen_sink_projects (user_id);
