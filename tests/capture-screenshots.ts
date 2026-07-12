@@ -119,21 +119,17 @@ async function assertMobileSwipeOpensSidebar(page: Page, appUrl: string, brandLa
   await brand.waitFor({ state: "hidden" });
 
   await page.evaluate(() => {
-    const touch = (clientX: number, clientY: number) => new Touch({
-      identifier: 1,
-      target: document.body,
-      clientX,
-      clientY,
-    });
-    document.dispatchEvent(new TouchEvent("touchstart", {
-      bubbles: true,
-      touches: [touch(8, 240)],
-    }));
-    document.dispatchEvent(new TouchEvent("touchmove", {
-      bubbles: true,
-      cancelable: true,
-      touches: [touch(80, 248)],
-    }));
+    const dispatchTouch = (type: "touchstart" | "touchmove", clientX: number, clientY: number) => {
+      const event = new Event(type, {
+        bubbles: true,
+        cancelable: type === "touchmove",
+      });
+      const touches = [{ clientX, clientY }];
+      Object.defineProperty(event, "touches", { configurable: true, value: touches });
+      document.dispatchEvent(event);
+    };
+    dispatchTouch("touchstart", 8, 240);
+    dispatchTouch("touchmove", 80, 248);
   });
 
   await brand.waitFor({ state: "visible" });
