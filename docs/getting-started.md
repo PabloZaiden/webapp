@@ -3,20 +3,23 @@
 Apps are one Bun application: backend routes, websocket, React UI and static assets are served by the same server. The framework does not support or require a standalone client dist directory.
 
 ```ts
+import { z } from "zod";
 import { createWebAppServer, defineRoutes, jsonResponse, parseJson } from "@pablozaiden/webapp/server";
 
 const items: Array<{ id: string; userId: string; title: string }> = [];
+const itemCreateSchema = z.object({ title: z.string() });
 
 const routes = defineRoutes({
   "/api/items": {
     auth: "user",
+    requestSchema: itemCreateSchema,
     description: "List or create items.",
     cliPath: "items",
     tags: ["items"],
     GET: (_req, ctx) => jsonResponse(ctx.filterOwned(items)),
     async POST(req, ctx) {
       const user = ctx.requireUser();
-      const body = await parseJson<{ title: string }>(req);
+      const body = await parseJson(req, itemCreateSchema);
       const item = { id: crypto.randomUUID(), userId: user.id, title: body.title };
       items.push(item);
       ctx.userRealtime.publishEntityChanged("items", item.id);

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { CurrentUser, LogLevelName, ThemePreference, WebAppConfigResponse, WebAppUserRole } from "../contracts";
+import type { CurrentUser, LogLevelName, WebAppConfigResponse } from "../contracts";
 import { authenticateApiKey, assertScopes, createApiKey, deleteApiKey, listApiKeys } from "./auth/api-keys";
 import {
   approveDevice,
@@ -45,7 +45,24 @@ import { createRealtimeBus, type RealtimeBus, type WebSocketData } from "./realt
 import { readRuntimeConfig, safeRuntimeConfig, type RuntimeConfig } from "./runtime-config";
 import { matchRoute, type RouteAuth, type RouteTable, type UserIdSelector, type UserOwnedResource, type UserScopedRealtimePublisher } from "./routes";
 import { checkSameOrigin } from "./same-origin";
-import { errorResponse, jsonResponse, methodNotAllowed, notFound, parseJson, successResponse, withSecurityHeaders } from "./responses";
+import {
+  authenticationResponseSchema,
+  createApiKeyRequestSchema,
+  createUserRequestSchema,
+  deviceAuthorizationRequestSchema,
+  deviceCodeActionRequestSchema,
+  logLevelPreferenceRequestSchema,
+  passkeyBootstrapOptionsSchema,
+  refreshTokenRequestSchema,
+  registrationResponseSchema,
+  revokeRefreshTokenRequestSchema,
+  setupOptionsSchema,
+  setupVerificationSchema,
+  themePreferenceRequestSchema,
+  tokenRequestSchema,
+  userRoleRequestSchema,
+} from "./request-schemas";
+import { errorResponse, jsonResponse, methodNotAllowed, notFound, parseJson, requestBodyErrorResponse, successResponse, withSecurityHeaders } from "./responses";
 
 export interface WebAppServerConfig<TEvent = unknown> {
   appName: string;
@@ -98,8 +115,6 @@ export interface WebAppServer<TEvent = unknown> {
 }
 
 const log = createLogger("webapp:server");
-const LOG_LEVELS = new Set<LogLevelName>(["trace", "debug", "info", "warn", "error"]);
-
 type HtmlBundleIndex = { index: string };
 
 export interface WebAppDocumentConfig {
@@ -212,6 +227,10 @@ function tokenError(error: unknown): Response {
 }
 
 function authErrorResponse(error: unknown): Response {
+  const requestBodyFailure = requestBodyErrorResponse(error);
+  if (requestBodyFailure) {
+    return requestBodyFailure;
+  }
   if (error instanceof AuthError) {
     return errorResponse(error.status, error.code, error.message);
   }
@@ -219,6 +238,10 @@ function authErrorResponse(error: unknown): Response {
 }
 
 function routeHandlerErrorResponse(error: unknown): Response {
+  const requestBodyFailure = requestBodyErrorResponse(error);
+  if (requestBodyFailure) {
+    return requestBodyFailure;
+  }
   if (error instanceof AuthError) {
     return errorResponse(error.status, error.code, error.message);
   }
@@ -902,10 +925,6 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     return requireAdmin(auth);
   }
 
-  function sanitizeRole(role: WebAppUserRole | undefined): WebAppUserRole {
-    return role === "admin" ? "admin" : "user";
-  }
-
   async function handleBuiltIn(req: Request, server?: Server<WebSocketData>): Promise<Response | undefined> {
     const url = new URL(req.url);
     const path = url.pathname;
@@ -942,12 +961,12 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         return jsonResponse(passkeyStatus(req, store, config, passkeysEnabled));
       }
       if (passkeysEnabled && path === "/api/passkey-auth/bootstrap/options" && req.method === "POST") {
-        const body = await parseJson<{ username?: string }>(req);
+        const body = await parseJson(req, passkeyBootstrapOptionsSchema);
         const result = await beginBootstrapRegistration(req, store, config, body.username ?? "");
         return addHeaders(jsonResponse(result.options), result.headers);
       }
       if (passkeysEnabled && path === "/api/passkey-auth/bootstrap/verify" && req.method === "POST") {
-        const headers = await completeBootstrapRegistration(req, store, config, await parseJson(req));
+        const headers = await completeBootstrapRegistration(req, store, config, await parseJson(req, registrationResponseSchema));
         return addHeaders(successResponse(), headers);
       }
       if (passkeysEnabled && path === "/api/passkey-auth/owner-setup/options" && req.method === "POST") {
@@ -955,7 +974,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         return addHeaders(jsonResponse(result.options), result.headers);
       }
       if (passkeysEnabled && path === "/api/passkey-auth/owner-setup/verify" && req.method === "POST") {
-        const headers = await completeOwnerPasskeySetup(req, store, config, await parseJson(req));
+        const headers = await completeOwnerPasskeySetup(req, store, config, await parseJson(req, registrationResponseSchema));
         return addHeaders(successResponse(), headers);
       }
       if (passkeysEnabled && path === "/api/user-setup" && req.method === "GET") {
@@ -963,13 +982,13 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         return jsonResponse(getSetupDetails(store, token));
       }
       if (passkeysEnabled && path === "/api/user-setup/options" && req.method === "POST") {
-        const body = await parseJson<{ token?: string }>(req);
+        const body = await parseJson(req, setupOptionsSchema);
         const result = await beginSetupRegistration(req, store, config, body.token ?? "");
         return addHeaders(jsonResponse(result.options), result.headers);
       }
       if (passkeysEnabled && path === "/api/user-setup/verify" && req.method === "POST") {
-        const body = await parseJson<{ token?: string; response?: unknown }>(req);
-        const headers = await completeSetupRegistration(req, store, config, body.token ?? "", body.response as never);
+        const body = await parseJson(req, setupVerificationSchema);
+        const headers = await completeSetupRegistration(req, store, config, body.token, body.response);
         return addHeaders(successResponse(), headers);
       }
       if (passkeysEnabled && path === "/api/passkey-auth/authentication/options" && req.method === "POST") {
@@ -977,7 +996,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         return addHeaders(jsonResponse(result.options), result.headers);
       }
       if (passkeysEnabled && path === "/api/passkey-auth/authentication/verify" && req.method === "POST") {
-        const headers = await completeAuthentication(req, store, config, await parseJson(req));
+        const headers = await completeAuthentication(req, store, config, await parseJson(req, authenticationResponseSchema));
         return addHeaders(successResponse(), headers);
       }
       if (passkeysEnabled && path === "/api/passkey-auth/logout" && req.method === "POST") {
@@ -1000,7 +1019,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         if (auth instanceof Response) return auth;
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
-        return jsonResponse(createApiKey(store, requireUser(auth), await parseJson(req)));
+        return jsonResponse(createApiKey(store, requireUser(auth), await parseJson(req, createApiKeyRequestSchema)));
       }
       const apiKeyDelete = /^\/api\/api-keys\/([^/]+)$/.exec(path);
       if (apiKeysEnabled && apiKeyDelete && req.method === "DELETE") {
@@ -1012,8 +1031,8 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         return successResponse();
       }
       if (deviceAuthEnabled && path === "/api/auth/device" && req.method === "POST") {
-        const body = await parseJson<{ client_id?: string; clientId?: string; scope?: string }>(req).catch((): { client_id?: string; clientId?: string; scope?: string } => ({}));
-        return jsonResponse(createDeviceAuthorization(req, store, config, { clientId: body.client_id ?? body.clientId, scope: body.scope }));
+        const body = await parseJson(req, deviceAuthorizationRequestSchema);
+        return jsonResponse(createDeviceAuthorization(req, store, config, body));
       }
       if (deviceAuthEnabled && path === "/api/auth/device/verification" && req.method === "GET") {
         const auth = await authorize(req, true);
@@ -1027,19 +1046,27 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         if (auth instanceof Response) return auth;
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
-        const body = await parseJson<{ userCode?: string; user_code?: string }>(req);
-        return jsonResponse(approveDevice(store, body.userCode ?? body.user_code ?? "", requireUser(auth).id));
+        const body = await parseJson(req, deviceCodeActionRequestSchema);
+        return jsonResponse(approveDevice(store, body.userCode, requireUser(auth).id));
       }
       if (deviceAuthEnabled && path === "/api/auth/device/deny" && req.method === "POST") {
         const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
-        const body = await parseJson<{ userCode?: string; user_code?: string }>(req);
-        return jsonResponse(denyDevice(store, body.userCode ?? body.user_code ?? ""));
+        const body = await parseJson(req, deviceCodeActionRequestSchema);
+        return jsonResponse(denyDevice(store, body.userCode));
       }
-      if (deviceAuthEnabled && (path === "/api/auth/token" || path === "/api/auth/refresh") && req.method === "POST") {
-        const body = await parseJson<{ grant_type?: string; device_code?: string; refresh_token?: string; client_id?: string }>(req);
+      if (deviceAuthEnabled && path === "/api/auth/refresh" && req.method === "POST") {
+        const body = await parseJson(req, refreshTokenRequestSchema);
+        try {
+          return jsonResponse(await exchangeRefreshToken(store, config, body.refresh_token, body.client_id));
+        } catch (error) {
+          return tokenError(error);
+        }
+      }
+      if (deviceAuthEnabled && path === "/api/auth/token" && req.method === "POST") {
+        const body = await parseJson(req, tokenRequestSchema);
         try {
           if (body.grant_type === "urn:ietf:params:oauth:grant-type:device_code" || body.device_code) {
             return jsonResponse(await exchangeDeviceCode(store, config, body.device_code ?? "", body.client_id));
@@ -1050,8 +1077,8 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         }
       }
       if (deviceAuthEnabled && path === "/api/auth/revoke" && req.method === "POST") {
-        const body = await parseJson<{ refreshToken?: string; refresh_token?: string }>(req);
-        revokeRefreshToken(store, body.refreshToken ?? body.refresh_token ?? "");
+        const body = await parseJson(req, revokeRefreshTokenRequestSchema);
+        revokeRefreshToken(store, body.refreshToken);
         return successResponse();
       }
       if (deviceAuthEnabled && path === "/api/auth/sessions" && req.method === "GET") {
@@ -1085,12 +1112,12 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         const actor = ensureAdmin(auth);
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
-        const body = await parseJson<{ username?: string; role?: WebAppUserRole }>(req);
+        const body = await parseJson(req, createUserRequestSchema);
         const username = assertValidUsername(body.username ?? "");
         if (store.getUserByUsername(username)) {
           return errorResponse(409, "username_exists", "Username already exists");
         }
-        const user = createUserRecord({ username, role: sanitizeRole(body.role) });
+        const user = createUserRecord({ username, role: body.role ?? "user" });
         store.createUser(user);
         const setupLink = createSetupLink(req, user.id, "invite", actor.id);
         audit(store, { eventType: "user_created", actorUserId: actor.id, targetUserId: user.id, metadata: { role: user.role } });
@@ -1107,8 +1134,8 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         const target = store.getUserById(userId);
         if (!target) return notFound();
         if (target.role === "owner") return errorResponse(409, "owner_immutable", "Owner role cannot be changed");
-        const body = await parseJson<{ role?: WebAppUserRole }>(req);
-        const role = sanitizeRole(body.role);
+        const body = await parseJson(req, userRoleRequestSchema);
+        const role = body.role;
         store.setUserRole(userId, role, nowIso());
         audit(store, { eventType: "user_role_changed", actorUserId: actor.id, targetUserId: userId, metadata: { role } });
         return jsonResponse(summarizeUser(store.getUserById(userId) ?? target));
@@ -1165,7 +1192,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
         if (req.method === "PUT") {
           const originFailure = checkSameOrigin(req, config, auth, "mutations");
           if (originFailure) return originFailure;
-          const body = await parseJson<{ theme: ThemePreference }>(req);
+          const body = await parseJson(req, themePreferenceRequestSchema);
           store.setThemePreference(body.theme, user.id);
           return successResponse({ theme: body.theme });
         }
@@ -1181,10 +1208,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
           const originFailure = checkSameOrigin(req, config, auth, "mutations");
           if (originFailure) return originFailure;
           if (config.logLevelFromEnv) return errorResponse(409, "log_level_from_env", "Log level is controlled by environment");
-          const body = await parseJson<{ level: LogLevelName }>(req);
-          if (!LOG_LEVELS.has(body.level)) {
-            return errorResponse(400, "invalid_log_level", "Log level must be one of trace, debug, info, warn, error");
-          }
+          const body = await parseJson(req, logLevelPreferenceRequestSchema);
           store.setLogLevelPreference(body.level);
           setLogLevel(body.level);
           input.logLevel?.onChange?.(body.level);

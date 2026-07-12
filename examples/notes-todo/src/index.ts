@@ -1,4 +1,5 @@
-import { createWebAppServer, defineRoutes, jsonResponse, parseJson, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
+import { z } from "zod";
+import { createWebAppServer, defineRoutes, jsonResponse, parseJson, parseOptionalJson, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
 import favicon from "./favicon.svg";
 
 type NotesTodoEvent = ResourceRealtimeEvent;
@@ -69,9 +70,44 @@ function sectionBelongsToUser(sectionId: string, userId: string): boolean {
   return sections.some((section) => section.id === sectionId && section.userId === userId);
 }
 
+const createSectionSchema = z.object({
+  title: z.string(),
+  parentId: z.string().optional(),
+});
+
+const createNoteSchema = z.object({
+  title: z.string(),
+  body: z.string().optional(),
+  sectionId: z.string(),
+});
+
+const updateNoteSchema = z.object({
+  title: z.string().optional(),
+  body: z.string().optional(),
+  sectionId: z.string().optional(),
+});
+
+const createTodoSchema = z.object({
+  title: z.string(),
+  sectionId: z.string(),
+  priority: z.enum(["low", "normal", "high"]).optional(),
+});
+
+const updateTodoSchema = z.object({
+  title: z.string().optional(),
+  completed: z.boolean().optional(),
+  priority: z.enum(["low", "normal", "high"]).optional(),
+  sectionId: z.string().optional(),
+});
+
+const webhookSchema = z.object({
+  title: z.string().optional(),
+});
+
 const routes = defineRoutes<NotesTodoEvent>({
   "/api/sections": {
     auth: "user",
+    requestSchema: createSectionSchema,
     GET: (_req, ctx) => {
       const user = ctx.requireUser();
       ensureSeedData(user.id);
@@ -79,7 +115,7 @@ const routes = defineRoutes<NotesTodoEvent>({
     },
     async POST(req, ctx) {
       const user = ctx.requireUser();
-      const body = await parseJson<{ title: string; parentId?: string }>(req);
+      const body = await parseJson(req, createSectionSchema);
       if (body.parentId && !sectionBelongsToUser(body.parentId, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
       const section = { id: crypto.randomUUID(), userId: user.id, title: body.title, parentId: body.parentId };
       sections.push(section);
@@ -89,6 +125,7 @@ const routes = defineRoutes<NotesTodoEvent>({
   },
   "/api/notes": {
     auth: "user",
+    requestSchema: createNoteSchema,
     GET: (_req, ctx) => {
       const user = ctx.requireUser();
       ensureSeedData(user.id);
@@ -96,7 +133,7 @@ const routes = defineRoutes<NotesTodoEvent>({
     },
     async POST(req, ctx) {
       const user = ctx.requireUser();
-      const body = await parseJson<{ title: string; body?: string; sectionId: string }>(req);
+      const body = await parseJson(req, createNoteSchema);
       if (!sectionBelongsToUser(body.sectionId, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
       const note = { id: crypto.randomUUID(), userId: user.id, title: body.title, body: body.body ?? "", sectionId: body.sectionId, updatedAt: nowIso() };
       notes.unshift(note);
@@ -106,10 +143,11 @@ const routes = defineRoutes<NotesTodoEvent>({
   },
   "/api/notes/:id": {
     auth: "user",
+    requestSchema: updateNoteSchema,
     async PATCH(req, ctx) {
       const user = ctx.requireUser();
       const note = ctx.requireOwned(notes.find((item) => item.id === ctx.params.id));
-      const body = await parseJson<Partial<Note>>(req);
+      const body = await parseJson(req, updateNoteSchema);
       if (body.sectionId && !sectionBelongsToUser(body.sectionId, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
       Object.assign(note, body, { userId: user.id, updatedAt: nowIso() });
       ctx.userRealtime.publishEntityChanged("notes", note.id);
@@ -125,6 +163,7 @@ const routes = defineRoutes<NotesTodoEvent>({
   },
   "/api/todos": {
     auth: "user",
+    requestSchema: createTodoSchema,
     GET: (_req, ctx) => {
       const user = ctx.requireUser();
       ensureSeedData(user.id);
@@ -132,7 +171,7 @@ const routes = defineRoutes<NotesTodoEvent>({
     },
     async POST(req, ctx) {
       const user = ctx.requireUser();
-      const body = await parseJson<{ title: string; sectionId: string; priority?: Todo["priority"] }>(req);
+      const body = await parseJson(req, createTodoSchema);
       if (!sectionBelongsToUser(body.sectionId, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
       const todo = { id: crypto.randomUUID(), userId: user.id, title: body.title, sectionId: body.sectionId, priority: body.priority ?? "normal", completed: false, updatedAt: nowIso() };
       todos.unshift(todo);
@@ -142,10 +181,11 @@ const routes = defineRoutes<NotesTodoEvent>({
   },
   "/api/todos/:id": {
     auth: "user",
+    requestSchema: updateTodoSchema,
     async PATCH(req, ctx) {
       const user = ctx.requireUser();
       const todo = ctx.requireOwned(todos.find((item) => item.id === ctx.params.id));
-      const body = await parseJson<Partial<Todo>>(req);
+      const body = await parseJson(req, updateTodoSchema);
       if (body.sectionId && !sectionBelongsToUser(body.sectionId, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
       Object.assign(todo, body, { userId: user.id, updatedAt: nowIso() });
       ctx.userRealtime.publishEntityChanged("todos", todo.id);
@@ -167,12 +207,13 @@ const routes = defineRoutes<NotesTodoEvent>({
   "/api/webhooks/:source/:token": {
     auth: "public",
     sameOrigin: "never",
+    requestSchema: webhookSchema,
     async POST(req, ctx) {
-      const body = await parseJson<{ title?: string }>(req).catch((): { title?: string } => ({}));
+      const body = await parseOptionalJson(req, webhookSchema);
       const owner = store.getOwnerUser();
       if (!owner) return jsonResponse({ ok: true, accepted: false }, { status: 202 });
       ensureSeedData(owner.id);
-      todos.unshift({ id: crypto.randomUUID(), userId: owner.id, sectionId: `${owner.id}:inbox`, title: body.title ?? `Webhook from ${ctx.params.source}`, completed: false, priority: "normal", updatedAt: nowIso() });
+      todos.unshift({ id: crypto.randomUUID(), userId: owner.id, sectionId: `${owner.id}:inbox`, title: body?.title ?? `Webhook from ${ctx.params.source}`, completed: false, priority: "normal", updatedAt: nowIso() });
       ctx.realtime.publishChanged("todos", { target: { userId: owner.id } });
       return jsonResponse({ ok: true });
     },
