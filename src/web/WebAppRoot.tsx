@@ -976,10 +976,14 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
   }
 
   async function killServer() {
-    setError(undefined);
-    setConfirmKillServer(false);
-    await appFetch("/api/server/kill", { method: "POST" });
-    setKillRequested(true);
+    try {
+      setError(undefined);
+      setConfirmKillServer(false);
+      await appFetch("/api/server/kill", { method: "POST" });
+      setKillRequested(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   return (
@@ -1124,7 +1128,7 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
         confirmLabel="Kill server"
         danger
         onCancel={() => setConfirmKillServer(false)}
-        onConfirm={() => void killServer().catch((err) => setError(String(err)))}
+        onConfirm={() => void killServer()}
       />
     </div>
   );

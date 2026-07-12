@@ -3,7 +3,7 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { readFileSync } from "node:fs";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { Button, ConfirmModal, Modal } from "../src/web/components";
 import type { WebAppConfigResponse } from "../src/contracts";
 import { configureWebAppClient, onAuthRequired } from "../src/web/api-client";
@@ -855,6 +855,22 @@ test("settings device sessions show empty state when no active sessions are retu
     const { getByText } = await renderSettingsWebApp();
 
     expect(getByText("No device sessions")).toBeTruthy();
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("settings kill server surfaces failures without starting the shutdown countdown", async () => {
+  const restoreFetch = mockSettingsFetch([]);
+  try {
+    const view = await renderSettingsWebApp();
+    fireEvent.click(view.getByRole("button", { name: "Kill server" }));
+
+    const dialog = await waitFor(() => view.getByRole("dialog", { name: "Kill server?" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Kill server" }));
+
+    await waitFor(() => expect(view.getByText("Not found")).toBeTruthy());
+    expect(view.queryByText(/Server is shutting down/)).toBeNull();
   } finally {
     restoreFetch();
   }
