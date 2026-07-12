@@ -3,14 +3,15 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { readFileSync } from "node:fs";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { Button, ConfirmModal, Modal } from "../src/web/components";
 import type { WebAppConfigResponse } from "../src/contracts";
+import { configureWebAppClient, onAuthRequired } from "../src/web/api-client";
 import type { BadgeVariant, SidebarNode } from "../src/web/sidebar/types";
 import { WebAppRoot } from "../src/web/WebAppRoot";
 import { configureWebAppRenderer, renderWebApp } from "../src/web/render";
 
-GlobalRegistrator.register();
+GlobalRegistrator.register({ url: "http://localhost/" });
 configureWebAppRenderer(createRoot);
 
 afterEach(() => {
@@ -18,10 +19,11 @@ afterEach(() => {
   document.body.innerHTML = "";
   document.body.style.overflow = "";
   localStorage.clear();
-  window.history.replaceState(null, "", "/");
+  configureWebAppClient();
+  window.history.replaceState(null, "", "http://localhost/");
 });
 
-function mockConfigFetch() {
+function mockConfigFetch(onRequest?: (input: RequestInfo | URL, init?: RequestInit) => void) {
   const previousFetch = globalThis.fetch;
   const config: WebAppConfigResponse = {
     appName: "Test App",
@@ -56,7 +58,8 @@ function mockConfigFetch() {
     return new URL(String(rawUrl), "http://localhost").pathname;
   }
 
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    onRequest?.(input, init);
     if (fetchPath(input) === "/api/config") {
       return Response.json(config);
     }
@@ -402,6 +405,52 @@ test("mockConfigFetch matches config requests from string, URL, and Request inpu
     await expect(fetch(new Request("http://localhost/api/config")).then((response) => response.json())).resolves.toMatchObject({ appName: "Test App" });
   } finally {
     restoreFetch();
+  }
+});
+
+test("WebAppRoot routes built-in requests through the configured API base URL", async () => {
+  const requested: string[] = [];
+  configureWebAppClient({ apiBaseUrl: "https://api.example.test/root" });
+  const restoreFetch = mockConfigFetch((input) => requested.push(String(input)));
+
+  try {
+    await renderShortcutWebApp();
+    expect(requested).toContain("https://api.example.test/api/config");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("WebAppRoot forwards auth-required responses from built-in requests", async () => {
+  const previousFetch = globalThis.fetch;
+  const events: string[] = [];
+  const unsubscribe = onAuthRequired(() => events.push("auth"));
+  configureWebAppClient({ apiBaseUrl: "https://api.example.test" });
+  globalThis.fetch = (async () => Response.json(
+    { error: "authentication_required", message: "Login required", details: { reason: "passkey" } },
+    { status: 401, headers: { "x-webapp-passkey-required": "true" } },
+  )) as unknown as typeof fetch;
+
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+      },
+    }));
+
+    await waitFor(() => expect(view.getByText("Unable to load app")).toBeTruthy());
+    expect(view.getByText("Login required")).toBeTruthy();
+    expect(events).toEqual(["auth"]);
+  } finally {
+    unsubscribe();
+    globalThis.fetch = previousFetch;
   }
 });
 
@@ -806,6 +855,22 @@ test("settings device sessions show empty state when no active sessions are retu
     const { getByText } = await renderSettingsWebApp();
 
     expect(getByText("No device sessions")).toBeTruthy();
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("settings kill server surfaces failures without starting the shutdown countdown", async () => {
+  const restoreFetch = mockSettingsFetch([]);
+  try {
+    const view = await renderSettingsWebApp();
+    fireEvent.click(view.getByRole("button", { name: "Kill server" }));
+
+    const dialog = await waitFor(() => view.getByRole("dialog", { name: "Kill server?" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Kill server" }));
+
+    await waitFor(() => expect(view.getByText("Not found")).toBeTruthy());
+    expect(view.queryByText(/Server is shutting down/)).toBeNull();
   } finally {
     restoreFetch();
   }

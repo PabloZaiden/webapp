@@ -1,8 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   WebAppApiError,
   appAbsoluteUrl,
   appFetch,
+  appJson,
   appPath,
   appRequest,
   appWebSocketUrl,
@@ -23,6 +24,10 @@ function installDom(url = "https://example.test/", baseHref?: string): void {
     configurable: true,
   });
 }
+
+afterEach(() => {
+  configureWebAppClient();
+});
 
 describe("web API client", () => {
   test("builds app-relative URLs from the current document path by default", () => {
@@ -84,6 +89,78 @@ describe("web API client", () => {
     expect(appWebSocketUrl("ws://localhost:1234/socket")).toBe("ws://localhost:1234/socket");
   });
 
+  test("appJson uses configured URLs and preserves request headers", async () => {
+    installDom("https://example.test/ignored");
+    configureWebAppClient({ apiBaseUrl: "https://api.example.test/root" });
+    const previousFetch = globalThis.fetch;
+    let requestedUrl = "";
+    let requestedInit: RequestInit | undefined;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requestedUrl = String(input);
+      requestedInit = init;
+      return Response.json({ ok: true });
+    }) as unknown as typeof fetch;
+
+    try {
+      await expect(appJson<{ ok: boolean }>("/api/items", {
+        method: "POST",
+        body: "{}",
+        headers: {
+          accept: "text/plain",
+          "content-type": "application/custom+json",
+          "x-request-id": "request-1",
+        },
+      })).resolves.toEqual({ ok: true });
+      expect(requestedUrl).toBe("https://api.example.test/api/items");
+      expect(requestedInit?.credentials).toBe("same-origin");
+      const headers = new Headers(requestedInit?.headers);
+      expect(headers.get("accept")).toBe("text/plain");
+      expect(headers.get("content-type")).toBe("application/custom+json");
+      expect(headers.get("x-request-id")).toBe("request-1");
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test("appJson only sets a default content type when a request has a body", async () => {
+    configureWebAppClient({ apiBaseUrl: "https://api.example.test" });
+    installDom();
+    const previousFetch = globalThis.fetch;
+    const requestHeaders: Headers[] = [];
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestHeaders.push(new Headers(init?.headers));
+      return Response.json({ ok: true });
+    }) as unknown as typeof fetch;
+
+    try {
+      await appJson("/api/items");
+      await appJson("/api/items", { method: "POST", body: "{}" });
+
+      expect(requestHeaders[0]?.get("content-type")).toBeNull();
+      expect(requestHeaders[1]?.get("content-type")).toBe("application/json");
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test("appJson rejects successful responses without a JSON body", async () => {
+    configureWebAppClient();
+    installDom();
+    const previousFetch = globalThis.fetch;
+    const responses = [
+      new Response("not json", { status: 200, headers: { "content-type": "text/plain" } }),
+      new Response(null, { status: 204 }),
+    ];
+    globalThis.fetch = (async () => responses.shift()!) as unknown as typeof fetch;
+
+    try {
+      await expect(appJson("/api/non-json")).rejects.toBeInstanceOf(SyntaxError);
+      await expect(appJson("/api/empty")).rejects.toBeInstanceOf(SyntaxError);
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   test("normalizes JSON errors and emits auth-required events", async () => {
     configureWebAppClient();
     installDom("https://example.test/prefix/", "https://example.test/prefix/");
@@ -101,6 +178,7 @@ describe("web API client", () => {
         status: 401,
         error: "authentication_required",
         message: "Login required",
+        details: { reason: "passkey" },
       } satisfies Partial<WebAppApiError>);
       expect(events).toEqual(["auth"]);
     } finally {
