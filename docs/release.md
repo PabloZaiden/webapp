@@ -14,10 +14,11 @@
 
 `Main Docker Smoke` runs after merges to `main`:
 
-1. Build Linux x64 binaries for both examples.
-2. Build Docker images from `examples/*/Dockerfile`.
-3. Run both containers.
-4. Smoke-test `/api/health` plus one app endpoint through the published container ports.
+1. Build Linux x64 and Linux arm64 binaries for both examples.
+2. Build each Docker image with an explicit `linux/amd64` or `linux/arm64` platform and matching `APP_BINARY` path.
+3. Validate missing, unsupported, and mismatched Docker arguments fail during the image build.
+4. Run both architecture variants of both containers.
+5. Smoke-test `/api/health` plus one app endpoint through the published container ports.
 
 ## NPM releases
 
@@ -61,4 +62,3 @@ For the first publish, npm may require a local manual publish before trusted pub
    - Workflow: `release-npm-package.yml`
    - Environment: leave empty unless an environment is added later
 7. After that, publish future versions by creating and publishing GitHub releases with tags like `v0.1.1`.
-
