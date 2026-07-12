@@ -81,7 +81,7 @@ test("native server reports a missing application react-dom before serving a doc
   }
 });
 
-test("compiled server documents do not require runtime application node_modules", async () => {
+test("compiled server ignores virtual runtime web entries and application node_modules", async () => {
   const fixture = createAppFixture(false);
   const compiledClientSymbol = Symbol.for("webapp.compiledClient");
   const globalWithCompiledClient = globalThis as Record<symbol, unknown>;
@@ -100,7 +100,7 @@ test("compiled server documents do not require runtime application node_modules"
     const app = createWebAppServer({
       appName: "Compiled Resolution Fixture",
       envPrefix: "PACKAGE_RESOLUTION_COMPILED",
-      web: { entry: pathToFileURL(fixture.entrypoint) },
+      web: { entry: pathToFileURL(join(fixture.root, "..", "$bunfs", "root", "web", "main.tsx")) },
       store: createStore(fixture.root, "compiled"),
       auth: { passkeys: false },
       routes: defineRoutes({}),

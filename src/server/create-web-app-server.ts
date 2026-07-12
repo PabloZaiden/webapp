@@ -797,16 +797,22 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const configuredAppleTouch = iconConfig(input.web?.icons?.appleTouch) ?? configuredFavicon;
   const configuredManifestIcons = input.web?.icons?.manifest ?? [];
   const compiled = compiledClient();
-  const webEntryFile = resolveWebEntry(input.web?.entry);
-  const webPackageRoot = compiled?.packageRoot ?? findPackageRoot(dirname(webEntryFile));
-  const reactDomClientPath = compiled ? undefined : resolveReactDomClient(webPackageRoot, webEntryFile);
-  const webDocumentResolution: WebDocumentResolution = {
-    entryFile: compiled ? undefined : webEntryFile,
-    packageRoot: webPackageRoot,
-    reactDomClientPath,
-  };
+  let webDocumentResolution: WebDocumentResolution;
+  if (compiled) {
+    webDocumentResolution = { packageRoot: compiled.packageRoot };
+  } else {
+    const webEntryFile = resolveWebEntry(input.web?.entry);
+    const packageRoot = findPackageRoot(dirname(webEntryFile));
+    webDocumentResolution = {
+      entryFile: webEntryFile,
+      packageRoot,
+      reactDomClientPath: resolveReactDomClient(packageRoot, webEntryFile),
+    };
+  }
+  const webEntryFile = webDocumentResolution.entryFile;
+  const webPackageRoot = webDocumentResolution.packageRoot;
   const generatedRoutePaths = new Set([
-    webEntryPublicPath(webEntryFile, webPackageRoot),
+    ...(webEntryFile ? [webEntryPublicPath(webEntryFile, webPackageRoot)] : []),
     ...(compiled?.assets.map((asset) => asset.path) ?? []),
     "/webapp-icon.svg",
     ...(configuredFavicon ? [`/webapp-favicon${pathExtension(resolveWebAsset(configuredFavicon.src, webPackageRoot)) || ".png"}`] : []),
