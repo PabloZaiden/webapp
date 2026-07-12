@@ -5,6 +5,7 @@ import { createApiKey } from "../src/server/auth/api-keys";
 import type { WebAppServer } from "../src/server/create-web-app-server";
 import type { WebSocketData } from "../src/server/realtime/bus";
 import type { UserRecord, WebAppStore } from "../src/server/auth/store";
+import { createNotesTodoApp } from "../examples/notes-todo/src/app";
 
 const kitchenDataDir = `.cache/tests/example-mutations-kitchen-${crypto.randomUUID()}`;
 const notesDataDir = `.cache/tests/example-mutations-notes-${crypto.randomUUID()}`;
@@ -255,5 +256,87 @@ describe("example application mutations", () => {
     } finally {
       todoEvents.close();
     }
+  });
+
+  test("validates webhook bodies before creating todos or publishing events", async () => {
+    const webhookPath = "/api/webhooks/test-source/test-token";
+    const listTodos = async () => {
+      const response = await apiRequest(notesTodo.app, notesAuth.token, "/api/todos");
+      expect(response?.status).toBe(200);
+      return await responseJson<Array<{ id: string; title: string }>>(response);
+    };
+    const initialTodos = await listTodos();
+    const events = captureEvents(notesTodo.app, notesAuth.user.id);
+
+    try {
+      const validResponse = await apiRequest(notesTodo.app, notesAuth.token, webhookPath, {
+        method: "POST",
+        body: JSON.stringify({ title: "Webhook title" }),
+      });
+      expect(validResponse?.status).toBe(200);
+      expect(await responseJson<{ ok: boolean }>(validResponse)).toEqual({ ok: true });
+      let todos = await listTodos();
+      expect(todos).toHaveLength(initialTodos.length + 1);
+      expect(todos.some(({ title }) => title === "Webhook title")).toBe(true);
+      expect(events.messages).toHaveLength(1);
+      expect(JSON.parse(events.messages[0]!).event).toMatchObject({
+        type: "todos.changed",
+        resource: "todos",
+        action: "changed",
+      });
+
+      const emptyObjectResponse = await apiRequest(notesTodo.app, notesAuth.token, webhookPath, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      expect(emptyObjectResponse?.status).toBe(200);
+      todos = await listTodos();
+      expect(todos).toHaveLength(initialTodos.length + 2);
+      expect(todos.some(({ title }) => title === "Webhook from test-source")).toBe(true);
+      expect(events.messages).toHaveLength(2);
+
+      const emptyBodyResponse = await apiRequest(notesTodo.app, notesAuth.token, webhookPath, { method: "POST" });
+      expect(emptyBodyResponse?.status).toBe(200);
+      todos = await listTodos();
+      expect(todos).toHaveLength(initialTodos.length + 3);
+      expect(todos.filter(({ title }) => title === "Webhook from test-source")).toHaveLength(2);
+      expect(events.messages).toHaveLength(3);
+
+      const beforeRejected = todos;
+      const eventCountBeforeRejected = events.messages.length;
+      const rejectedBodies = [
+        { body: "{", error: "invalid_json" },
+        { body: " \n\t", error: "invalid_json" },
+        { body: JSON.stringify(null), error: "invalid_request_body" },
+        { body: JSON.stringify({ title: 42 }), error: "invalid_request_body" },
+        { body: JSON.stringify({ title: "" }), error: "invalid_request_body" },
+        { body: JSON.stringify({ title: "x".repeat(201) }), error: "invalid_request_body" },
+      ] as const;
+
+      for (const rejected of rejectedBodies) {
+        const response = await apiRequest(notesTodo.app, notesAuth.token, webhookPath, {
+          method: "POST",
+          body: rejected.body,
+        });
+        expect(response?.status).toBe(400);
+        expect(await responseJson<{ error: string }>(response)).toMatchObject({ error: rejected.error });
+        expect(await listTodos()).toHaveLength(beforeRejected.length);
+        expect(events.messages).toHaveLength(eventCountBeforeRejected);
+      }
+    } finally {
+      events.close();
+    }
+  });
+
+  test("preserves the ownerless webhook acceptance response", async () => {
+    const ownerless = createNotesTodoApp({
+      dataDir: `.cache/tests/example-mutations-notes-ownerless-${crypto.randomUUID()}`,
+    });
+    const response = await ownerless.handleRequest(new Request("http://localhost/api/webhooks/test-source/test-token", {
+      method: "POST",
+    }));
+
+    expect(response?.status).toBe(202);
+    expect(await responseJson<{ ok: boolean; accepted: boolean }>(response)).toEqual({ ok: true, accepted: false });
   });
 });
