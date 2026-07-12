@@ -134,6 +134,7 @@ Prefer `getByRole`, `getByLabel`, accessible names and other stable user-facing 
 
 Playwright-generated files are temporary artifacts, not application changes. Keep them outside the application repository and never commit paths such as:
 
+- `.playwright/`
 - `playwright-report/`
 - `test-results/`
 - `playwright/.auth/`
