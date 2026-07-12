@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { RealtimeBus, createWebAppServer, defineRoutes, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
 import { createApiKey } from "../src/server/auth/api-keys";
 import { sha256 } from "../src/server/auth/crypto";
-import { readRuntimeConfig } from "../src/server/runtime-config";
+import { readRuntimeConfig, safeRuntimeConfig } from "../src/server/runtime-config";
 import type { UserRecord, WebAppStore } from "../src/server/auth/store";
 
 const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
@@ -69,6 +69,25 @@ function isoOffset(seconds: number): string {
 async function responseJson<T>(response: Response | undefined): Promise<T> {
   expect(response).toBeDefined();
   return await response!.json() as T;
+}
+
+async function withEnv<T>(values: Record<string, string>, callback: () => T | Promise<T>): Promise<T> {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, process.env[key]);
+    process.env[key] = value;
+  }
+  try {
+    return await callback();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
 }
 
 describe("server security defaults", () => {
@@ -635,6 +654,315 @@ describe("server security defaults", () => {
         process.env["TEST_LOG_LEVEL"] = previous;
       }
     }
+  });
+
+  test("runtime config disables forwarded-header trust by default", () => {
+    const config = readRuntimeConfig({ appName: "Test", envPrefix: "TEST_RUNTIME_TRUST_DEFAULT" });
+    expect(config.trustProxy).toEqual({ enabled: false, headers: [], chain: "first" });
+    expect(safeRuntimeConfig(config).trustProxy).toEqual({ enabled: false, headers: [], chain: "first" });
+  });
+
+  test("runtime config parses the explicit trust-proxy policy", () => {
+    const keys = [
+      "TEST_RUNTIME_TRUST_ENABLED_TRUST_PROXY",
+      "TEST_RUNTIME_TRUST_ENABLED_TRUST_PROXY_HEADERS",
+      "TEST_RUNTIME_TRUST_ENABLED_TRUST_PROXY_CHAIN",
+    ] as const;
+    const previous = keys.map((key) => process.env[key]);
+    process.env[keys[0]] = "yes";
+    process.env[keys[1]] = "proto, host";
+    process.env[keys[2]] = "last";
+    try {
+      const config = readRuntimeConfig({ appName: "Test", envPrefix: "TEST_RUNTIME_TRUST_ENABLED" });
+      expect(config.trustProxy).toEqual({ enabled: true, headers: ["proto", "host"], chain: "last" });
+      expect(safeRuntimeConfig(config).trustProxy).toEqual({ enabled: true, headers: ["proto", "host"], chain: "last" });
+    } finally {
+      keys.forEach((key, index) => {
+        const value = previous[index];
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      });
+    }
+  });
+
+  test("runtime config rejects invalid trust-proxy values", () => {
+    const invalidCases = [
+      {
+        key: "TEST_RUNTIME_TRUST_INVALID_HEADER_TRUST_PROXY_HEADERS",
+        value: "proto,forwarded",
+        message: "TEST_RUNTIME_TRUST_INVALID_HEADER_TRUST_PROXY_HEADERS",
+        envPrefix: "TEST_RUNTIME_TRUST_INVALID_HEADER",
+      },
+      {
+        key: "TEST_RUNTIME_TRUST_INVALID_CHAIN_TRUST_PROXY_CHAIN",
+        value: "nearest",
+        message: "TEST_RUNTIME_TRUST_INVALID_CHAIN_TRUST_PROXY_CHAIN",
+        envPrefix: "TEST_RUNTIME_TRUST_INVALID_CHAIN",
+      },
+      {
+        key: "TEST_RUNTIME_TRUST_INVALID_BOOLEAN_TRUST_PROXY",
+        value: "sometimes",
+        message: "TEST_RUNTIME_TRUST_INVALID_BOOLEAN_TRUST_PROXY",
+        envPrefix: "TEST_RUNTIME_TRUST_INVALID_BOOLEAN",
+      },
+    ] as const;
+    for (const testCase of invalidCases) {
+      const previous = process.env[testCase.key];
+      process.env[testCase.key] = testCase.value;
+      try {
+        expect(() => readRuntimeConfig({ appName: "Test", envPrefix: testCase.envPrefix })).toThrow(testCase.message);
+      } finally {
+        if (previous === undefined) {
+          delete process.env[testCase.key];
+        } else {
+          process.env[testCase.key] = previous;
+        }
+      }
+    }
+  });
+
+  test("ignores forwarded origin and prefix headers by default", async () => {
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_PROXY_DEFAULT_BEHAVIOR",
+      store: testStore("proxy-default-behavior"),
+      auth: { passkeys: true },
+      routes: defineRoutes({
+        "/api/proxy-origin": {
+          auth: "public",
+          POST: () => jsonResponse({ ok: true }),
+        },
+      }),
+    });
+    const forwardedHeaders = {
+      origin: "http://localhost",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "attacker.example.test",
+      "x-forwarded-prefix": "/attacker",
+    };
+    const routeResponse = await app.handleRequest(new Request("http://localhost/api/proxy-origin", {
+      method: "POST",
+      headers: forwardedHeaders,
+    }));
+    expect(routeResponse?.status).toBe(200);
+
+    const optionsResponse = await app.handleRequest(new Request("http://localhost/api/passkey-auth/bootstrap/options", {
+      method: "POST",
+      headers: { ...forwardedHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ username: "owner" }),
+    }));
+    const options = await responseJson<{ rp?: { id?: string } }>(optionsResponse);
+    const cookie = optionsResponse?.headers.get("set-cookie") ?? "";
+    expect(options.rp?.id).toBe("localhost");
+    expect(cookie).toContain("Path=/");
+    expect(cookie).not.toContain("Path=/attacker");
+    expect(cookie).not.toMatch(/(?:^|; )Secure(?:;|$)/);
+  });
+
+  test("uses the configured forwarded origin and prefix in trusted mode", async () => {
+    await withEnv({
+      TEST_PROXY_TRUSTED_TRUST_PROXY: "true",
+      TEST_PROXY_TRUSTED_TRUST_PROXY_HEADERS: "proto,host,prefix",
+      TEST_PROXY_TRUSTED_TRUST_PROXY_CHAIN: "first",
+    }, async () => {
+      const app = createWebAppServer({
+        appName: "Test",
+        envPrefix: "TEST_PROXY_TRUSTED",
+        store: testStore("proxy-trusted"),
+        auth: { passkeys: true },
+        routes: defineRoutes({
+          "/api/proxy-origin": {
+            auth: "public",
+            POST: () => jsonResponse({ ok: true }),
+          },
+        }),
+      });
+      const forwardedHeaders = {
+        origin: "https://app.example.test",
+        "x-forwarded-proto": "https",
+        "x-forwarded-host": "app.example.test",
+        "x-forwarded-prefix": "/proxy/",
+      };
+      const routeResponse = await app.handleRequest(new Request("http://internal.example.test/api/proxy-origin", {
+        method: "POST",
+        headers: forwardedHeaders,
+      }));
+      expect(routeResponse?.status).toBe(200);
+
+      const optionsResponse = await app.handleRequest(new Request("http://internal.example.test/api/passkey-auth/bootstrap/options", {
+        method: "POST",
+        headers: { ...forwardedHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ username: "owner" }),
+      }));
+      const options = await responseJson<{ rp?: { id?: string } }>(optionsResponse);
+      const cookie = optionsResponse?.headers.get("set-cookie") ?? "";
+      expect(options.rp?.id).toBe("app.example.test");
+      expect(cookie).toContain("Path=/proxy");
+      expect(cookie).toMatch(/(?:^|; )Secure(?:;|$)/);
+    });
+  });
+
+  test("selects the documented forwarded chain value", async () => {
+    const route = defineRoutes({
+      "/api/proxy-chain": {
+        auth: "public",
+        POST: () => jsonResponse({ ok: true }),
+      },
+    });
+    const headers = {
+      "x-forwarded-proto": "https, http",
+      "x-forwarded-host": "first.example.test, last.example.test",
+    };
+
+    await withEnv({
+      TEST_PROXY_CHAIN_FIRST_TRUST_PROXY: "true",
+      TEST_PROXY_CHAIN_FIRST_TRUST_PROXY_HEADERS: "proto,host",
+      TEST_PROXY_CHAIN_FIRST_TRUST_PROXY_CHAIN: "first",
+    }, async () => {
+      const app = createWebAppServer({
+        appName: "Test",
+        envPrefix: "TEST_PROXY_CHAIN_FIRST",
+        store: testStore("proxy-chain-first"),
+        auth: { passkeys: false },
+        routes: route,
+      });
+      const response = await app.handleRequest(new Request("http://internal.example.test/api/proxy-chain", {
+        method: "POST",
+        headers: { ...headers, origin: "https://first.example.test" },
+      }));
+      expect(response?.status).toBe(200);
+    });
+
+    await withEnv({
+      TEST_PROXY_CHAIN_LAST_TRUST_PROXY: "true",
+      TEST_PROXY_CHAIN_LAST_TRUST_PROXY_HEADERS: "proto,host",
+      TEST_PROXY_CHAIN_LAST_TRUST_PROXY_CHAIN: "last",
+    }, async () => {
+      const app = createWebAppServer({
+        appName: "Test",
+        envPrefix: "TEST_PROXY_CHAIN_LAST",
+        store: testStore("proxy-chain-last"),
+        auth: { passkeys: false },
+        routes: route,
+      });
+      const response = await app.handleRequest(new Request("http://internal.example.test/api/proxy-chain", {
+        method: "POST",
+        headers: { ...headers, origin: "http://last.example.test" },
+      }));
+      expect(response?.status).toBe(200);
+    });
+  });
+
+  test("falls back to direct values for malformed trusted headers", async () => {
+    await withEnv({
+      TEST_PROXY_INVALID_REQUEST_TRUST_PROXY: "true",
+      TEST_PROXY_INVALID_REQUEST_TRUST_PROXY_HEADERS: "proto,host,prefix",
+      TEST_PROXY_INVALID_REQUEST_TRUST_PROXY_CHAIN: "first",
+    }, async () => {
+      const app = createWebAppServer({
+        appName: "Test",
+        envPrefix: "TEST_PROXY_INVALID_REQUEST",
+        store: testStore("proxy-invalid-request"),
+        auth: { passkeys: true },
+        routes: defineRoutes({
+          "/api/proxy-invalid": {
+            auth: "public",
+            POST: () => jsonResponse({ ok: true }),
+          },
+        }),
+      });
+      const headers = {
+        origin: "http://localhost",
+        "x-forwarded-proto": "javascript",
+        "x-forwarded-host": "evil.example.test/path",
+        "x-forwarded-prefix": "relative",
+      };
+      const routeResponse = await app.handleRequest(new Request("http://localhost/api/proxy-invalid", {
+        method: "POST",
+        headers,
+      }));
+      expect(routeResponse?.status).toBe(200);
+
+      const optionsResponse = await app.handleRequest(new Request("http://localhost/api/passkey-auth/bootstrap/options", {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ username: "owner" }),
+      }));
+      const options = await responseJson<{ rp?: { id?: string } }>(optionsResponse);
+      const cookie = optionsResponse?.headers.get("set-cookie") ?? "";
+      expect(options.rp?.id).toBe("localhost");
+      expect(cookie).toContain("Path=/");
+      expect(cookie).not.toMatch(/(?:^|; )Secure(?:;|$)/);
+    });
+  });
+
+  test("keeps publicBaseUrl authoritative for origin, WebSocket checks, and public URLs", async () => {
+    await withEnv({
+      TEST_PROXY_PUBLIC_BASE_TRUST_PROXY: "true",
+      TEST_PROXY_PUBLIC_BASE_TRUST_PROXY_HEADERS: "proto,host,prefix",
+      TEST_PROXY_PUBLIC_BASE_TRUST_PROXY_CHAIN: "first",
+      TEST_PROXY_PUBLIC_BASE_PUBLIC_BASE_URL: "https://public.example.test",
+    }, async () => {
+      const app = createWebAppServer({
+        appName: "Test",
+        envPrefix: "TEST_PROXY_PUBLIC_BASE",
+        store: testStore("proxy-public-base"),
+        auth: { passkeys: false, deviceAuth: true },
+        routes: defineRoutes({
+          "/api/proxy-public-base": {
+            auth: "public",
+            POST: () => jsonResponse({ ok: true }),
+          },
+        }),
+      });
+      const forwarded = {
+        "x-forwarded-proto": "http",
+        "x-forwarded-host": "attacker.example.test",
+        "x-forwarded-prefix": "/proxy",
+      };
+      const originResponse = await app.handleRequest(new Request("http://internal.example.test/api/proxy-public-base", {
+        method: "POST",
+        headers: { ...forwarded, origin: "https://public.example.test" },
+      }));
+      expect(originResponse?.status).toBe(200);
+
+      const websocketRejected = await app.handleRequest(new Request("http://internal.example.test/api/ws", {
+        headers: { ...forwarded, origin: "https://attacker.example.test", upgrade: "websocket" },
+      }));
+      expect(websocketRejected?.status).toBe(403);
+
+      const websocketAccepted = await app.handleRequest(new Request("http://internal.example.test/api/ws", {
+        headers: { ...forwarded, origin: "https://public.example.test", upgrade: "websocket" },
+      }));
+      expect(websocketAccepted?.status).toBe(400);
+
+      const device = await responseJson<{ verification_uri: string }>(await app.handleRequest(new Request("http://internal.example.test/api/auth/device", {
+        method: "POST",
+        headers: { ...forwarded, "content-type": "application/json" },
+        body: "{}",
+      })));
+      expect(device.verification_uri).toBe("https://public.example.test/proxy/device");
+
+      const passkeyApp = createWebAppServer({
+        appName: "Test",
+        envPrefix: "TEST_PROXY_PUBLIC_BASE",
+        store: testStore("proxy-public-base-passkey"),
+        auth: { passkeys: true },
+        routes: defineRoutes({}),
+      });
+      const passkeyResponse = await passkeyApp.handleRequest(new Request("http://internal.example.test/api/passkey-auth/bootstrap/options", {
+        method: "POST",
+        headers: { ...forwarded, "content-type": "application/json" },
+        body: JSON.stringify({ username: "owner" }),
+      }));
+      const passkeyOptions = await responseJson<{ rp?: { id?: string } }>(passkeyResponse);
+      const passkeyCookie = passkeyResponse?.headers.get("set-cookie") ?? "";
+      expect(passkeyOptions.rp?.id).toBe("public.example.test");
+      expect(passkeyCookie).toMatch(/(?:^|; )Secure(?:;|$)/);
+    });
   });
 
   test("started server keeps device page disabled when device auth is disabled", async () => {

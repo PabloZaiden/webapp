@@ -89,4 +89,37 @@ ENV MY_APP_DATA_DIR=/app/data
 
 The framework has no external frontend asset directory, so the compiled binary contains the server and Bun HTML import graph.
 
+## Reverse proxy and forwarded headers
+
+When TLS or a public path is terminated by a reverse proxy, keep the
+application port reachable only from that proxy and configure the trust policy
+explicitly:
+
+```bash
+MY_APP_TRUST_PROXY=true
+MY_APP_TRUST_PROXY_HEADERS=proto,host,prefix
+MY_APP_TRUST_PROXY_CHAIN=first
+MY_APP_PUBLIC_BASE_URL=https://app.example.test
+```
+
+The proxy must strip any client-provided `X-Forwarded-Proto`,
+`X-Forwarded-Host`, and `X-Forwarded-Prefix` values before overwriting the
+headers it is responsible for. Only enable the corresponding symbolic
+headers in `MY_APP_TRUST_PROXY_HEADERS`. Sanitized single-value headers are
+recommended; `MY_APP_TRUST_PROXY_CHAIN` exists only to make a comma-separated
+chain deterministic. The framework does not infer trust from header presence,
+does not parse the RFC `Forwarded` header, and does not provide a
+proxy-address allowlist in this release.
+
+Use `MY_APP_PUBLIC_BASE_URL` when the external origin must remain deterministic
+regardless of request headers. A trusted prefix controls cookie paths and
+framework-generated setup/device links. If trust is disabled, the framework
+uses the direct request URL and host, which is the correct default for a
+direct deployment.
+
+Proxy configuration does not make application data persistent. Set
+`MY_APP_DATA_DIR` to a durable directory and mount a persistent volume for
+container deployments; the SQLite data must survive independently of the
+reverse proxy or application process.
+
 For full application CI/CD templates, including a production Dockerfile, PR checks, GHCR publishing on `main`, binary releases and Docker release images, see `docs/github-actions.md`.

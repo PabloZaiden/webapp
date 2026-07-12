@@ -40,6 +40,7 @@ import type { WebAppStore } from "./auth/store";
 import { AuthError, type AuthenticatedRequestState } from "./auth/types";
 import { audit, assertValidUsername, createSetupLinkRecord, createUserRecord, summarizeUser } from "./auth/users";
 import { nowIso, randomToken } from "./auth/crypto";
+import { getRequestBaseUrl } from "./auth/request-origin";
 import { createLogger, setLogLevel } from "./logger";
 import { createRealtimeBus, type RealtimeBus, type WebSocketData } from "./realtime/bus";
 import { readRuntimeConfig, safeRuntimeConfig, type RuntimeConfig } from "./runtime-config";
@@ -906,9 +907,8 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     return { ...(input.configResponse?.(req, base) ?? {}), ...base };
   }
 
-  function setupUrl(req: Request, token: string): string {
-    const url = new URL(req.url);
-    url.pathname = "/setup";
+  function setupUrl(req: Request, config: RuntimeConfig, token: string): string {
+    const url = new URL(`${getRequestBaseUrl(req, config)}/setup`);
     url.search = `?token=${encodeURIComponent(token)}`;
     url.hash = "";
     return url.toString();
@@ -918,7 +918,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     const token = randomToken(32);
     const record = createSetupLinkRecord({ userId, token, kind, createdByUserId: actorUserId });
     store.createSetupLink(record);
-    return { url: setupUrl(req, token), expiresAt: record.expiresAt };
+    return { url: setupUrl(req, config, token), expiresAt: record.expiresAt };
   }
 
   function ensureAdmin(auth: AuthenticatedRequestState): CurrentUser {

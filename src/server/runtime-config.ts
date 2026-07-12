@@ -1,5 +1,15 @@
 import type { LogLevelName } from "../contracts";
 
+export const TRUST_PROXY_HEADERS = ["proto", "host", "prefix"] as const;
+export type TrustProxyHeader = typeof TRUST_PROXY_HEADERS[number];
+export type TrustProxyChain = "first" | "last";
+
+export interface TrustProxyConfig {
+  enabled: boolean;
+  headers: readonly TrustProxyHeader[];
+  chain: TrustProxyChain;
+}
+
 export interface RuntimeConfig {
   appName: string;
   envPrefix: string;
@@ -12,6 +22,7 @@ export interface RuntimeConfig {
   sameOriginDisabled: boolean;
   publicBaseUrl?: string;
   authIssuer?: string;
+  trustProxy: TrustProxyConfig;
   development: false | { hmr: true; console: true };
 }
 
@@ -59,6 +70,50 @@ function parseLogLevel(raw: string | undefined, fallback: LogLevelName, name: st
   return raw as LogLevelName;
 }
 
+function parseBoolean(raw: string | undefined, fallback: boolean, name: string): boolean {
+  if (raw === undefined) {
+    return fallback;
+  }
+  const normalized = raw.toLowerCase();
+  if (normalized === "true" || normalized === "1" || normalized === "yes") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0" || normalized === "no") {
+    return false;
+  }
+  throw new Error(`${name} must be true or false; received "${raw}"`);
+}
+
+function parseTrustProxyHeaders(raw: string | undefined, enabled: boolean, name: string): TrustProxyHeader[] {
+  if (raw === undefined) {
+    return enabled ? [...TRUST_PROXY_HEADERS] : [];
+  }
+  const values = raw.split(",").map((value) => value.trim().toLowerCase());
+  if (values.length === 0 || values.some((value) => !value)) {
+    throw new Error(`${name} must be a comma-separated list of proto, host, and prefix; received "${raw}"`);
+  }
+  const headers: TrustProxyHeader[] = [];
+  for (const value of values) {
+    const header = TRUST_PROXY_HEADERS.find((candidate) => candidate === value);
+    if (!header) {
+      throw new Error(`${name} must contain only proto, host, and prefix; received "${raw}"`);
+    }
+    if (headers.includes(header)) {
+      throw new Error(`${name} must not contain duplicate values; received "${raw}"`);
+    }
+    headers.push(header);
+  }
+  return headers;
+}
+
+function parseTrustProxyChain(raw: string | undefined, name: string): TrustProxyChain {
+  const value = raw?.toLowerCase() ?? "first";
+  if (value === "first" || value === "last") {
+    return value;
+  }
+  throw new Error(`${name} must be first or last; received "${raw}"`);
+}
+
 export function readRuntimeConfig(input: {
   appName: string;
   envPrefix: string;
@@ -67,6 +122,12 @@ export function readRuntimeConfig(input: {
   const envPrefix = assertEnvPrefix(input.envPrefix);
   const logLevelRaw = readEnv(envPrefix, "LOG_LEVEL");
   const logLevel = parseLogLevel(logLevelRaw, input.defaultLogLevel ?? "info", envName(envPrefix, "LOG_LEVEL"));
+  const trustProxyEnabled = parseBoolean(readEnv(envPrefix, "TRUST_PROXY"), false, envName(envPrefix, "TRUST_PROXY"));
+  const trustProxy = {
+    enabled: trustProxyEnabled,
+    headers: parseTrustProxyHeaders(readEnv(envPrefix, "TRUST_PROXY_HEADERS"), trustProxyEnabled, envName(envPrefix, "TRUST_PROXY_HEADERS")),
+    chain: parseTrustProxyChain(readEnv(envPrefix, "TRUST_PROXY_CHAIN"), envName(envPrefix, "TRUST_PROXY_CHAIN")),
+  } satisfies TrustProxyConfig;
   return {
     appName: input.appName,
     envPrefix,
@@ -79,6 +140,7 @@ export function readRuntimeConfig(input: {
     sameOriginDisabled: isTruthyEnv(readEnv(envPrefix, "DISABLE_SAME_ORIGIN_CHECK")),
     publicBaseUrl: readEnv(envPrefix, "PUBLIC_BASE_URL"),
     authIssuer: readEnv(envPrefix, "AUTH_ISSUER"),
+    trustProxy,
     development: process.env["NODE_ENV"] === "production" ? false : { hmr: true, console: true },
   };
 }
@@ -96,6 +158,11 @@ export function safeRuntimeConfig(config: RuntimeConfig): Record<string, unknown
     sameOriginDisabled: config.sameOriginDisabled,
     publicBaseUrl: config.publicBaseUrl,
     authIssuer: config.authIssuer,
+    trustProxy: {
+      enabled: config.trustProxy.enabled,
+      headers: [...config.trustProxy.headers],
+      chain: config.trustProxy.chain,
+    },
     production: config.development === false,
   };
 }
