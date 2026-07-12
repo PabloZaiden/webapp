@@ -56,7 +56,10 @@ const routes = defineRoutes<Event>({
     requestSchema: projectUpdateSchema,
     async PATCH(req, ctx) {
       const project = ctx.requireOwned(projects.find((item) => item.id === ctx.params.id));
-      Object.assign(project, await parseJson(req, projectUpdateSchema), { updatedAt: new Date().toISOString() });
+      const body = await parseJson(req, projectUpdateSchema);
+      if (body.name !== undefined) project.name = body.name;
+      if (body.status !== undefined) project.status = body.status;
+      project.updatedAt = new Date().toISOString();
       ctx.userRealtime.publishEntityChanged("projects", project.id);
       return jsonResponse(project);
     },
@@ -102,7 +105,7 @@ const publicRoutes = {
   },
 };
 
-const app = createWebAppServer<Event>({
+export const app = createWebAppServer<Event>({
   appName: "Kitchen Sink",
   envPrefix: "KITCHEN_SINK",
   web: {
@@ -122,4 +125,6 @@ const app = createWebAppServer<Event>({
   routes,
 });
 
-await app.runFromCli();
+if (import.meta.main) {
+  await app.runFromCli();
+}

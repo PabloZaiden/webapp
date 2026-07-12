@@ -32,7 +32,9 @@ const routes = defineRoutes<AppEvent>({
     requestSchema: projectUpdateSchema,
     async PATCH(req, ctx) {
       const project = ctx.requireOwned(await findProject(ctx.params.id));
-      Object.assign(project, await parseJson(req, projectUpdateSchema));
+      const body = await parseJson(req, projectUpdateSchema);
+      if (body.name !== undefined) project.name = body.name;
+      project.updatedAt = new Date().toISOString();
       ctx.userRealtime.publishEntityChanged("projects", project.id);
       return jsonResponse(project);
     },
@@ -43,6 +45,12 @@ const routes = defineRoutes<AppEvent>({
   },
 });
 ```
+
+Request schemas define the writable input fields, but handlers should still assign
+those fields explicitly rather than spreading or merging parsed input into a
+stored record. The example schemas use Zod's default object behavior, so
+unknown properties are ignored and never persisted; keep `id`, `userId`,
+timestamps, and other server-managed fields under application control.
 
 `parseJson(req, schema)` parses and validates the body at runtime. Malformed JSON
 returns a 400 `invalid_json` response, while a JSON value that does not satisfy

@@ -1,0 +1,223 @@
+import { describe, expect, test } from "bun:test";
+import type { CurrentUser } from "../src/contracts";
+import { createApiKey } from "../src/server/auth/api-keys";
+import type { WebAppServer } from "../src/server/create-web-app-server";
+import type { UserRecord, WebAppStore } from "../src/server/auth/store";
+
+const kitchenDataDir = `.cache/tests/example-mutations-kitchen-${crypto.randomUUID()}`;
+const notesDataDir = `.cache/tests/example-mutations-notes-${crypto.randomUUID()}`;
+const previousKitchenDataDir = process.env["KITCHEN_SINK_DATA_DIR"];
+const previousNotesDataDir = process.env["NOTES_TODO_DATA_DIR"];
+process.env["KITCHEN_SINK_DATA_DIR"] = kitchenDataDir;
+process.env["NOTES_TODO_DATA_DIR"] = notesDataDir;
+const kitchen = await import("../examples/kitchen-sink/src/index.ts");
+const notesTodo = await import("../examples/notes-todo/src/index.ts");
+if (previousKitchenDataDir === undefined) {
+  delete process.env["KITCHEN_SINK_DATA_DIR"];
+} else {
+  process.env["KITCHEN_SINK_DATA_DIR"] = previousKitchenDataDir;
+}
+if (previousNotesDataDir === undefined) {
+  delete process.env["NOTES_TODO_DATA_DIR"];
+} else {
+  process.env["NOTES_TODO_DATA_DIR"] = previousNotesDataDir;
+}
+
+function configureApiKey(store: WebAppStore, username: string): { user: UserRecord; token: string } {
+  const now = new Date().toISOString();
+  const user: UserRecord = {
+    id: crypto.randomUUID(),
+    username,
+    role: "owner",
+    authVersion: 1,
+    passkeyConfigured: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  store.createUser(user);
+  const currentUser: CurrentUser = {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    isOwner: true,
+    isAdmin: true,
+  };
+  return { user, token: createApiKey(store, currentUser, { name: `${username} test key` }).token };
+}
+
+async function responseJson<T>(response: Response | undefined): Promise<T> {
+  expect(response).toBeDefined();
+  return await response!.json() as T;
+}
+
+async function apiRequest<T>(
+  app: WebAppServer<T>,
+  token: string,
+  path: string,
+  init: RequestInit = {},
+): Promise<Response | undefined> {
+  const headers = new Headers(init.headers);
+  headers.set("authorization", `Bearer ${token}`);
+  if (init.body !== undefined && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+  return await app.handleRequest(new Request(`http://localhost${path}`, { ...init, headers }));
+}
+
+function captureEvents<T>(app: WebAppServer<T>, userId: string) {
+  const messages: string[] = [];
+  const socket = {
+    data: { userId },
+    send(payload: string) {
+      messages.push(payload);
+    },
+  } as never;
+  app.realtime.add(socket);
+  return {
+    messages,
+    close() {
+      app.realtime.remove(socket);
+    },
+  };
+}
+
+const kitchenAuth = configureApiKey(kitchen.app.store, "kitchen-owner");
+const notesAuth = configureApiKey(notesTodo.app.store, "notes-owner");
+
+describe("example application mutations", () => {
+  test("updates only mutable project fields and publishes the canonical project ID", async () => {
+    const listed = await apiRequest(kitchen.app, kitchenAuth.token, "/api/projects");
+    expect(listed?.status).toBe(200);
+    const projects = await responseJson<Array<{ id: string; userId: string; name: string; status: string }>>(listed);
+    expect(projects.length).toBeGreaterThan(0);
+    const original = projects[0]!;
+    const events = captureEvents(kitchen.app, kitchenAuth.user.id);
+
+    try {
+      const updatedResponse = await apiRequest(kitchen.app, kitchenAuth.token, `/api/projects/${original.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: "",
+          status: "failed",
+          id: "attacker-controlled-id",
+          userId: "attacker-controlled-user",
+          unexpected: "not persisted",
+        }),
+      });
+      expect(updatedResponse?.status).toBe(200);
+      const updated = await responseJson<Record<string, unknown>>(updatedResponse);
+
+      expect(updated).toMatchObject({
+        id: original.id,
+        userId: kitchenAuth.user.id,
+        name: "",
+        status: "failed",
+      });
+      expect(updated).not.toHaveProperty("unexpected");
+      expect(JSON.parse(events.messages[events.messages.length - 1]!).event).toMatchObject({
+        type: "projects.changed",
+        id: original.id,
+      });
+    } finally {
+      events.close();
+    }
+  });
+
+  test("protects note and todo identity while preserving falsy updates and section ownership", async () => {
+    const sectionsResponse = await apiRequest(notesTodo.app, notesAuth.token, "/api/sections");
+    expect(sectionsResponse?.status).toBe(200);
+    const sections = await responseJson<Array<{ id: string }>>(sectionsResponse);
+    expect(sections.length).toBeGreaterThan(0);
+    const validSection = sections[0]!;
+
+    const invalidParentResponse = await apiRequest(notesTodo.app, notesAuth.token, "/api/sections", {
+      method: "POST",
+      body: JSON.stringify({ title: "Invalid parent", parentId: "" }),
+    });
+    expect(invalidParentResponse?.status).toBe(404);
+
+    const notesResponse = await apiRequest(notesTodo.app, notesAuth.token, "/api/notes");
+    expect(notesResponse?.status).toBe(200);
+    const notes = await responseJson<Array<{ id: string; userId: string }>>(notesResponse);
+    expect(notes.length).toBeGreaterThan(0);
+    const originalNote = notes[0]!;
+    const noteEvents = captureEvents(notesTodo.app, notesAuth.user.id);
+
+    try {
+      const updatedNoteResponse = await apiRequest(notesTodo.app, notesAuth.token, `/api/notes/${originalNote.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: "",
+          body: "",
+          sectionId: validSection.id,
+          id: "attacker-controlled-id",
+          userId: "attacker-controlled-user",
+          unexpected: "not persisted",
+        }),
+      });
+      expect(updatedNoteResponse?.status).toBe(200);
+      const updatedNote = await responseJson<Record<string, unknown>>(updatedNoteResponse);
+
+      expect(updatedNote).toMatchObject({
+        id: originalNote.id,
+        userId: notesAuth.user.id,
+        title: "",
+        body: "",
+        sectionId: validSection.id,
+      });
+      expect(updatedNote).not.toHaveProperty("unexpected");
+      expect(JSON.parse(noteEvents.messages[noteEvents.messages.length - 1]!).event).toMatchObject({
+        type: "notes.changed",
+        id: originalNote.id,
+      });
+    } finally {
+      noteEvents.close();
+    }
+
+    const foreignSectionResponse = await apiRequest(notesTodo.app, notesAuth.token, `/api/notes/${originalNote.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ sectionId: "other-user:private" }),
+    });
+    expect(foreignSectionResponse?.status).toBe(404);
+
+    const todosResponse = await apiRequest(notesTodo.app, notesAuth.token, "/api/todos");
+    expect(todosResponse?.status).toBe(200);
+    const todos = await responseJson<Array<{ id: string; userId: string }>>(todosResponse);
+    expect(todos.length).toBeGreaterThan(0);
+    const originalTodo = todos[0]!;
+    const todoEvents = captureEvents(notesTodo.app, notesAuth.user.id);
+
+    try {
+      const updatedTodoResponse = await apiRequest(notesTodo.app, notesAuth.token, `/api/todos/${originalTodo.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: "",
+          completed: false,
+          priority: "low",
+          sectionId: validSection.id,
+          id: "attacker-controlled-id",
+          userId: "attacker-controlled-user",
+          unexpected: "not persisted",
+        }),
+      });
+      expect(updatedTodoResponse?.status).toBe(200);
+      const updatedTodo = await responseJson<Record<string, unknown>>(updatedTodoResponse);
+
+      expect(updatedTodo).toMatchObject({
+        id: originalTodo.id,
+        userId: notesAuth.user.id,
+        title: "",
+        completed: false,
+        priority: "low",
+        sectionId: validSection.id,
+      });
+      expect(updatedTodo).not.toHaveProperty("unexpected");
+      expect(JSON.parse(todoEvents.messages[todoEvents.messages.length - 1]!).event).toMatchObject({
+        type: "todos.changed",
+        id: originalTodo.id,
+      });
+    } finally {
+      todoEvents.close();
+    }
+  });
+});
