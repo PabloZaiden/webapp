@@ -1,7 +1,8 @@
 import type { BunPlugin } from "bun";
 import tailwindPlugin from "bun-plugin-tailwind";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
+import { findPackageRoot, resolveReactDomClient } from "../package-resolution";
 
 export const BUN_COMPILE_TARGETS = [
   "bun-linux-x64",
@@ -81,8 +82,10 @@ export async function buildWebAppBinary(options: BuildWebAppBinaryOptions): Prom
   if (options.target !== undefined) {
     assertBunCompileTarget(options.target);
   }
+  const entrypoint = resolve(options.entrypoint);
+  const packageRoot = findPackageRoot(dirname(entrypoint));
+  const reactDomClientPath = resolveReactDomClient(packageRoot, entrypoint);
   mkdirSync(dirname(options.outfile), { recursive: true });
-  const packageRoot = findPackageRoot(dirname(resolve(options.entrypoint)));
   const buildId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const cacheDir = resolve(packageRoot, ".cache", "webapp-build", buildId);
   try {
@@ -91,7 +94,7 @@ export async function buildWebAppBinary(options: BuildWebAppBinaryOptions): Prom
     const rendererEntry = resolve(cacheDir, "webapp-renderer-prelude.ts");
     const clientEntry = resolve(cacheDir, "webapp-client-entry.ts");
     const browserOutDir = resolve(cacheDir, "browser");
-    writeFileSync(rendererEntry, `import { createRoot } from "react-dom/client";
+    writeFileSync(rendererEntry, `import { createRoot } from ${JSON.stringify(reactDomClientPath.replaceAll("\\", "/"))};
 import { configureWebAppRenderer } from "@pablozaiden/webapp/web";
 
 configureWebAppRenderer(createRoot);
@@ -140,7 +143,7 @@ configureWebAppRenderer(createRoot);
 `);
     const compiledEntrypoint = resolve(cacheDir, "entrypoint.ts");
     writeFileSync(compiledEntrypoint, `import "./compiled-webapp-assets";
-import ${JSON.stringify(resolve(options.entrypoint))};
+import ${JSON.stringify(entrypoint)};
 `);
     const result = await Bun.build({
       entrypoints: [compiledEntrypoint],
@@ -161,18 +164,6 @@ import ${JSON.stringify(resolve(options.entrypoint))};
     }
   } finally {
     rmSync(cacheDir, { recursive: true, force: true });
-  }
-}
-
-function findPackageRoot(start: string): string {
-  let current = start;
-  while (true) {
-    if (existsSync(resolve(current, "package.json"))) {
-      return current;
-    }
-    const parent = dirname(current);
-    if (parent === current) return start;
-    current = parent;
   }
 }
 

@@ -1,9 +1,10 @@
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CurrentUser, LogLevelName, WebAppConfigResponse } from "../contracts";
+import { findPackageRoot, resolveReactDomClient } from "../package-resolution";
 import { authenticateApiKey, assertScopes, createApiKey, deleteApiKey, listApiKeys } from "./auth/api-keys";
 import {
   approveDevice,
@@ -117,6 +118,12 @@ export interface WebAppServer<TEvent = unknown> {
 
 const log = createLogger("webapp:server");
 type HtmlBundleIndex = { index: string };
+
+interface WebDocumentResolution {
+  entryFile?: string;
+  packageRoot: string;
+  reactDomClientPath?: string;
+}
 
 export interface WebAppDocumentConfig {
   entry?: string | URL;
@@ -379,20 +386,6 @@ function resolveWebAsset(src: string | URL, packageRoot: string): string {
   return resolve(packageRoot, src);
 }
 
-function findPackageRoot(start: string): string {
-  let current = start;
-  while (true) {
-    if (existsSync(resolve(current, "package.json"))) {
-      return current;
-    }
-    const parent = dirname(current);
-    if (parent === current) {
-      return start;
-    }
-    current = parent;
-  }
-}
-
 async function copyWebAsset(src: string, dest: string): Promise<void> {
   await Bun.write(dest, Bun.file(src));
 }
@@ -548,13 +541,17 @@ ${scriptTags}
 `;
 }
 
-async function createWebDocument(config: RuntimeConfig, webInput: WebAppDocumentConfig | undefined): Promise<WebDocument> {
+async function createWebDocument(
+  config: RuntimeConfig,
+  webInput: WebAppDocumentConfig | undefined,
+  resolution: WebDocumentResolution,
+): Promise<WebDocument> {
   const web = webInput ?? {};
   const compiled = compiledClient();
-  const entryFile = compiled ? undefined : resolveWebEntry(web.entry);
+  const entryFile = compiled ? undefined : resolution.entryFile;
   const iconThemeColor = web.themeColor ?? DEFAULT_THEME_COLOR;
   const backgroundColor = web.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
-  const packageRoot = compiled?.packageRoot ?? findPackageRoot(dirname(resolve(Bun.main || process.argv[1] || (entryFile ?? "."))));
+  const packageRoot = resolution.packageRoot;
   const publicEntry = entryFile ? webEntryPublicPath(entryFile, packageRoot) : "";
   const cacheDir = createDocumentCacheDir(config.envPrefix);
   const htmlPath = resolve(cacheDir, `${config.envPrefix.toLowerCase()}-index.html`);
@@ -580,13 +577,18 @@ async function createWebDocument(config: RuntimeConfig, webInput: WebAppDocument
     writeFileSync(resolve(cacheDir, "site.webmanifest"), manifest);
   }
   const preludePath = resolve(cacheDir, "webapp-prelude.ts");
-  const reactDomClientPath = toWebPath(resolve(packageRoot, "node_modules/react-dom/client.js"));
-  const frameworkWebPath = toWebPath(fileURLToPath(new URL("../web/index.ts", import.meta.url)));
-  writeFileSync(preludePath, `import { createRoot } from ${JSON.stringify(reactDomClientPath)};
+  if (!compiled) {
+    const reactDomClientPath = resolution.reactDomClientPath;
+    if (!reactDomClientPath) {
+      throw new Error("Native web document resolution is missing the resolved react-dom/client module.");
+    }
+    const frameworkWebPath = toWebPath(fileURLToPath(new URL("../web/index.ts", import.meta.url)));
+    writeFileSync(preludePath, `import { createRoot } from ${JSON.stringify(toWebPath(reactDomClientPath))};
 import { configureWebAppRenderer } from ${JSON.stringify(frameworkWebPath)};
 
 configureWebAppRenderer(createRoot);
 `);
+  }
   const relativeEntry = entryFile ? toWebPath(relative(cacheDir, entryFile)) : undefined;
   const relativePrelude = entryFile ? toWebPath(relative(cacheDir, preludePath)) : undefined;
   const faviconPath = favicon ? `/webapp-favicon${pathExtension(resolveWebAsset(favicon.src, packageRoot)) || ".png"}` : "/webapp-icon.svg";
@@ -796,7 +798,13 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const configuredManifestIcons = input.web?.icons?.manifest ?? [];
   const compiled = compiledClient();
   const webEntryFile = resolveWebEntry(input.web?.entry);
-  const webPackageRoot = findPackageRoot(dirname(resolve(Bun.main || process.argv[1] || webEntryFile)));
+  const webPackageRoot = compiled?.packageRoot ?? findPackageRoot(dirname(webEntryFile));
+  const reactDomClientPath = compiled ? undefined : resolveReactDomClient(webPackageRoot, webEntryFile);
+  const webDocumentResolution: WebDocumentResolution = {
+    entryFile: compiled ? undefined : webEntryFile,
+    packageRoot: webPackageRoot,
+    reactDomClientPath,
+  };
   const generatedRoutePaths = new Set([
     webEntryPublicPath(webEntryFile, webPackageRoot),
     ...(compiled?.assets.map((asset) => asset.path) ?? []),
@@ -809,7 +817,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   let webDocumentPromise: Promise<WebDocument> | undefined;
 
   async function ensureWebDocument(): Promise<WebDocument> {
-    webDocumentPromise ??= createWebDocument(config, input.web).then((document) => {
+    webDocumentPromise ??= createWebDocument(config, input.web, webDocumentResolution).then((document) => {
       for (const path of Object.keys(document.generatedPublicRoutes)) {
         if (hasOwnPublicRoute(publicRoutes, path)) {
           throw new Error(`publicRoutes cannot override framework-owned web route: ${path}`);

@@ -17,6 +17,8 @@ await buildWebAppBinary({
 });
 ```
 
+The application package must declare both `react` and `react-dom` to satisfy the framework peer dependencies. The builder resolves `react-dom/client` through Bun from the application entrypoint, so strict or non-hoisted workspace layouts are supported. The browser dependency is bundled into the compiled binary; the build reports the application context and setup guidance before generating client output when `react-dom` cannot be resolved.
+
 `getBunCompileTargetFromArgs` accepts at most one `--target=<value>` argument. Supported compile targets come from the `BUN_COMPILE_TARGETS` export from `@pablozaiden/webapp/build`; use that collection when selecting a target. Empty, malformed, duplicate, and unsupported values fail before the builder creates output directories or invokes Bun. Omit the option for the default local Bun binary.
 
 The binary builder compiles the browser bundle with the framework defaults needed for `webapp` apps, including Tailwind CSS v4 processing. If an app needs extra browser build behavior, add Bun plugins or browser-only defines under `web.build`:
