@@ -7,6 +7,7 @@ import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/re
 import { Button, ConfirmModal, Modal } from "../src/web/components";
 import type { ApiKeySummary, AuthSessionSummary, ThemePreference, WebAppConfigResponse, WebAppUserSummary } from "../src/contracts";
 import { configureWebAppClient, onAuthRequired } from "../src/web/api-client";
+import { MOBILE_MEDIA_QUERY } from "../src/web/mobile";
 import type { BadgeVariant, SidebarNode } from "../src/web/sidebar/types";
 import { WebAppRoot } from "../src/web/WebAppRoot";
 import { configureWebAppRenderer, renderWebApp } from "../src/web/render";
@@ -210,6 +211,21 @@ function mockBuiltInFetch(options: BuiltInFetchOptions = {}) {
     requestCount(path: BuiltInResponsePath) {
       return requestCounts.get(path) ?? 0;
     },
+  };
+}
+
+function mockMobileMediaQuery(matches: boolean) {
+  const previousMatchMedia = window.matchMedia;
+  window.matchMedia = ((query: string) => {
+    const mediaQuery = previousMatchMedia.call(window, query);
+    if (query === MOBILE_MEDIA_QUERY) {
+      Object.defineProperty(mediaQuery, "matches", { configurable: true, value: matches });
+    }
+    return mediaQuery;
+  }) as typeof window.matchMedia;
+
+  return () => {
+    window.matchMedia = previousMatchMedia;
   };
 }
 
@@ -1296,8 +1312,7 @@ test("mobile sidebar backdrop closes the open sidebar", async () => {
 
 test("mobile left-edge swipe opens the sidebar", async () => {
   const restoreFetch = mockConfigFetch();
-  const previousInnerWidth = window.innerWidth;
-  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 390 });
+  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
   try {
     const { shell } = await renderShortcutWebApp();
 
@@ -1311,15 +1326,35 @@ test("mobile left-edge swipe opens the sidebar", async () => {
 
     await waitFor(() => expect(shell.classList.contains("sidebar-open")).toBe(true));
   } finally {
-    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: previousInnerWidth });
+    restoreMobileMediaQuery();
+    restoreFetch();
+  }
+});
+
+test("desktop sidebar ignores left-edge swipe", async () => {
+  const restoreFetch = mockConfigFetch();
+  const restoreMobileMediaQuery = mockMobileMediaQuery(false);
+  try {
+    const { shell } = await renderShortcutWebApp();
+
+    fireEvent.touchStart(document, {
+      touches: [{ clientX: 8, clientY: 240 }],
+    });
+    fireEvent.touchMove(document, {
+      touches: [{ clientX: 80, clientY: 248 }],
+      cancelable: true,
+    });
+
+    expect(shell.classList.contains("sidebar-open")).toBe(false);
+  } finally {
+    restoreMobileMediaQuery();
     restoreFetch();
   }
 });
 
 test("mobile sidebar swipe ignores touches away from the left edge", async () => {
   const restoreFetch = mockConfigFetch();
-  const previousInnerWidth = window.innerWidth;
-  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 390 });
+  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
   try {
     const { shell } = await renderShortcutWebApp();
 
@@ -1330,18 +1365,16 @@ test("mobile sidebar swipe ignores touches away from the left edge", async () =>
       touches: [{ clientX: 120, clientY: 240 }],
       cancelable: true,
     });
-
     expect(shell.classList.contains("sidebar-open")).toBe(false);
   } finally {
-    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: previousInnerWidth });
+    restoreMobileMediaQuery();
     restoreFetch();
   }
 });
 
 test("mobile sidebar swipe cancels after diagonal movement", async () => {
   const restoreFetch = mockConfigFetch();
-  const previousInnerWidth = window.innerWidth;
-  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 390 });
+  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
   try {
     const { shell } = await renderShortcutWebApp();
 
@@ -1359,7 +1392,7 @@ test("mobile sidebar swipe cancels after diagonal movement", async () => {
 
     expect(shell.classList.contains("sidebar-open")).toBe(false);
   } finally {
-    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: previousInnerWidth });
+    restoreMobileMediaQuery();
     restoreFetch();
   }
 });

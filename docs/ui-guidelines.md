@@ -11,6 +11,14 @@ The framework intentionally provides a consistent base UI:
 - Main content should prefer panels, toolbars, badges and simple forms over custom one-off layouts.
 - `WebAppRoot` owns the fixed main title bar and `.wapp-main-content`; app routes should not render or style those shell elements directly.
 
+## Mobile breakpoint and viewport synchronization
+
+The framework owns the mobile shell breakpoint. `MOBILE_BREAKPOINT_PX` and `MOBILE_MEDIA_QUERY` are exported from `@pablozaiden/webapp/web` for application JavaScript that needs to coordinate with the shell; do not add an independent `innerWidth` threshold for shell behavior. The generated document initializes the `data-wapp-mobile` marker on the root element before the client and styles load, and `WebAppRoot` keeps it synchronized with media-query changes. Custom CSS that follows the framework mobile mode should use that marker rather than repeating a numeric media query.
+
+`WebAppRoot` follows `visualViewport` resize/scroll, window resize, orientation changes, focus boundaries, and mobile media-query changes. It schedules an immediate animation-frame sync first. Two named, bounded retries remain for mobile Safari/WebKit and Chromium behavior where focus/blur or orientation notifications can arrive before the final `visualViewport` geometry is available while the keyboard, browser chrome, or rotation is settling. The first retry catches the post-event layout pass; the final retry catches the end of that transition when no further geometry event is emitted. These retries are implementation fallbacks, not general synchronization primitives, and are cancelled with the associated animation frame and listeners when the root is unmounted.
+
+The framework mobile mode is separate from the narrower `640px` settings-layout rules. Do not add global touch handlers or arbitrary sleeps to reproduce either behavior; use the framework drawer controls and the existing event-driven viewport lifecycle.
+
 ## Main content primitives
 
 Use these first:

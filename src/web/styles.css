@@ -1868,85 +1868,84 @@ textarea::placeholder {
   display: none;
 }
 
-@media (max-width: 900px) {
-  .wapp-shell {
-    display: block;
-  }
+/* WebAppRoot owns the mobile state so CSS and browser behavior use one breakpoint. */
+:root[data-wapp-mobile] .wapp-shell {
+  display: block;
+}
 
-  .wapp-sidebar,
-  .wapp-shell.sidebar-collapsed .wapp-sidebar {
-    position: fixed;
-    inset: 0 auto 0 0;
-    z-index: 60;
-    width: min(20rem, 86vw);
-    min-width: min(20rem, 86vw);
-    transform: translateX(-100%);
-    opacity: 1;
-    pointer-events: auto;
-  }
+:root[data-wapp-mobile] .wapp-sidebar,
+:root[data-wapp-mobile] .wapp-shell.sidebar-collapsed .wapp-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 60;
+  width: min(20rem, 86vw);
+  min-width: min(20rem, 86vw);
+  transform: translateX(-100%);
+  opacity: 1;
+  pointer-events: auto;
+}
 
-  .wapp-shell.sidebar-open .wapp-sidebar {
-    transform: translateX(0);
-  }
+:root[data-wapp-mobile] .wapp-shell.sidebar-open .wapp-sidebar {
+  transform: translateX(0);
+}
 
-  .wapp-shell.sidebar-open .wapp-mobile-backdrop {
-    display: block;
-  }
+:root[data-wapp-mobile] .wapp-shell.sidebar-open .wapp-mobile-backdrop {
+  display: block;
+}
 
-  .wapp-main-header {
-    padding: 0.875rem 1rem;
-  }
+:root[data-wapp-mobile] .wapp-main-header {
+  padding: 0.875rem 1rem;
+}
 
-  .wapp-main {
-    touch-action: pan-y;
-  }
+:root[data-wapp-mobile] .wapp-main {
+  touch-action: pan-y;
+}
 
-  .wapp-main-content {
-    overflow: auto;
-    overflow-x: hidden;
-  }
+:root[data-wapp-mobile] .wapp-main-content {
+  overflow: auto;
+  overflow-x: hidden;
+}
 
-  .wapp-page {
-    padding: 1rem 1rem max(1rem, var(--wapp-mobile-bottom-clearance));
-  }
+:root[data-wapp-mobile] .wapp-page {
+  padding: 1rem 1rem max(1rem, var(--wapp-mobile-bottom-clearance));
+}
 
-  .wapp-panel-header,
-  .wapp-entity-header {
-    flex-wrap: wrap;
-  }
+:root[data-wapp-mobile] .wapp-panel-header,
+:root[data-wapp-mobile] .wapp-entity-header {
+  flex-wrap: wrap;
+}
 
-  .wapp-panel-actions,
-  .wapp-entity-header-actions {
-    width: 100%;
-    justify-content: flex-start;
-  }
+:root[data-wapp-mobile] .wapp-panel-actions,
+:root[data-wapp-mobile] .wapp-entity-header-actions {
+  width: 100%;
+  justify-content: flex-start;
+}
 
-  .wapp-data-list-row {
-    gap: 0.5rem;
-  }
+:root[data-wapp-mobile] .wapp-data-list-row {
+  gap: 0.5rem;
+}
 
-  .wapp-data-list-row-meta,
-  .wapp-data-list-row-badge,
-  .wapp-data-list-row-actions {
-    min-width: 0;
-  }
+:root[data-wapp-mobile] .wapp-data-list-row-meta,
+:root[data-wapp-mobile] .wapp-data-list-row-badge,
+:root[data-wapp-mobile] .wapp-data-list-row-actions {
+  min-width: 0;
+}
 
-  .wapp-mobile-only {
-    display: inline-flex;
-  }
+:root[data-wapp-mobile] .wapp-mobile-only {
+  display: inline-flex;
+}
 
-  .wapp-form-section {
-    grid-template-columns: 1fr;
-  }
+:root[data-wapp-mobile] .wapp-form-section {
+  grid-template-columns: 1fr;
+}
 
-  .wapp-settings-row {
-    display: block;
-  }
+:root[data-wapp-mobile] .wapp-settings-row {
+  display: block;
+}
 
-  .wapp-row-actions {
-    justify-content: flex-start;
-    margin-top: 0.75rem;
-  }
+:root[data-wapp-mobile] .wapp-row-actions {
+  justify-content: flex-start;
+  margin-top: 0.75rem;
 }
 
 @media (max-width: 640px) {
