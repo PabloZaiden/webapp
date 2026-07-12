@@ -29,6 +29,10 @@ function installDom(url = "https://example.test/", baseHref?: string): void {
   });
 }
 
+afterEach(() => {
+  configureWebAppClient();
+});
+
 describe("web API client", () => {
   test("builds app-relative URLs from the current document path by default", () => {
     configureWebAppClient();
@@ -117,6 +121,27 @@ describe("web API client", () => {
       expect(headers.get("accept")).toBe("text/plain");
       expect(headers.get("content-type")).toBe("application/custom+json");
       expect(headers.get("x-request-id")).toBe("request-1");
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test("appJson only sets a default content type when a request has a body", async () => {
+    configureWebAppClient({ apiBaseUrl: "https://api.example.test" });
+    installDom();
+    const previousFetch = globalThis.fetch;
+    const requestHeaders: Headers[] = [];
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestHeaders.push(new Headers(init?.headers));
+      return Response.json({ ok: true });
+    }) as unknown as typeof fetch;
+
+    try {
+      await appJson("/api/items");
+      await appJson("/api/items", { method: "POST", body: "{}" });
+
+      expect(requestHeaders[0]?.get("content-type")).toBeNull();
+      expect(requestHeaders[1]?.get("content-type")).toBe("application/json");
     } finally {
       globalThis.fetch = previousFetch;
     }

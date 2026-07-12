@@ -124,7 +124,7 @@ export async function appFetch(input: RequestInfo | URL, init?: RequestInit): Pr
 
 export async function appJson<T>(input: RequestInfo | URL, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (!headers.has("content-type")) {
+  if (init.body != null && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
   const response = await appFetch(input, { ...init, headers });
