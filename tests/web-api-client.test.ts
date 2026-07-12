@@ -13,6 +13,10 @@ import {
   setWebAppPublicBasePath,
 } from "../src/web/api-client";
 
+afterEach(() => {
+  configureWebAppClient();
+});
+
 function installDom(url = "https://example.test/", baseHref?: string): void {
   Object.defineProperty(globalThis, "window", { value: { location: { href: url } }, configurable: true });
   Object.defineProperty(globalThis, "document", {

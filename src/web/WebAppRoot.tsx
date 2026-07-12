@@ -2,7 +2,8 @@ import { startAuthentication, startRegistration } from "@simplewebauthn/browser"
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ApiKeySummary, AuthSessionSummary, CreatedApiKeyResponse, CreatedUserResponse, DeviceVerificationDetails, PasskeyAuthStatusResponse, ThemePreference, UserSetupDetails, WebAppConfigResponse, WebAppUserRole, WebAppUserSummary } from "../contracts";
 import { appFetch, appJson } from "./api-client";
-import { ActionMenu, Badge, Button, ConfirmDialog, ContextMenu, DangerZone, Dialog, EmptyState, FormSection, IconButton, Panel, SelectField, TextField, type ContextMenuPosition } from "./components";
+import { ActionMenu, Badge, Button, ConfirmDialog, ContextMenu, DangerZone, Dialog, EmptyState, ErrorState, FormSection, IconButton, LoadingState, Panel, SelectField, TextField, type ContextMenuPosition } from "./components";
+import { useLiveQuery } from "./realtime/useRealtime";
 import type { ActionMenuItem, SidebarAction, SidebarBuildContext, SidebarNode, WebAppRoute } from "./sidebar/types";
 
 type SettingsSection = {
@@ -746,21 +747,35 @@ function isScopeVisible(scope: "user" | "admin" | "owner" | undefined, config: W
   return Boolean(config.currentUser?.isOwner);
 }
 
+function ResourceState({ loading, error, hasData, refresh }: { loading: boolean; error?: Error; hasData: boolean; refresh: () => Promise<void> }): ReactNode {
+  if (!hasData && loading) {
+    return <LoadingState />;
+  }
+  if (!error) {
+    return null;
+  }
+  return (
+    <ErrorState
+      description={error.message}
+      action={<Button type="button" loading={loading} onClick={() => void refresh()}>Retry</Button>}
+    />
+  );
+}
+
 function UserManagement({ config }: { config: WebAppConfigResponse }) {
-  const [users, setUsers] = useState<WebAppUserSummary[]>([]);
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<WebAppUserRole>("user");
   const [setupLink, setSetupLink] = useState<string>();
   const [userToDelete, setUserToDelete] = useState<WebAppUserSummary>();
   const [error, setError] = useState<string>();
 
-  const refreshUsers = useCallback(async () => {
-    if (config.userManagement.canManageUsers) {
-      setUsers(await appJson<WebAppUserSummary[]>("/api/users"));
-    }
-  }, [config.userManagement.canManageUsers]);
-
-  useEffect(() => void refreshUsers().catch(() => undefined), [refreshUsers]);
+  const loadUsers = useCallback(
+    () => config.userManagement.canManageUsers
+      ? appJson<WebAppUserSummary[]>("/api/users")
+      : Promise.resolve([]),
+    [config.userManagement.canManageUsers],
+  );
+  const { data: users, error: usersLoadError, loading: usersLoading, refresh: refreshUsers } = useLiveQuery<WebAppUserSummary[]>({ load: loadUsers, realtime: false });
 
   async function createUser() {
     try {
@@ -826,26 +841,29 @@ function UserManagement({ config }: { config: WebAppConfigResponse }) {
         {setupLink ? <code className="wapp-token">{setupLink}</code> : null}
       </div>
       <br />
-      <div className="wapp-list">
-        {users.map((user) => (
-          <div className="wapp-list-row" key={user.id}>
-            <span>
-              <strong>{user.username}</strong>
-              <small>{user.role} · passkey {user.passkeyConfigured ? "configured" : "pending"} · created {user.createdAt}</small>
-            </span>
-            <div className="wapp-row-actions">
-              {user.role !== "owner" ? (
-                <select className="wapp-inline-select" aria-label={`Role for ${user.username}`} value={user.role} onChange={(event) => void updateRole(user, event.currentTarget.value as WebAppUserRole)}>
-                  <option value="user">User</option>
-                  <option value="admin">Admin</option>
-                </select>
-              ) : <Badge variant="success">Owner</Badge>}
-              {user.role !== "owner" ? <Button type="button" onClick={() => void resetUser(user)}>Reset</Button> : null}
-              <Button type="button" variant="danger" disabled={user.role === "owner"} onClick={() => setUserToDelete(user)}>Delete</Button>
+      <ResourceState loading={usersLoading} error={usersLoadError} hasData={users !== undefined} refresh={refreshUsers} />
+      {users?.length ? (
+        <div className="wapp-list">
+          {users.map((user) => (
+            <div className="wapp-list-row" key={user.id}>
+              <span>
+                <strong>{user.username}</strong>
+                <small>{user.role} · passkey {user.passkeyConfigured ? "configured" : "pending"} · created {user.createdAt}</small>
+              </span>
+              <div className="wapp-row-actions">
+                {user.role !== "owner" ? (
+                  <select className="wapp-inline-select" aria-label={`Role for ${user.username}`} value={user.role} onChange={(event) => void updateRole(user, event.currentTarget.value as WebAppUserRole)}>
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                ) : <Badge variant="success">Owner</Badge>}
+                {user.role !== "owner" ? <Button type="button" onClick={() => void resetUser(user)}>Reset</Button> : null}
+                <Button type="button" variant="danger" disabled={user.role === "owner"} onClick={() => setUserToDelete(user)}>Delete</Button>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : users !== undefined && !usersLoadError ? <EmptyState title="No users" /> : null}
       <ConfirmDialog
         open={Boolean(userToDelete)}
         title="Delete user?"
@@ -896,9 +914,7 @@ function useCountdownReload(active: boolean, onComplete: () => void, durationSec
   };
 }
 
-function SettingsView({ config, refresh, customSections, theme, setTheme }: { config: WebAppConfigResponse; refresh: () => Promise<void>; customSections: SettingsSection[]; theme: ThemePreference; setTheme: (theme: ThemePreference) => void }) {
-  const [apiKeys, setApiKeys] = useState<ApiKeySummary[]>([]);
-  const [authSessions, setAuthSessions] = useState<AuthSessionSummary[]>([]);
+function SettingsView({ config, refresh, customSections, theme, setTheme, themeLoading, themeLoadError, retryThemeLoad }: { config: WebAppConfigResponse; refresh: () => Promise<void>; customSections: SettingsSection[]; theme: ThemePreference; setTheme: (theme: ThemePreference) => void; themeLoading: boolean; themeLoadError?: Error; retryThemeLoad: () => Promise<void> }) {
   const [createdToken, setCreatedToken] = useState<string>();
   const [apiKeyToDelete, setApiKeyToDelete] = useState<ApiKeySummary>();
   const [authSessionToRevoke, setAuthSessionToRevoke] = useState<AuthSessionSummary>();
@@ -909,20 +925,21 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
   const reloadPage = useCallback(() => window.location.reload(), []);
   const { countdown, progressPercent } = useCountdownReload(killRequested, reloadPage);
 
-  const refreshApiKeys = useCallback(async () => {
-    if (config.apiKeys.enabled) {
-      setApiKeys(await appJson<ApiKeySummary[]>("/api/api-keys"));
-    }
-  }, [config.apiKeys.enabled]);
+  const loadApiKeys = useCallback(
+    () => config.apiKeys.enabled
+      ? appJson<ApiKeySummary[]>("/api/api-keys")
+      : Promise.resolve<ApiKeySummary[]>([]),
+    [config.apiKeys.enabled],
+  );
+  const { data: apiKeys, error: apiKeysLoadError, loading: apiKeysLoading, refresh: refreshApiKeys } = useLiveQuery<ApiKeySummary[]>({ load: loadApiKeys, realtime: false });
 
-  const refreshAuthSessions = useCallback(async () => {
-    if (config.deviceAuth.enabled) {
-      setAuthSessions(await appJson<AuthSessionSummary[]>("/api/auth/sessions"));
-    }
-  }, [config.deviceAuth.enabled]);
-
-  useEffect(() => void refreshApiKeys().catch(() => undefined), [refreshApiKeys]);
-  useEffect(() => void refreshAuthSessions().catch(() => undefined), [refreshAuthSessions]);
+  const loadAuthSessions = useCallback(
+    () => config.deviceAuth.enabled
+      ? appJson<AuthSessionSummary[]>("/api/auth/sessions")
+      : Promise.resolve<AuthSessionSummary[]>([]),
+    [config.deviceAuth.enabled],
+  );
+  const { data: authSessions, error: authSessionsLoadError, loading: authSessionsLoading, refresh: refreshAuthSessions } = useLiveQuery<AuthSessionSummary[]>({ load: loadAuthSessions, realtime: false });
 
   async function createKey() {
     const result = await appJson<CreatedApiKeyResponse>("/api/api-keys", { method: "POST", body: JSON.stringify({ name: "Browser key", scopes: ["*"] }) });
@@ -1004,6 +1021,13 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
           <option value="light">Light</option>
           <option value="dark">Dark</option>
         </SelectField>
+        {themeLoading ? <LoadingState title="Loading saved theme" /> : null}
+        {themeLoadError ? (
+          <ErrorState
+            description={themeLoadError.message}
+            action={<Button type="button" loading={themeLoading} onClick={() => void retryThemeLoad()}>Retry</Button>}
+          />
+        ) : null}
       </FormSection>
 
       {config.currentUser?.isAdmin ? (
@@ -1039,7 +1063,8 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
             </div>
             <div className="wapp-row-actions"><Button type="button" onClick={() => void createKey().catch((err) => setError(String(err)))}>Create API key</Button></div>
             {createdToken ? <code className="wapp-token">{createdToken}</code> : null}
-            {apiKeys.length ? (
+            <ResourceState loading={apiKeysLoading} error={apiKeysLoadError} hasData={apiKeys !== undefined} refresh={refreshApiKeys} />
+            {apiKeys?.length ? (
               <div className="wapp-list">
                 {apiKeys.map((key) => (
                   <div className="wapp-list-row" key={key.id}>
@@ -1048,7 +1073,7 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
                   </div>
                 ))}
               </div>
-            ) : null}
+            ) : apiKeys !== undefined && !apiKeysLoadError ? <EmptyState title="No API keys" /> : null}
           </div>
         ) : null}
         {config.deviceAuth.enabled ? (
@@ -1057,13 +1082,14 @@ function SettingsView({ config, refresh, customSections, theme, setTheme }: { co
               <strong>Device auth sessions</strong>
               <p>Refresh-token sessions created through the device flow.</p>
             </div>
+            <ResourceState loading={authSessionsLoading} error={authSessionsLoadError} hasData={authSessions !== undefined} refresh={refreshAuthSessions} />
             <div className="wapp-list">
-              {authSessions.length ? authSessions.map((session) => (
+              {authSessions?.length ? authSessions.map((session) => (
                 <div className="wapp-list-row" key={session.id}>
                   <span><strong>{session.clientId}</strong><small>{session.scope} · {session.updatedAt}</small></span>
                   <Button type="button" variant="danger" onClick={() => setAuthSessionToRevoke(session)}>Revoke</Button>
                 </div>
-              )) : <EmptyState title="No device sessions" />}
+              )) : authSessions !== undefined && !authSessionsLoadError ? <EmptyState title="No device sessions" /> : null}
             </div>
           </div>
         ) : null}
@@ -1139,6 +1165,8 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   const { config, error, refresh } = useConfig();
   const { route, navigate } = useRoute(homeRoute);
   const { theme, setTheme } = useTheme();
+  const [themeLoading, setThemeLoading] = useState(false);
+  const [themeLoadError, setThemeLoadError] = useState<Error>();
   const [search, setSearch] = useState("");
   const sidebarSearchId = useId();
   const sidebarSearchInputRef = useRef<HTMLInputElement>(null);
@@ -1210,12 +1238,28 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   }, [augmentPinningActions, baseNodes, currentPins, filteredNodes, pinningEnabled, sidebar.pinning, sidebarSearchActive]);
   const activeActionNodes = useMemo(() => augmentPinningActions(baseNodes), [augmentPinningActions, baseNodes]);
 
-  useEffect(() => {
-    if (!config?.currentUser) return;
-    void appJson<{ theme: ThemePreference }>("/api/preferences/theme")
-      .then((result) => setTheme(result.theme))
-      .catch(() => undefined);
+  const retryThemeLoad = useCallback(async () => {
+    if (!config?.currentUser) {
+      setThemeLoading(false);
+      setThemeLoadError(undefined);
+      return;
+    }
+
+    setThemeLoading(true);
+    setThemeLoadError(undefined);
+    try {
+      const result = await appJson<{ theme: ThemePreference }>("/api/preferences/theme");
+      setTheme(result.theme);
+    } catch (err) {
+      setThemeLoadError(err instanceof Error ? err : new Error(String(err)));
+    } finally {
+      setThemeLoading(false);
+    }
   }, [config?.currentUser?.id, setTheme]);
+
+  useEffect(() => {
+    void retryThemeLoad();
+  }, [retryThemeLoad]);
 
   useEffect(() => {
     function handleSidebarShortcut(event: KeyboardEvent) {
@@ -1262,7 +1306,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   const effectiveVersion = version ?? config.version;
   let view: ReactNode;
   if (route.view === "settings") {
-    view = <SettingsView config={config} refresh={refresh} customSections={settings?.sections ?? []} theme={theme} setTheme={setTheme} />;
+    view = <SettingsView config={config} refresh={refresh} customSections={settings?.sections ?? []} theme={theme} setTheme={setTheme} themeLoading={themeLoading} themeLoadError={themeLoadError} retryThemeLoad={retryThemeLoad} />;
   } else {
     const registeredView = routes[route.view];
     view = typeof registeredView === "function"

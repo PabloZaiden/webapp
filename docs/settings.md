@@ -11,6 +11,11 @@ Settings is framework-owned so apps stay consistent. It includes:
 - Admin server kill
 - Version/about
 
+The local-storage or system theme is applied immediately while the signed-in
+user preference loads in the background. If that request fails, the current
+theme remains active and Display Settings shows a non-blocking error with a
+retry action; the rest of Settings remains usable.
+
 Security lists only show useful active credentials. Expired API keys are purged before listing, and revoked or expired device-auth refresh sessions are not shown. Revoked refresh sessions may remain in storage when needed for token-reuse protection, but they are hidden from Settings.
 
 Destructive actions in Settings use the framework `ConfirmDialog` before mutating. This includes deleting users, deleting API keys, deleting passkeys, revoking device-auth sessions, and killing the server.
