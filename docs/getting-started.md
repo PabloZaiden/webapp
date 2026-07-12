@@ -159,7 +159,29 @@ The app configures an uppercase `envPrefix`; the framework reads only variables 
 | `{PREFIX}_LOG_LEVEL` | `info` | `trace`, `debug`, `info`, `warn`, `error`; locks settings log-level control when set |
 | `{PREFIX}_DISABLE_PASSKEY` | unset | Emergency bypass that logs in as the existing owner; it does not create users |
 | `{PREFIX}_DISABLE_SAME_ORIGIN_CHECK` | unset | Development/testing escape hatch |
-| `{PREFIX}_PUBLIC_BASE_URL` | request origin | External URL for device auth links |
+| `{PREFIX}_TRUST_PROXY` | `false` | Explicitly trust the documented `X-Forwarded-*` headers; keep disabled for direct deployments |
+| `{PREFIX}_TRUST_PROXY_HEADERS` | `proto,host,prefix` when enabled | Comma-separated subset of supported forwarded values: `proto`, `host`, `prefix` |
+| `{PREFIX}_TRUST_PROXY_CHAIN` | `first` | Select the left-most (`first`) or right-most (`last`) non-empty value from comma-separated forwarded headers |
+| `{PREFIX}_PUBLIC_BASE_URL` | request origin | Authoritative external origin for auth/device URLs; it overrides forwarded protocol and host values |
 | `{PREFIX}_AUTH_ISSUER` | `urn:{prefix}:webapp` | JWT issuer override |
+
+For a reverse-proxy deployment that strips and overwrites the forwarded
+headers, configure the trust policy explicitly:
+
+```bash
+MY_APP_TRUST_PROXY=true
+MY_APP_TRUST_PROXY_HEADERS=proto,host,prefix
+MY_APP_TRUST_PROXY_CHAIN=first
+MY_APP_PUBLIC_BASE_URL=https://app.example.test
+```
+
+The default is fail-closed: forwarded headers are ignored unless
+`TRUST_PROXY=true`. The framework recognizes only `X-Forwarded-Proto`,
+`X-Forwarded-Host`, and `X-Forwarded-Prefix`; it does not infer trust from
+their presence and does not parse the RFC `Forwarded` header. A trusted prefix
+is used for cookie paths and externally generated links. The proxy must remove
+client-supplied values before writing these headers, and direct untrusted
+access to the application port must be blocked. This configuration does not
+provide a proxy-address allowlist.
 
 For CI/CD setup in apps built with the framework, use `docs/github-actions.md`. It includes copy-paste GitHub Actions and a production Dockerfile template.

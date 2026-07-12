@@ -83,10 +83,10 @@ function getCookie(req: Request, name: string): string | undefined {
   return undefined;
 }
 
-function cookieHeader(req: Request, name: string, value: string, maxAge: number, secure: boolean): string {
+function cookieHeader(req: Request, config: RuntimeConfig, name: string, value: string, maxAge: number, secure: boolean): string {
   return [
     `${name}=${value}`,
-    `Path=${getCookiePath(req)}`,
+    `Path=${getCookiePath(req, config)}`,
     "HttpOnly",
     "SameSite=Strict",
     `Max-Age=${maxAge}`,
@@ -94,12 +94,12 @@ function cookieHeader(req: Request, name: string, value: string, maxAge: number,
   ].filter(Boolean).join("; ");
 }
 
-function expiredCookie(req: Request, name: string, secure: boolean): string {
-  return cookieHeader(req, name, "", 0, secure);
+function expiredCookie(req: Request, config: RuntimeConfig, name: string, secure: boolean): string {
+  return cookieHeader(req, config, name, "", 0, secure);
 }
 
 function setSessionHeaders(req: Request, store: WebAppStore, config: RuntimeConfig, user: UserRecord): Headers {
-  const origin = getRequestOriginInfo(req, config.publicBaseUrl);
+  const origin = getRequestOriginInfo(req, config);
   const secret = getSecret(store);
   const payload: SessionPayload = {
     nonce: randomToken(16),
@@ -108,16 +108,16 @@ function setSessionHeaders(req: Request, store: WebAppStore, config: RuntimeConf
     expiresAt: Date.now() + SESSION_TTL_SECONDS * 1000,
   };
   const headers = new Headers();
-  headers.append("set-cookie", cookieHeader(req, SESSION_COOKIE, encodeSigned(payload, secret), SESSION_TTL_SECONDS, origin.secure));
-  headers.append("set-cookie", expiredCookie(req, CHALLENGE_COOKIE, origin.secure));
+  headers.append("set-cookie", cookieHeader(req, config, SESSION_COOKIE, encodeSigned(payload, secret), SESSION_TTL_SECONDS, origin.secure));
+  headers.append("set-cookie", expiredCookie(req, config, CHALLENGE_COOKIE, origin.secure));
   return headers;
 }
 
 function setChallengeHeaders(req: Request, store: WebAppStore, config: RuntimeConfig, payload: Omit<ChallengePayload, "expiresAt">): Headers {
-  const origin = getRequestOriginInfo(req, config.publicBaseUrl);
+  const origin = getRequestOriginInfo(req, config);
   const secret = getSecret(store);
   const headers = new Headers();
-  headers.append("set-cookie", cookieHeader(req, CHALLENGE_COOKIE, encodeSigned({
+  headers.append("set-cookie", cookieHeader(req, config, CHALLENGE_COOKIE, encodeSigned({
     ...payload,
     expiresAt: Date.now() + CHALLENGE_TTL_SECONDS * 1000,
   }, secret), CHALLENGE_TTL_SECONDS, origin.secure));
@@ -145,7 +145,7 @@ function webauthnRpId(hostname: string): string {
 }
 
 async function beginRegistrationForUser(req: Request, store: WebAppStore, config: RuntimeConfig, user: { id: string; username: string }, type: ChallengePayload["type"], setupTokenHash?: string) {
-  const origin = getRequestOriginInfo(req, config.publicBaseUrl);
+  const origin = getRequestOriginInfo(req, config);
   const rpID = webauthnRpId(origin.hostname);
   const options = await generateRegistrationOptions({
     rpName: config.appName,
@@ -163,7 +163,7 @@ async function beginRegistrationForUser(req: Request, store: WebAppStore, config
 }
 
 async function verifyAndSavePasskey(req: Request, store: WebAppStore, config: RuntimeConfig, response: RegistrationResponseJSON, user: UserRecord, challenge: ChallengePayload): Promise<Headers> {
-  const origin = getRequestOriginInfo(req, config.publicBaseUrl);
+  const origin = getRequestOriginInfo(req, config);
   const rpID = webauthnRpId(origin.hostname);
   const verification = await verifyRegistrationResponse({
     response,
@@ -334,7 +334,7 @@ export async function beginAuthentication(req: Request, store: WebAppStore, conf
   if (passkeys.length === 0) {
     throw new AuthError("passkey_missing", "No passkey is configured", 409);
   }
-  const origin = getRequestOriginInfo(req, config.publicBaseUrl);
+  const origin = getRequestOriginInfo(req, config);
   const rpID = webauthnRpId(origin.hostname);
   const options = await generateAuthenticationOptions({
     rpID,
@@ -354,7 +354,7 @@ export async function completeAuthentication(req: Request, store: WebAppStore, c
   if (!passkey || !user) {
     throw new AuthError("passkey_not_found", "Passkey credential is not registered", 404);
   }
-  const origin = getRequestOriginInfo(req, config.publicBaseUrl);
+  const origin = getRequestOriginInfo(req, config);
   const rpID = webauthnRpId(origin.hostname);
   const verification = await verifyAuthenticationResponse({
     response,
@@ -380,10 +380,10 @@ export async function completeAuthentication(req: Request, store: WebAppStore, c
 }
 
 export function logoutHeaders(req: Request, config: RuntimeConfig): Headers {
-  const origin = getRequestOriginInfo(req, config.publicBaseUrl);
+  const origin = getRequestOriginInfo(req, config);
   const headers = new Headers();
-  headers.append("set-cookie", expiredCookie(req, SESSION_COOKIE, origin.secure));
-  headers.append("set-cookie", expiredCookie(req, CHALLENGE_COOKIE, origin.secure));
+  headers.append("set-cookie", expiredCookie(req, config, SESSION_COOKIE, origin.secure));
+  headers.append("set-cookie", expiredCookie(req, config, CHALLENGE_COOKIE, origin.secure));
   return headers;
 }
 

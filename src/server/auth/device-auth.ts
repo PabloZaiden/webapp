@@ -11,7 +11,7 @@ import type { AuthSessionSummary, CurrentUser, DeviceAuthorizationResponse, Devi
 import type { RuntimeConfig } from "../runtime-config";
 import type { RefreshSessionRecord, WebAppStore } from "./store";
 import { addSeconds, isExpired, nowIso, randomToken, sha256 } from "./crypto";
-import { getRequestOriginInfo } from "./request-origin";
+import { getRequestBaseUrl } from "./request-origin";
 import { AuthError, type AccessTokenClaims } from "./types";
 import { toCurrentUser } from "./users";
 
@@ -40,7 +40,7 @@ function generateUserCode(): string {
 }
 
 function getPublicBaseUrl(req: Request, config: RuntimeConfig): string {
-  return config.publicBaseUrl ?? getRequestOriginInfo(req).origin;
+  return getRequestBaseUrl(req, config);
 }
 
 async function createSigningKey(): Promise<SigningKeyPair> {

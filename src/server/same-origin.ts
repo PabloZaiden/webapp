@@ -18,7 +18,7 @@ export function checkSameOrigin(req: Request, config: RuntimeConfig, auth: Authe
   if (mode !== "always" && (auth.kind === "api-key" || auth.kind === "bearer")) {
     return undefined;
   }
-  const expectedOrigin = getRequestOriginInfo(req, config.publicBaseUrl).origin;
+  const expectedOrigin = getRequestOriginInfo(req, config).origin;
   const origin = req.headers.get("origin");
   if (origin) {
     return origin === expectedOrigin ? undefined : errorResponse(403, "same_origin_required", "Request origin is not allowed");

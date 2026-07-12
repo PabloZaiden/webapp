@@ -59,3 +59,28 @@ Device codes are one-use. Device sessions are self-only in Settings, and only ac
 ## Same-origin policy
 
 Cookie/browser mutations require matching `Origin` or `Referer` by default. Use `sameOrigin: "never"` only for deliberate public/server-to-server routes; use `sameOrigin: "always"` for especially sensitive endpoints even when bearer tokens are used.
+
+## Reverse-proxy request trust
+
+Forwarded request headers are ignored by default. When
+`{PREFIX}_TRUST_PROXY=true` is enabled, the policy explicitly selects the
+supported `X-Forwarded-Proto`, `X-Forwarded-Host`, and
+`X-Forwarded-Prefix` values through `{PREFIX}_TRUST_PROXY_HEADERS`. Comma
+chains use the configured `{PREFIX}_TRUST_PROXY_CHAIN` value (`first` for the
+left-most non-empty value or `last` for the right-most non-empty value).
+Malformed or missing request values fall back to the direct request.
+
+The same normalized request context drives expected same-origin origins,
+WebSocket origin checks, passkey expected origins and RP IDs, the `Secure`
+cookie attribute, cookie paths, setup links, and device/discovery URLs.
+`{PREFIX}_PUBLIC_BASE_URL` is authoritative for origin, hostname, and secure
+state even when forwarded headers are present; trusted prefixes remain
+policy-controlled for path-bearing cookies and links.
+
+Trust mode is a deployment boundary setting, not a way to trust arbitrary
+client input. The reverse proxy must strip client-supplied forwarded headers
+and overwrite only the values configured above, preferably as sanitized
+single-value headers. Do not expose the application directly to untrusted
+clients when trust mode is enabled. This release does not implement a
+proxy-address allowlist, so the network boundary and proxy sanitization are
+required.
