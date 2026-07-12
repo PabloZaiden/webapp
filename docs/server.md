@@ -56,9 +56,16 @@ timestamps, and other server-managed fields under application control.
 returns a 400 `invalid_json` response, while a JSON value that does not satisfy
 the schema returns a 400 `invalid_request_body` response with field details.
 Use `parseOptionalJson(req, schema)` only for endpoints that deliberately allow
-an empty body; malformed non-empty JSON is still rejected. `parseUnknownJson`
-returns `unknown` and is intentionally unvalidated, so application handlers
-should prefer a schema-backed parser.
+an empty body. Only a zero-byte body is considered absent; whitespace-only
+content is non-empty malformed JSON and is rejected just like any other
+malformed body. `parseUnknownJson` returns `unknown` and is intentionally
+unvalidated, so application handlers should prefer a schema-backed parser.
+
+The Notes TODO webhook uses an absent body (or an object without `title`) to
+apply its source-based fallback title. When an owner does not exist, that
+accepted delivery returns 202 with `accepted: false`; malformed or
+schema-invalid bodies are rejected before this ownerless response or any
+mutation is reached.
 
 Route defaults are intentionally secure:
 

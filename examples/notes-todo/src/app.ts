@@ -49,7 +49,7 @@ const updateTodoSchema = z.object({
 });
 
 const webhookSchema = z.object({
-  title: z.string().optional(),
+  title: z.string().min(1).max(200).optional(),
 });
 
 function createNotesTodoRoutes(store: WebAppStore, appStore: NotesTodoStore) {
