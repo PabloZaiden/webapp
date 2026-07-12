@@ -3,12 +3,21 @@ import tailwindPlugin from "bun-plugin-tailwind";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
 
-export type BunCompileTarget =
-  | "bun-linux-x64"
-  | "bun-linux-arm64"
-  | "bun-darwin-x64"
-  | "bun-darwin-arm64"
-  | "bun-windows-x64";
+export const BUN_COMPILE_TARGETS = [
+  "bun-linux-x64",
+  "bun-linux-arm64",
+  "bun-darwin-x64",
+  "bun-darwin-arm64",
+  "bun-windows-x64",
+] as const;
+
+export type BunCompileTarget = (typeof BUN_COMPILE_TARGETS)[number];
+
+const BUN_COMPILE_TARGET_SET = new Set<string>(BUN_COMPILE_TARGETS);
+
+export function isBunCompileTarget(value: unknown): value is BunCompileTarget {
+  return typeof value === "string" && BUN_COMPILE_TARGET_SET.has(value);
+}
 
 export interface BuildWebAppBinaryOptions {
   entrypoint: string;
@@ -25,12 +34,53 @@ export interface BuildWebAppBinaryOptions {
   };
 }
 
+function formatTargetValue(value: unknown): string {
+  if (value === undefined) return "<missing>";
+  if (typeof value === "string") return JSON.stringify(value);
+  return String(value);
+}
+
+function supportedTargetMessage(): string {
+  return `Supported Bun compile targets: ${BUN_COMPILE_TARGETS.join(", ")}.`;
+}
+
+export function assertBunCompileTarget(value: unknown): asserts value is BunCompileTarget {
+  if (!isBunCompileTarget(value)) {
+    throw new Error(`Invalid Bun compile target ${formatTargetValue(value)}. ${supportedTargetMessage()}`);
+  }
+}
+
 export function getBunCompileTargetFromArgs(argv = Bun.argv): BunCompileTarget | undefined {
-  const raw = argv.find((arg) => arg.startsWith("--target="))?.slice("--target=".length);
-  return raw as BunCompileTarget | undefined;
+  const targetArguments: Array<{ argument: string; value: string }> = [];
+  for (let index = 0; index < argv.length; index++) {
+    const argument = argv[index];
+    if (argument === "--target" || (argument.startsWith("--target") && !argument.startsWith("--target="))) {
+      const nextArgument = argv[index + 1];
+      const received = argument === "--target" && nextArgument && !nextArgument.startsWith("--")
+        ? `${argument} ${nextArgument}`
+        : argument;
+      throw new Error(`Malformed Bun compile target option ${formatTargetValue(received)}. Expected --target=<target>. ${supportedTargetMessage()}`);
+    }
+    if (argument.startsWith("--target=")) {
+      targetArguments.push({
+        argument,
+        value: argument.slice("--target=".length),
+      });
+    }
+  }
+  if (targetArguments.length === 0) return undefined;
+  if (targetArguments.length > 1) {
+    throw new Error(`Duplicate Bun compile target options are not allowed: ${targetArguments.map(({ argument }) => argument).join(", ")}. ${supportedTargetMessage()}`);
+  }
+  const [{ value }] = targetArguments;
+  assertBunCompileTarget(value);
+  return value;
 }
 
 export async function buildWebAppBinary(options: BuildWebAppBinaryOptions): Promise<void> {
+  if (options.target !== undefined) {
+    assertBunCompileTarget(options.target);
+  }
   mkdirSync(dirname(options.outfile), { recursive: true });
   const packageRoot = findPackageRoot(dirname(resolve(options.entrypoint)));
   const buildId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
