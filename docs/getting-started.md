@@ -155,7 +155,7 @@ The app configures an uppercase `envPrefix`; the framework reads only variables 
 | --- | --- | --- |
 | `{PREFIX}_HOST` | `localhost` | Bind host |
 | `{PREFIX}_PORT` | `3000` | Bind port |
-| `{PREFIX}_DATA_DIR` | `./data` | SQLite persistence directory |
+| `{PREFIX}_DATA_DIR` | `./data` | Durable SQLite persistence directory for framework auth and app data |
 | `{PREFIX}_LOG_LEVEL` | `info` | `trace`, `debug`, `info`, `warn`, `error`; locks settings log-level control when set |
 | `{PREFIX}_DISABLE_PASSKEY` | unset | Emergency bypass that logs in as the existing owner; it does not create users |
 | `{PREFIX}_DISABLE_SAME_ORIGIN_CHECK` | unset | Development/testing escape hatch |
@@ -164,6 +164,19 @@ The app configures an uppercase `envPrefix`; the framework reads only variables 
 | `{PREFIX}_TRUST_PROXY_CHAIN` | `first` | Select the left-most (`first`) or right-most (`last`) non-empty value from comma-separated forwarded headers |
 | `{PREFIX}_PUBLIC_BASE_URL` | request origin | Authoritative external origin for auth/device URLs; it overrides forwarded protocol and host values |
 | `{PREFIX}_AUTH_ISSUER` | `urn:{prefix}:webapp` | JWT issuer override |
+
+The configured data directory contains the framework-owned
+`webapp.sqlite`. The example applications keep their application entities in
+separate files in that same directory: Notes TODO uses `notes-todo.sqlite`
+for sections, notes and todos, while Kitchen Sink uses `kitchen-sink.sqlite`
+for projects. Keeping these files separate prevents example-specific tables
+from being added to the framework authentication store.
+
+Example application databases create or migrate their schema during startup.
+Owner seed data is written transactionally and is idempotent across repeated
+starts. Point the prefixed `*_DATA_DIR` at storage that survives process
+restarts and redeployments; deleting or changing the directory intentionally
+starts a new application state.
 
 For a reverse-proxy deployment that strips and overwrites the forwarded
 headers, configure the trust policy explicitly:
