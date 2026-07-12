@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { BunPlugin } from "bun";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   BUN_COMPILE_TARGETS,
@@ -160,6 +161,99 @@ renderWebApp(<FixtureApp />);
       .map((asset) => Buffer.from(asset.body, "base64").toString("utf8"))
       .join("\n");
     expect(scripts).toContain("customPluginMarker");
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("buildWebAppBinary resolves the renderer from an application-local package export", async () => {
+  const fixtureRoot = resolve(".cache/tests/build-binary-package-resolution", crypto.randomUUID());
+  const srcDir = join(fixtureRoot, "src");
+  const reactDomRoot = join(fixtureRoot, "node_modules", "react-dom");
+  const outfile = join(fixtureRoot, "dist", "fixture-app");
+  const assetsPath = join(fixtureRoot, "compiled-assets.json");
+
+  rmSync(fixtureRoot, { recursive: true, force: true });
+  mkdirSync(srcDir, { recursive: true });
+  mkdirSync(reactDomRoot, { recursive: true });
+  writeFileSync(join(fixtureRoot, "package.json"), JSON.stringify({
+    name: "fixture-app-package",
+    private: true,
+    dependencies: { react: "19.2.7", "react-dom": "fixture-local" },
+  }));
+  writeFileSync(join(reactDomRoot, "package.json"), JSON.stringify({
+    name: "react-dom",
+    version: "fixture-local",
+    exports: { "./client": "./client.js" },
+  }));
+  writeFileSync(join(reactDomRoot, "client.js"), `export function createRoot() {
+  globalThis.__fixtureReactDomMarker = "app-local-react-dom";
+  return { render() {} };
+}
+`);
+  writeFileSync(join(srcDir, "index.ts"), `const compiledClient = globalThis[Symbol.for("webapp.compiledClient")];
+const outputPath = process.env["TEST_COMPILED_ASSETS_PATH"];
+
+if (!outputPath) {
+  throw new Error("TEST_COMPILED_ASSETS_PATH is required");
+}
+
+await Bun.write(outputPath, JSON.stringify(compiledClient));
+`);
+  writeFileSync(join(srcDir, "frontend.tsx"), "export {};\n");
+
+  try {
+    await buildWebAppBinary({
+      entrypoint: join(srcDir, "index.ts"),
+      outfile,
+      web: { entry: "./frontend.tsx" },
+    });
+
+    const child = Bun.spawn([outfile], {
+      cwd: fixtureRoot,
+      env: { ...process.env, TEST_COMPILED_ASSETS_PATH: assetsPath },
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    const [exitCode, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stderr).text(),
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
+
+    const compiled = await Bun.file(assetsPath).json() as {
+      assets: Array<{ contentType: string; body: string }>;
+    };
+    const scripts = compiled.assets
+      .filter((asset) => asset.contentType.includes("text/javascript"))
+      .map((asset) => Buffer.from(asset.body, "base64").toString("utf8"))
+      .join("\n");
+    expect(scripts).toContain("app-local-react-dom");
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("buildWebAppBinary reports a missing application react-dom before creating output", async () => {
+  const fixtureRoot = join(tmpdir(), `webapp-build-binary-missing-react-dom-${crypto.randomUUID()}`);
+  const srcDir = join(fixtureRoot, "src");
+  const outfile = join(fixtureRoot, "dist", "fixture-app");
+
+  rmSync(fixtureRoot, { recursive: true, force: true });
+  mkdirSync(srcDir, { recursive: true });
+  writeFileSync(join(fixtureRoot, "package.json"), JSON.stringify({
+    name: "fixture-missing-react-dom",
+    private: true,
+  }));
+  writeFileSync(join(srcDir, "index.ts"), "export {};\n");
+
+  try {
+    await expect(buildWebAppBinary({
+      entrypoint: join(srcDir, "index.ts"),
+      outfile,
+    })).rejects.toThrow(/Unable to resolve "react-dom\/client".*Install "react-dom"/);
+    expect(existsSync(dirname(outfile))).toBe(false);
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }

@@ -14,6 +14,10 @@ bun run dev:kitchen-sink
 
 Both examples run with Bun native hot reload through `bun --hot`, with no standalone frontend build server and no external `WEB_DIST_DIR`.
 
+## Application dependencies
+
+Each application package must declare `react` and `react-dom`; they are peer dependencies of the framework. Bun resolves `react-dom/client` from the application package context, so workspace installs do not need to hoist React packages to a repository root. Native startup and binary builds fail early with the application context when `react-dom` is not installed.
+
 ## Main exports
 
 | Export | Use |
