@@ -1,11 +1,10 @@
 import { z } from "zod";
 import { findRouteCatalogEntry, type RouteCatalogEntry } from "../server/route-catalog";
-import { getAuthorizedHeaders, refreshDeviceCredentials, type StoredDeviceCredentials } from "./device-auth";
+import { getAuthorizedHeaders, refreshDeviceCredentials, type DeviceCredentialsStore, type StoredDeviceCredentials } from "./device-auth";
 import { readOption, type CliCommandResult } from "./runtime";
 
-export interface ApiCliCredentialsStore {
+export interface ApiCliCredentialsStore extends DeviceCredentialsStore {
   read(): Promise<StoredDeviceCredentials | undefined>;
-  write(value: StoredDeviceCredentials): Promise<void>;
 }
 
 export interface ApiCliCommandOptions {
