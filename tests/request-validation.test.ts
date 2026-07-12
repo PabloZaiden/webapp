@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { createWebAppServer, defineRoutes, jsonResponse, parseJson, sqliteWebAppStore } from "@pablozaiden/webapp/server";
+import { createWebAppServer, defineRoutes, jsonResponse, parseJson, parseOptionalJson, sqliteWebAppStore } from "@pablozaiden/webapp/server";
 
 function testStore(name: string) {
   return sqliteWebAppStore({ dataDir: `.cache/tests/${name}-${crypto.randomUUID()}` });
@@ -63,6 +63,40 @@ describe("request body validation", () => {
     }));
     expect(valid?.status).toBe(200);
     expect(await valid?.json()).toMatchObject({ device_code: expect.any(String), user_code: expect.any(String) });
+  });
+
+  test("returns 400 for whitespace-only optional JSON bodies", async () => {
+    const webhookSchema = z.object({ title: z.string().optional() });
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_REQUEST_VALIDATION_OPTIONAL",
+      store: testStore("request-validation-optional"),
+      auth: { passkeys: false },
+      routes: defineRoutes({
+        "/api/webhooks": {
+          auth: "public",
+          sameOrigin: "never",
+          requestSchema: webhookSchema,
+          POST: async (req) => jsonResponse({ body: (await parseOptionalJson(req, webhookSchema)) ?? null }),
+        },
+      }),
+    });
+
+    const whitespace = await app.handleRequest(new Request("http://localhost/api/webhooks", {
+      method: "POST",
+      body: " \n\t",
+    }));
+    expect(whitespace?.status).toBe(400);
+    expect(await responseJson<{ error: string; message: string }>(whitespace)).toEqual({
+      error: "invalid_json",
+      message: "Request body must be valid JSON",
+    });
+
+    const empty = await app.handleRequest(new Request("http://localhost/api/webhooks", {
+      method: "POST",
+    }));
+    expect(empty?.status).toBe(200);
+    expect(await responseJson<{ body: null }>(empty)).toEqual({ body: null });
   });
 
   test("returns field details for schema-invalid application input", async () => {

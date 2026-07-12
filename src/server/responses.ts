@@ -89,7 +89,7 @@ export async function parseJson<TSchema extends z.ZodTypeAny>(req: Request, sche
 
 export async function parseOptionalJson<TSchema extends z.ZodTypeAny>(req: Request, schema: TSchema): Promise<z.infer<TSchema> | undefined> {
   const text = await req.text();
-  if (!text.trim()) {
+  if (text.length === 0) {
     return undefined;
   }
   let value: unknown;
