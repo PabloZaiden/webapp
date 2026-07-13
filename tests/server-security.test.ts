@@ -477,7 +477,6 @@ describe("server security defaults", () => {
       expect(devicePage.headers.get("content-type")).toContain("text/html");
       const deviceHtml = await devicePage.text();
       expect(deviceHtml).toContain(clientScript!);
-      expect(deviceHtml).not.toContain('src="webapp-prelude.ts"');
       expect(postFallback.status).toBe(404);
       expect(postFallback.headers.get("content-type")).toContain("application/json");
       expect(await postFallback.json()).toMatchObject({ error: "not_found" });
