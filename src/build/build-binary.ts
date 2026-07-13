@@ -73,7 +73,7 @@ export function getBunCompileTargetFromArgs(argv = Bun.argv): BunCompileTarget |
   if (targetArguments.length > 1) {
     throw new Error(`Duplicate Bun compile target options are not allowed: ${targetArguments.map(({ argument }) => argument).join(", ")}. ${supportedTargetMessage()}`);
   }
-  const targetArgument = targetArguments.at(0);
+  const targetArgument = targetArguments[0];
   if (targetArgument === undefined) return undefined;
   const { value } = targetArgument;
   assertBunCompileTarget(value);
