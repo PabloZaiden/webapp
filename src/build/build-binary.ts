@@ -3,6 +3,7 @@ import tailwindPlugin from "bun-plugin-tailwind";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { withBunBuildLock } from "../bun-build-lock";
 import { findPackageRoot, resolveReactDomClient } from "../package-resolution";
 
 export const BUN_COMPILE_TARGETS = [
@@ -109,7 +110,7 @@ configureWebAppRenderer(createRoot);
       ...(options.web?.build?.plugins ?? []),
       ...(options.web?.build?.disableDefaultPlugins ? [] : [tailwindPlugin]),
     ];
-    const browserBuild = await Bun.build({
+    const browserBuild = await withBunBuildLock(() => Bun.build({
       entrypoints: [rendererEntry, clientEntry],
       outdir: browserOutDir,
       target: "browser",
@@ -120,7 +121,7 @@ configureWebAppRenderer(createRoot);
       sourcemap: "external",
       define: { ...options.define, ...options.web?.build?.define },
       plugins: browserPlugins,
-    });
+    }));
     if (!browserBuild.success) {
       for (const log of browserBuild.logs) {
         console.error(log);
@@ -149,14 +150,14 @@ configureWebAppRenderer(createRoot);
     writeFileSync(compiledEntrypoint, `import "./compiled-webapp-assets";
 import ${JSON.stringify(entrypoint)};
 `);
-    const result = await Bun.build({
+    const result = await withBunBuildLock(() => Bun.build({
       entrypoints: [compiledEntrypoint],
       target: "bun",
       minify: true,
       sourcemap: "external",
       define: options.define,
       compile: options.target ? { target: options.target, outfile: options.outfile } : { outfile: options.outfile },
-    });
+    }));
     if (!result.success) {
       for (const log of result.logs) {
         console.error(log);

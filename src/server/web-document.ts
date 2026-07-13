@@ -8,6 +8,7 @@ import type {
   WebAppIconConfig,
   WebAppPwaConfig,
 } from "./server-types";
+import { withBunBuildLock } from "../bun-build-lock";
 import { findPackageRoot, resolveReactDomClient } from "../package-resolution";
 import { MOBILE_MEDIA_QUERY, MOBILE_STATE_ATTRIBUTE } from "../web/mobile";
 import { notFound, withSecurityHeaders } from "./responses";
@@ -369,6 +370,16 @@ async function bundleNativeRenderer(preludePath: string, outputDir: string): Pro
 }
 
 async function createWebDocument(
+  config: RuntimeConfig,
+  webInput: WebAppDocumentConfig | undefined,
+  resolution: WebDocumentResolution,
+): Promise<WebDocument> {
+  return await withBunBuildLock(
+    () => createWebDocumentUnlocked(config, webInput, resolution),
+  );
+}
+
+async function createWebDocumentUnlocked(
   config: RuntimeConfig,
   webInput: WebAppDocumentConfig | undefined,
   resolution: WebDocumentResolution,
