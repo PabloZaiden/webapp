@@ -64,7 +64,7 @@ Reference screenshots live in `artifacts/screenshots`:
 | `kitchen-dialog-dark.png` | Confirm dialog overlay |
 | `kitchen-device-light.png` | Device auth approval flow |
 
-Use the temporary Playwright harness described in `skills/webapp/SKILL.md` when new visual captures are needed. Browser automation and screenshot capture must stay Playwright-based and cross-platform; do not hard-code local Chrome or OS-specific browser paths.
+Use the temporary Playwright harness described in `skills/webapp/SKILL.md` when new visual captures are needed. Its default output is disposable; to intentionally update these checked-in reference captures, run the application-specific temporary harness with `PLAYWRIGHT_OUT_DIR="$PWD/artifacts/screenshots"` and review every changed image before committing it. Browser automation and screenshot capture must stay Playwright-based and cross-platform; do not hard-code local Chrome or OS-specific browser paths. The framework does not ship a screenshot command or Playwright dependency.
 
 Use these captures as the manual visual baseline before changing shell, sidebar, settings or dialog styles. When screenshots are captured to validate a visual change, review them against the specific goal; capturing files without checking the result is not validation.
 
