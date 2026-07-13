@@ -6,7 +6,7 @@
 
 1. Install dependencies with `bun install --frozen-lockfile`.
 2. Run `bun run tsc`.
-3. Run `bun test`.
+3. Run `bun run test`, which runs the build-binary integration tests in an isolated process before the remaining suites.
 4. Build both example apps.
 5. Start the compiled example binaries and smoke-test `/api/health` plus one app endpoint.
 
