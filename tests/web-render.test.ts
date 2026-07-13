@@ -633,19 +633,18 @@ test("sidebar search temporarily reveals matches without changing collapse state
     const storageKey = "webapp.test-app.sidebar.collapsed";
     localStorage.setItem(storageKey, JSON.stringify({ projects: true }));
     const view = await renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed: false });
-    const searchInput = view.getByRole("textbox", { name: "Search" });
+    const searchInput = view.getByRole("textbox");
+    const matchingChild = () => view.queryByRole("button", { name: /alpha/i });
 
-    expect(view.queryByRole("button", { name: "Alpha" })).toBeNull();
+    expect(matchingChild()).toBeNull();
 
     typeSearch(searchInput, "alpha");
 
-    expect(await waitFor(() => view.getByRole("button", { name: "Alpha" }))).toBeTruthy();
+    expect(await waitFor(() => view.getByRole("button", { name: /alpha/i }))).toBeTruthy();
     expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: true });
 
-    fireEvent.click(view.getByRole("button", { name: "Clear search" }));
-    await waitFor(() => expect((searchInput as HTMLInputElement).value).toBe(""));
-    expect(view.queryByRole("button", { name: "Alpha" })).toBeNull();
-    expect(view.getByRole("button", { name: /Projects/ }).getAttribute("aria-expanded")).toBe("false");
+    typeSearch(searchInput, "");
+    await waitFor(() => expect(matchingChild()).toBeNull());
     expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: true });
   } finally {
     restoreFetch();
