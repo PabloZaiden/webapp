@@ -212,7 +212,7 @@ export function createAuthentication(dependencies: AuthenticationDependencies): 
           return { kind: "api-key", ...apiKey };
         }
       }
-      return errorResponse(401, "invalid_token", "****** is invalid");
+      return errorResponse(401, "invalid_token", "Invalid authentication token");
     }
     if (passkeysEnabled) {
       if (config.passkeyDisabled) {

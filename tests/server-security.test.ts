@@ -1018,6 +1018,30 @@ describe("server security defaults", () => {
     expect(response?.status).toBe(401);
   });
 
+  test("invalid bearer tokens return a stable error without echoing the token", async () => {
+    const token = "not-a-real-token";
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_INVALID_TOKEN",
+      store: testStore("invalid-token"),
+      auth: { passkeys: false, apiKeys: false, deviceAuth: false },
+      routes: defineRoutes({
+        "/api/protected": {
+          auth: "required",
+          GET: () => jsonResponse({ ok: true }),
+        },
+      }),
+    });
+
+    const response = await app.handleRequest(new Request("http://localhost/api/protected", {
+      headers: { authorization: `Bearer ${token}` },
+    }));
+    expect(response?.status).toBe(401);
+    const body = await responseJson<{ error: string; message: string }>(response);
+    expect(body).toEqual({ error: "invalid_token", message: "Invalid authentication token" });
+    expect(JSON.stringify(body)).not.toContain(token);
+  });
+
   test("route auth helpers return auth errors instead of server errors", async () => {
     const app = createWebAppServer({
       appName: "Test",

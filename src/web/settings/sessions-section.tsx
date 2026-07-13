@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import type { AuthSessionSummary, WebAppConfigResponse } from "../../contracts";
 import { appJson } from "../api-client";
-import { Button, ConfirmDialog, EmptyState, FormSection } from "../components";
+import { Button, ConfirmDialog, EmptyState } from "../components";
 import { useLiveQuery } from "../realtime/useRealtime";
 import { ResourceState } from "./resource-state";
 
