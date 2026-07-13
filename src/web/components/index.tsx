@@ -30,8 +30,15 @@ export function Badge({ variant = "default", className = "", children, ...props 
   return <span {...props} className={`wapp-badge wapp-badge-${variant} ${className}`}>{children}</span>;
 }
 
-export function Page({ className = "", children, ...props }: HTMLAttributes<HTMLDivElement> & { children: ReactNode }) {
-  return <div {...props} className={`wapp-page ${className}`}>{children}</div>;
+export type PageLayout = "padded" | "full";
+
+export function Page({
+  layout = "padded",
+  className = "",
+  children,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { children: ReactNode; layout?: PageLayout }) {
+  return <div {...props} className={`wapp-page ${layout === "full" ? "wapp-page-full" : ""} ${className}`.trim()}>{children}</div>;
 }
 
 export function Panel({ title, description, actions, children, className = "" }: { title?: string; description?: string; actions?: ReactNode; children?: ReactNode; className?: string }) {
