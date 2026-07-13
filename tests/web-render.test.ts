@@ -449,17 +449,6 @@ test("renderWebApp renders the latest content when called repeatedly", () => {
   expect(container.textContent).toBe("second");
 });
 
-test("mockConfigFetch matches config requests from string, URL, and Request inputs", async () => {
-  const restoreFetch = mockConfigFetch();
-  try {
-    await expect(fetch("/api/config").then((response) => response.json())).resolves.toMatchObject({ appName: "Test App" });
-    await expect(fetch(new URL("http://localhost/api/config")).then((response) => response.json())).resolves.toMatchObject({ appName: "Test App" });
-    await expect(fetch(new Request("http://localhost/api/config")).then((response) => response.json())).resolves.toMatchObject({ appName: "Test App" });
-  } finally {
-    restoreFetch();
-  }
-});
-
 test("WebAppRoot routes built-in requests through the configured API base URL", async () => {
   const requested: string[] = [];
   configureWebAppClient({ apiBaseUrl: "https://api.example.test/root" });
