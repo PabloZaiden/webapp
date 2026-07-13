@@ -21,6 +21,13 @@ test("getBunCompileTargetFromArgs accepts every supported target and no target",
   }
 });
 
+test("getBunCompileTargetFromArgs ignores missing sparse argv entries", () => {
+  const args = new Array<string>(3);
+  args[2] = "--target=bun-linux-x64";
+
+  expect(getBunCompileTargetFromArgs(args)).toBe("bun-linux-x64");
+});
+
 test("getBunCompileTargetFromArgs rejects invalid target arguments with supported choices", () => {
   const invalidCases = [
     { args: ["--target="], expected: `Invalid Bun compile target ""` },

@@ -53,8 +53,8 @@ export function assertBunCompileTarget(value: unknown): asserts value is BunComp
 
 export function getBunCompileTargetFromArgs(argv = Bun.argv): BunCompileTarget | undefined {
   const targetArguments: Array<{ argument: string; value: string }> = [];
-  for (let index = 0; index < argv.length; index++) {
-    const argument = argv[index];
+  for (const [index, argument] of argv.entries()) {
+    if (argument === undefined) continue;
     if (argument === "--target" || (argument.startsWith("--target") && !argument.startsWith("--target="))) {
       const nextArgument = argv[index + 1];
       const received = argument === "--target" && nextArgument && !nextArgument.startsWith("--")
@@ -73,7 +73,9 @@ export function getBunCompileTargetFromArgs(argv = Bun.argv): BunCompileTarget |
   if (targetArguments.length > 1) {
     throw new Error(`Duplicate Bun compile target options are not allowed: ${targetArguments.map(({ argument }) => argument).join(", ")}. ${supportedTargetMessage()}`);
   }
-  const [{ value }] = targetArguments;
+  const targetArgument = targetArguments.at(0);
+  if (targetArgument === undefined) return undefined;
+  const { value } = targetArgument;
   assertBunCompileTarget(value);
   return value;
 }
