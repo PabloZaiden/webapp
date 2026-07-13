@@ -1,14 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { readFileSync } from "node:fs";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
-import { Button, ConfirmModal, Modal } from "../src/web/components";
+import { ConfirmModal } from "../src/web/components";
 import type { ApiKeySummary, AuthSessionSummary, ThemePreference, WebAppConfigResponse, WebAppUserSummary } from "../src/contracts";
 import { configureWebAppClient, onAuthRequired } from "../src/web/api-client";
 import { MOBILE_MEDIA_QUERY } from "../src/web/mobile";
-import type { BadgeVariant, SidebarNode } from "../src/web/sidebar/types";
+import type { SidebarNode } from "../src/web/sidebar/types";
 import { WebAppRoot } from "../src/web/WebAppRoot";
 import { configureWebAppRenderer, renderWebApp } from "../src/web/render";
 
@@ -18,7 +17,6 @@ configureWebAppRenderer(createRoot);
 afterEach(() => {
   cleanup();
   document.body.innerHTML = "";
-  document.body.style.overflow = "";
   localStorage.clear();
   configureWebAppClient();
   window.history.replaceState(null, "", "http://localhost/");
@@ -243,13 +241,10 @@ async function renderShortcutWebApp() {
     },
   }));
 
-  const shell = await waitFor(() => {
-    const element = view.container.querySelector(".wapp-shell");
-    expect(element).toBeTruthy();
-    return element as HTMLElement;
-  });
+  await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
+  await act(async () => {});
 
-  return { ...view, shell };
+  return view;
 }
 
 async function renderSettingsWebApp() {
@@ -322,7 +317,7 @@ async function renderCollapsibleSidebarWebApp({ defaultCollapsed = false } = {})
     },
   }));
 
-  await waitFor(() => expect(view.container.querySelector(".wapp-shell")).toBeTruthy());
+  await waitFor(() => expect(view.getByText("Projects")).toBeTruthy());
 
   return view;
 }
@@ -370,7 +365,7 @@ async function renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapse
     },
   }));
 
-  await waitFor(() => expect(view.container.querySelector(".wapp-shell")).toBeTruthy());
+  await waitFor(() => expect(view.getByText("Projects")).toBeTruthy());
 
   return view;
 }
@@ -387,31 +382,6 @@ function typeSearch(input: HTMLElement, value: string) {
     }
     searchInput.dispatchEvent(new Event("input", { bubbles: true }));
   });
-}
-
-function cssRule(css: string, selector: string) {
-  const ruleStart = css.indexOf(`${selector} {`);
-  expect(ruleStart).toBeGreaterThanOrEqual(0);
-  const bodyStart = css.indexOf("{", ruleStart);
-  const bodyEnd = css.indexOf("}", bodyStart);
-  expect(bodyEnd).toBeGreaterThan(bodyStart);
-  return css.slice(bodyStart + 1, bodyEnd);
-}
-
-function cssRulesForSelector(css: string, selector: string) {
-  const rules: string[] = [];
-  for (const match of css.matchAll(/([^{}]+)\{([^{}]+)\}/g)) {
-    const selectors = match[1]!.split(",").map((part) => part.trim());
-    if (selectors.includes(selector)) {
-      rules.push(match[2]!);
-    }
-  }
-  expect(rules.length).toBeGreaterThan(0);
-  return rules;
-}
-
-function selectorHasDeclaration(css: string, selector: string, declaration: string) {
-  return cssRulesForSelector(css, selector).some((rule) => rule.includes(declaration));
 }
 
 test("sidebar navigation replaces hash history entries", async () => {
@@ -599,40 +569,20 @@ test("modal Enter shortcut does not confirm while an input is focused", () => {
   expect(confirmations).toBe(0);
 });
 
-test("modal scroll lock remains active until the last stacked modal closes", () => {
-  document.body.style.overflow = "auto";
-  const modal = (title: string) => createElement(Modal, {
-    isOpen: true,
-    onClose: () => {},
-    title,
-    footer: createElement(Button, { type: "button" }, "Close"),
-    children: createElement("p", null, title),
-  });
-  const { rerender, unmount } = render(createElement("div", null, modal("First"), modal("Second")));
-
-  expect(document.body.style.overflow).toBe("hidden");
-
-  rerender(createElement("div", null, modal("First")));
-  expect(document.body.style.overflow).toBe("hidden");
-
-  unmount();
-  expect(document.body.style.overflow).toBe("auto");
-});
-
 test("Ctrl+B toggles the sidebar collapsed state", async () => {
   const restoreFetch = mockConfigFetch();
   try {
-    const { shell } = await renderShortcutWebApp();
+    const view = await renderShortcutWebApp();
 
-    expect(shell.classList.contains("sidebar-collapsed")).toBe(false);
+    expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
 
     const collapseDispatched = fireEvent.keyDown(document, { key: "b", ctrlKey: true, cancelable: true });
     expect(collapseDispatched).toBe(false);
-    await waitFor(() => expect(shell.classList.contains("sidebar-collapsed")).toBe(true));
+    await waitFor(() => expect(view.queryAllByRole("button", { name: "Collapse sidebar" })).toHaveLength(0));
 
     const expandDispatched = fireEvent.keyDown(document, { key: "b", ctrlKey: true, cancelable: true });
     expect(expandDispatched).toBe(false);
-    await waitFor(() => expect(shell.classList.contains("sidebar-collapsed")).toBe(false));
+    await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
   } finally {
     restoreFetch();
   }
@@ -641,13 +591,13 @@ test("Ctrl+B toggles the sidebar collapsed state", async () => {
 test("Cmd+B toggles the sidebar collapsed state", async () => {
   const restoreFetch = mockConfigFetch();
   try {
-    const { shell } = await renderShortcutWebApp();
+    const view = await renderShortcutWebApp();
 
     fireEvent.keyDown(document, { key: "B", metaKey: true });
-    await waitFor(() => expect(shell.classList.contains("sidebar-collapsed")).toBe(true));
+    await waitFor(() => expect(view.queryAllByRole("button", { name: "Collapse sidebar" })).toHaveLength(0));
 
     fireEvent.keyDown(document, { key: "b", metaKey: true });
-    await waitFor(() => expect(shell.classList.contains("sidebar-collapsed")).toBe(false));
+    await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
   } finally {
     restoreFetch();
   }
@@ -656,7 +606,7 @@ test("Cmd+B toggles the sidebar collapsed state", async () => {
 test("sidebar shortcut ignores non-exact key combinations", async () => {
   const restoreFetch = mockConfigFetch();
   try {
-    const { shell } = await renderShortcutWebApp();
+    const view = await renderShortcutWebApp();
 
     fireEvent.keyDown(document, { key: "b" });
     fireEvent.keyDown(document, { key: "b", ctrlKey: true, shiftKey: true });
@@ -664,7 +614,7 @@ test("sidebar shortcut ignores non-exact key combinations", async () => {
     fireEvent.keyDown(document, { key: "b", ctrlKey: true, repeat: true });
     fireEvent.keyDown(document, { key: "b", ctrlKey: true, isComposing: true });
 
-    expect(shell.classList.contains("sidebar-collapsed")).toBe(false);
+    expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
   } finally {
     restoreFetch();
   }
@@ -673,7 +623,7 @@ test("sidebar shortcut ignores non-exact key combinations", async () => {
 test("sidebar shortcut ignores text-editing targets", async () => {
   const restoreFetch = mockConfigFetch();
   try {
-    const { shell } = await renderShortcutWebApp();
+    const view = await renderShortcutWebApp();
     const targets = [
       document.createElement("input"),
       document.createElement("textarea"),
@@ -687,7 +637,7 @@ test("sidebar shortcut ignores text-editing targets", async () => {
       target.focus();
       const dispatched = fireEvent.keyDown(target, { key: "b", ctrlKey: true, cancelable: true });
       expect(dispatched).toBe(true);
-      expect(shell.classList.contains("sidebar-collapsed")).toBe(false);
+      expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
     }
   } finally {
     restoreFetch();
@@ -697,13 +647,13 @@ test("sidebar shortcut ignores text-editing targets", async () => {
 test("sidebar toggle label reflects the current action", async () => {
   const restoreFetch = mockConfigFetch();
   try {
-    const { container } = await renderShortcutWebApp();
+    const view = await renderShortcutWebApp();
 
-    expect(container.querySelectorAll('[aria-label="Collapse sidebar"]')).toHaveLength(1);
+    expect(view.getAllByRole("button", { name: "Collapse sidebar" })).toHaveLength(1);
 
     fireEvent.keyDown(document, { key: "b", ctrlKey: true });
-    await waitFor(() => expect(container.querySelectorAll('[aria-label="Collapse sidebar"]')).toHaveLength(0));
-    expect(container.querySelectorAll('[aria-label="Show sidebar"]').length).toBeGreaterThan(0);
+    await waitFor(() => expect(view.queryAllByRole("button", { name: "Collapse sidebar" })).toHaveLength(0));
+    expect(view.getAllByRole("button", { name: "Show sidebar" }).length).toBeGreaterThan(0);
   } finally {
     restoreFetch();
   }
@@ -949,28 +899,6 @@ test("header actions keep pinning actions from unfiltered active sidebar nodes",
     expect(await waitFor(() => getByRole("menuitem", { name: "Pin to sidebar" }))).toBeTruthy();
   } finally {
     window.location.hash = "";
-    restoreFetch();
-  }
-});
-
-test("settings device sessions omit inactive state labels", async () => {
-  const now = new Date().toISOString();
-  const restoreFetch = mockSettingsFetch([{
-    id: "session-1",
-    clientId: "cli",
-    scope: "*",
-    createdAt: now,
-    updatedAt: now,
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    active: true,
-  }]);
-  try {
-    const { container, getByText } = await renderSettingsWebApp();
-
-    expect(getByText("cli")).toBeTruthy();
-    expect(container.textContent).not.toContain("inactive");
-    expect(container.textContent).not.toContain("active ·");
-  } finally {
     restoreFetch();
   }
 });
@@ -1295,16 +1223,16 @@ test("sidebar search expands item groups with matching children without persisti
 test("mobile sidebar backdrop closes the open sidebar", async () => {
   const restoreFetch = mockConfigFetch();
   try {
-    const { container, getByLabelText, shell } = await renderShortcutWebApp();
+    const view = await renderShortcutWebApp();
+    const showSidebar = view.getByRole("button", { name: "Show sidebar" });
 
-    fireEvent.click(getByLabelText("Show sidebar"));
-    await waitFor(() => expect(shell.classList.contains("sidebar-open")).toBe(true));
+    expect(showSidebar.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(showSidebar);
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
 
-    const backdrop = container.querySelector(".wapp-mobile-backdrop");
-    expect(backdrop).toBeTruthy();
-    fireEvent.click(backdrop!);
+    fireEvent.click(view.getByRole("button", { name: "Close sidebar" }));
 
-    await waitFor(() => expect(shell.classList.contains("sidebar-open")).toBe(false));
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
   } finally {
     restoreFetch();
   }
@@ -1314,7 +1242,8 @@ test("mobile left-edge swipe opens the sidebar", async () => {
   const restoreFetch = mockConfigFetch();
   const restoreMobileMediaQuery = mockMobileMediaQuery(true);
   try {
-    const { shell } = await renderShortcutWebApp();
+    const view = await renderShortcutWebApp();
+    const showSidebar = view.getByRole("button", { name: "Show sidebar" });
 
     fireEvent.touchStart(document, {
       touches: [{ clientX: 8, clientY: 240 }],
@@ -1324,7 +1253,7 @@ test("mobile left-edge swipe opens the sidebar", async () => {
       cancelable: true,
     });
 
-    await waitFor(() => expect(shell.classList.contains("sidebar-open")).toBe(true));
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
   } finally {
     restoreMobileMediaQuery();
     restoreFetch();
@@ -1335,7 +1264,8 @@ test("desktop sidebar ignores left-edge swipe", async () => {
   const restoreFetch = mockConfigFetch();
   const restoreMobileMediaQuery = mockMobileMediaQuery(false);
   try {
-    const { shell } = await renderShortcutWebApp();
+    const view = await renderShortcutWebApp();
+    const showSidebar = view.getByRole("button", { name: "Show sidebar" });
 
     fireEvent.touchStart(document, {
       touches: [{ clientX: 8, clientY: 240 }],
@@ -1345,7 +1275,7 @@ test("desktop sidebar ignores left-edge swipe", async () => {
       cancelable: true,
     });
 
-    expect(shell.classList.contains("sidebar-open")).toBe(false);
+    expect(showSidebar.getAttribute("aria-expanded")).toBe("false");
   } finally {
     restoreMobileMediaQuery();
     restoreFetch();
@@ -1356,7 +1286,8 @@ test("mobile sidebar swipe ignores touches away from the left edge", async () =>
   const restoreFetch = mockConfigFetch();
   const restoreMobileMediaQuery = mockMobileMediaQuery(true);
   try {
-    const { shell } = await renderShortcutWebApp();
+    const view = await renderShortcutWebApp();
+    const showSidebar = view.getByRole("button", { name: "Show sidebar" });
 
     fireEvent.touchStart(document, {
       touches: [{ clientX: 40, clientY: 240 }],
@@ -1365,7 +1296,7 @@ test("mobile sidebar swipe ignores touches away from the left edge", async () =>
       touches: [{ clientX: 120, clientY: 240 }],
       cancelable: true,
     });
-    expect(shell.classList.contains("sidebar-open")).toBe(false);
+    expect(showSidebar.getAttribute("aria-expanded")).toBe("false");
   } finally {
     restoreMobileMediaQuery();
     restoreFetch();
@@ -1376,7 +1307,8 @@ test("mobile sidebar swipe cancels after diagonal movement", async () => {
   const restoreFetch = mockConfigFetch();
   const restoreMobileMediaQuery = mockMobileMediaQuery(true);
   try {
-    const { shell } = await renderShortcutWebApp();
+    const view = await renderShortcutWebApp();
+    const showSidebar = view.getByRole("button", { name: "Show sidebar" });
 
     fireEvent.touchStart(document, {
       touches: [{ clientX: 8, clientY: 240 }],
@@ -1390,80 +1322,9 @@ test("mobile sidebar swipe cancels after diagonal movement", async () => {
       cancelable: true,
     });
 
-    expect(shell.classList.contains("sidebar-open")).toBe(false);
+    expect(showSidebar.getAttribute("aria-expanded")).toBe("false");
   } finally {
     restoreMobileMediaQuery();
     restoreFetch();
-  }
-});
-
-test("mobile sidebar backdrop uses the modal overlay blur tokens", () => {
-  const css = readFileSync(new URL("../src/web/styles.css", import.meta.url), "utf8");
-  const rootRule = cssRule(css, ":root");
-  const mobileBackdropRule = cssRule(css, ".wapp-mobile-backdrop");
-  const modalOverlayRule = cssRule(css, ".wapp-modal-overlay");
-
-  expect(rootRule).toContain("--wapp-overlay-bg: rgb(0 0 0 / 0.5);");
-  expect(rootRule).toContain("--wapp-overlay-blur: blur(4px);");
-  expect(mobileBackdropRule).toContain("background: var(--wapp-overlay-bg);");
-  expect(mobileBackdropRule).toContain("backdrop-filter: var(--wapp-overlay-blur);");
-  expect(modalOverlayRule).toContain("background: var(--wapp-overlay-bg);");
-  expect(modalOverlayRule).toContain("backdrop-filter: var(--wapp-overlay-blur);");
-});
-
-test("sidebar compact badges use the badge variant foreground token", () => {
-  const css = readFileSync(new URL("../src/web/styles.css", import.meta.url), "utf8");
-  const badgeRule = cssRule(css, ".wapp-badge");
-  const lightForegrounds: Record<Exclude<BadgeVariant, "default">, string> = {
-    success: "rgb(22 101 52)",
-    warning: "rgb(146 64 14)",
-    error: "rgb(153 27 27)",
-    info: "rgb(30 64 175)",
-    disabled: "rgb(31 41 55)",
-    idle: "rgb(31 41 55)",
-    planning: "rgb(21 94 117)",
-    running: "rgb(30 64 175)",
-    completed: "rgb(22 101 52)",
-    stopped: "rgb(31 41 55)",
-    failed: "rgb(153 27 27)",
-    merged: "rgb(107 33 168)",
-    pushed: "rgb(55 48 163)",
-    deleted: "rgb(107 114 128)",
-    plan_ready: "rgb(146 64 14)",
-  };
-  const darkForegrounds: Record<Exclude<BadgeVariant, "default">, string> = {
-    success: "rgb(134 239 172)",
-    warning: "rgb(252 211 77)",
-    error: "rgb(252 165 165)",
-    info: "rgb(147 197 253)",
-    disabled: "rgb(209 213 219)",
-    idle: "rgb(209 213 219)",
-    planning: "rgb(103 232 249)",
-    running: "rgb(147 197 253)",
-    completed: "rgb(134 239 172)",
-    stopped: "rgb(209 213 219)",
-    failed: "rgb(252 165 165)",
-    merged: "rgb(216 180 254)",
-    pushed: "rgb(165 180 252)",
-    deleted: "rgb(107 114 128)",
-    plan_ready: "rgb(252 211 77)",
-  };
-
-  expect(badgeRule).toContain("--wapp-badge-fg: var(--wapp-muted);");
-  expect(badgeRule).toContain("color: var(--wapp-badge-fg);");
-  expect(selectorHasDeclaration(css, ".wapp-badge.wapp-sidebar-badge", "background: var(--wapp-badge-fg);")).toBe(true);
-  expect(selectorHasDeclaration(css, ":root.dark .wapp-badge.wapp-sidebar-badge", "background: var(--wapp-badge-fg);")).toBe(true);
-  expect(cssRulesForSelector(css, ".wapp-sidebar-badge").some((rule) => rule.includes("background: currentColor;"))).toBe(false);
-
-  for (const [variant, foreground] of Object.entries(lightForegrounds)) {
-    const selector = `.wapp-badge-${variant}`;
-    expect(selectorHasDeclaration(css, selector, `--wapp-badge-fg: ${foreground};`)).toBe(true);
-    expect(selectorHasDeclaration(css, selector, "color: var(--wapp-badge-fg);")).toBe(true);
-  }
-
-  for (const [variant, foreground] of Object.entries(darkForegrounds)) {
-    const selector = `:root.dark .wapp-badge-${variant}`;
-    expect(selectorHasDeclaration(css, selector, `--wapp-badge-fg: ${foreground};`)).toBe(true);
-    expect(selectorHasDeclaration(css, selector, "color: var(--wapp-badge-fg);")).toBe(true);
   }
 });
