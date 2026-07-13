@@ -123,6 +123,34 @@ renderWebApp(
 
 `renderWebApp` renders into `#root` by default and reuses the existing React root across hot reloads. Pass a custom element id or `Element` only when the app uses a different mount point.
 
+### Theme state
+
+The framework applies the local or system theme before the first React render and
+loads the signed-in user's saved preference in the background. Components
+rendered inside `WebAppRoot` can use the public hook when JavaScript needs the
+effective theme, such as for a terminal, editor, or chart:
+
+```tsx
+import { Page, useTheme } from "@pablozaiden/webapp/web";
+
+function ThemeAwareRoute() {
+  const { preference, resolvedTheme } = useTheme();
+
+  return (
+    <Page>
+      <p>Preference: {preference}</p>
+      <p>Resolved theme: {resolvedTheme}</p>
+    </Page>
+  );
+}
+```
+
+`preference` is `system`, `light`, or `dark`; `resolvedTheme` is always
+`light` or `dark` and follows operating-system changes while `preference` is
+`system`. Prefer CSS dark-mode styling when JavaScript does not need the
+resolved value. Do not inspect or mutate framework-owned root classes or
+attributes to infer theme state.
+
 ### Transient notifications
 
 The standard `renderWebApp` runtime provides the framework notification service

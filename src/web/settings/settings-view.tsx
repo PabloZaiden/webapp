@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { ThemePreference, WebAppConfigResponse } from "../../contracts";
+import type { WebAppConfigResponse } from "../../contracts";
 import { Button, DangerZone, FormSection } from "../components";
 import type { SettingsRow, SettingsScope, SettingsSection } from "../root-types";
 import { AccountSection } from "./account-section";
@@ -64,20 +64,15 @@ export interface SettingsViewProps {
   config: WebAppConfigResponse;
   refresh: () => Promise<void>;
   customSections: SettingsSection[];
-  theme: ThemePreference;
-  setTheme: (theme: ThemePreference) => void;
-  themeLoading: boolean;
-  themeLoadError?: Error;
-  retryThemeLoad: () => Promise<void>;
 }
 
-export function SettingsView({ config, refresh, customSections, theme, setTheme, themeLoading, themeLoadError, retryThemeLoad }: SettingsViewProps) {
+export function SettingsView({ config, refresh, customSections }: SettingsViewProps) {
   const [error, setError] = useState<string>();
 
   return (
     <div className="wapp-settings">
       {error ? <p className="wapp-error">{error}</p> : null}
-      <AccountSection config={config} theme={theme} setTheme={setTheme} themeLoading={themeLoading} themeLoadError={themeLoadError} retryThemeLoad={retryThemeLoad} refresh={refresh} setError={setError} />
+      <AccountSection config={config} refresh={refresh} setError={setError} />
       <FormSection title="Security">
         <SecuritySection config={config} refresh={refresh} setError={setError} />
         <SessionsSection config={config} setError={setError} />

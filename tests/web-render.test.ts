@@ -8,6 +8,7 @@ import type { ApiKeySummary, AuthSessionSummary, ThemePreference, WebAppConfigRe
 import { configureWebAppClient, onAuthRequired } from "../src/web/api-client";
 import { MOBILE_MEDIA_QUERY } from "../src/web/mobile";
 import type { SidebarNode } from "../src/web/sidebar/types";
+import { useTheme } from "../src/web/theme";
 import { WebAppRoot } from "../src/web/WebAppRoot";
 import { configureWebAppRenderer, renderWebApp } from "../src/web/render";
 
@@ -294,6 +295,11 @@ async function renderBuiltInSettingsWebApp() {
   await waitFor(() => expect(view.getByText("Display Settings")).toBeTruthy());
 
   return view;
+}
+
+function ThemeStateProbe() {
+  const { preference, resolvedTheme } = useTheme();
+  return createElement("p", { "aria-label": "theme state" }, `${preference}:${resolvedTheme}`);
 }
 
 type SidebarFixtureOptions = {
@@ -1009,6 +1015,42 @@ test("theme preference failures preserve the local theme and can be retried", as
     await waitFor(() => expect((view.getByLabelText("Theme") as HTMLSelectElement).value).toBe("dark"));
     expect(view.queryByRole("alert")).toBeNull();
     expect(mock.requestCount("/api/preferences/theme")).toBe(2);
+  } finally {
+    mock.restoreFetch();
+  }
+});
+
+test("public theme hook shares state with framework settings", async () => {
+  localStorage.setItem("webapp.theme", "light");
+  const mock = mockBuiltInFetch({ theme: "dark" });
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+      },
+      settings: {
+        sections: [{
+          id: "theme-probe",
+          title: "Theme probe",
+          scope: "user",
+          render: () => createElement(ThemeStateProbe),
+        }],
+      },
+    }));
+
+    fireEvent.click(await waitFor(() => view.getByLabelText("Open settings")));
+    await waitFor(() => expect(view.getByText("Display Settings")).toBeTruthy());
+    await waitFor(() => expect(view.getByLabelText("theme state").textContent).toBe("dark:dark"));
+
+    fireEvent.change(view.getByLabelText("Theme"), { target: { value: "light" } });
+    await waitFor(() => expect(view.getByLabelText("theme state").textContent).toBe("light:light"));
   } finally {
     mock.restoreFetch();
   }

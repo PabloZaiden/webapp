@@ -16,6 +16,13 @@ user preference loads in the background. If that request fails, the current
 theme remains active and Display Settings shows a non-blocking error with a
 retry action; the rest of Settings remains usable.
 
+Application code rendered inside `WebAppRoot` can use `useTheme()` from
+`@pablozaiden/webapp/web` when JavaScript needs theme state. The hook exposes
+the selected `preference` and concrete `resolvedTheme`; the latter updates
+when the operating-system color scheme changes in `system` mode. Prefer CSS
+dark-mode styling when no JavaScript theme value is required, and do not infer
+theme state by observing framework-owned DOM classes or attributes.
+
 Security lists only show useful active credentials. Expired API keys are purged before listing, and revoked or expired device-auth refresh sessions are not shown. Revoked refresh sessions may remain in storage when needed for token-reuse protection, but they are hidden from Settings.
 
 Destructive actions in Settings use the framework `ConfirmDialog` before mutating. This includes deleting users, deleting API keys, deleting passkeys, revoking device-auth sessions, and killing the server.
