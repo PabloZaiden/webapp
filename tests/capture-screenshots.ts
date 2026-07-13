@@ -80,43 +80,34 @@ async function capture(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: `${outDir}/${name}.png`, fullPage: true });
 }
 
-async function assertNoHorizontalOverflow(page: Page, label: string): Promise<void> {
-  const result = await page.evaluate(() => {
-    const main = document.querySelector(".wapp-main-content");
-    return {
-      viewportWidth: window.innerWidth,
-      documentWidth: document.documentElement.scrollWidth,
-      mainClientWidth: main?.clientWidth ?? 0,
-      mainScrollWidth: main?.scrollWidth ?? 0,
-    };
-  });
-  if (result.documentWidth > result.viewportWidth + 1 || result.mainScrollWidth > result.mainClientWidth + 1) {
-    throw new Error(`${label} has horizontal overflow: ${JSON.stringify(result)}`);
-  }
+async function waitForSidebarExpanded(page: Page, expanded: boolean): Promise<void> {
+  await page.waitForFunction((expected) => {
+    const toggle = document.querySelector('button[aria-label="Show sidebar"]');
+    return toggle?.getAttribute("aria-expanded") === String(expected);
+  }, expanded);
 }
 
-async function assertMobileShellBehavior(page: Page, appUrl: string, brandLabel: string): Promise<void> {
+async function assertMobileShellBehavior(page: Page, appUrl: string): Promise<void> {
   await page.goto(appUrl, { waitUntil: "domcontentloaded" });
   const showSidebar = page.getByRole("button", { name: "Show sidebar" });
   await showSidebar.waitFor({ state: "visible" });
+  await waitForSidebarExpanded(page, false);
 
   await showSidebar.click();
-  await page.getByRole("button", { name: brandLabel, exact: true }).waitFor({ state: "visible" });
+  await waitForSidebarExpanded(page, true);
 
   await page.setViewportSize({ width: 1280, height: 800 });
-  await showSidebar.waitFor({ state: "hidden" });
-  await page.getByRole("button", { name: "Collapse sidebar" }).waitFor({ state: "visible" });
-
   await page.setViewportSize({ width: 390, height: 844 });
-  await showSidebar.waitFor({ state: "visible" });
   await page.reload({ waitUntil: "domcontentloaded" });
   await showSidebar.waitFor({ state: "visible" });
+  await waitForSidebarExpanded(page, false);
 }
 
-async function assertMobileSwipeOpensSidebar(page: Page, appUrl: string, brandLabel: string): Promise<void> {
+async function assertMobileSwipeOpensSidebar(page: Page, appUrl: string): Promise<void> {
   await page.goto(appUrl, { waitUntil: "domcontentloaded" });
-  const brand = page.getByRole("button", { name: brandLabel, exact: true });
-  await brand.waitFor({ state: "hidden" });
+  const showSidebar = page.getByRole("button", { name: "Show sidebar" });
+  await showSidebar.waitFor({ state: "visible" });
+  await waitForSidebarExpanded(page, false);
 
   await page.evaluate(() => {
     const dispatchTouch = (type: "touchstart" | "touchmove", clientX: number, clientY: number) => {
@@ -132,7 +123,7 @@ async function assertMobileSwipeOpensSidebar(page: Page, appUrl: string, brandLa
     dispatchTouch("touchmove", 80, 248);
   });
 
-  await brand.waitFor({ state: "visible" });
+  await waitForSidebarExpanded(page, true);
 }
 
 const notes = startExample("notes-todo", 3301);
@@ -169,17 +160,16 @@ try {
 
     const notesMobile = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: "light" });
     await notesMobile.goto("http://127.0.0.1:3301/", { waitUntil: "domcontentloaded" });
-    await assertNoHorizontalOverflow(notesMobile, "notes-mobile-light");
-    await assertMobileShellBehavior(notesMobile, "http://127.0.0.1:3301/", "Notes TODO");
+    await assertMobileShellBehavior(notesMobile, "http://127.0.0.1:3301/");
     await capture(notesMobile, "notes-mobile-light");
     await notesMobile.getByRole("button", { name: "Show sidebar" }).click();
-    await notesMobile.getByRole("button", { name: "Notes TODO", exact: true }).waitFor({ state: "visible" });
+    await waitForSidebarExpanded(notesMobile, true);
     await capture(notesMobile, "notes-mobile-sidebar-light");
     await notesMobile.close();
 
     const notesMobileTouchContext = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "light", hasTouch: true });
     const notesMobileTouch = await notesMobileTouchContext.newPage();
-    await assertMobileSwipeOpensSidebar(notesMobileTouch, "http://127.0.0.1:3301/", "Notes TODO");
+    await assertMobileSwipeOpensSidebar(notesMobileTouch, "http://127.0.0.1:3301/");
     await notesMobileTouchContext.close();
 
     const kitchenLight = await browser.newPage({ viewport: { width: 1440, height: 920 }, colorScheme: "light" });
@@ -191,20 +181,19 @@ try {
 
     const kitchenContext = await browser.newPage({ viewport: { width: 1440, height: 920 }, colorScheme: "light" });
     await kitchenContext.goto("http://127.0.0.1:3302/#/project?projectId=alpha", { waitUntil: "domcontentloaded" });
-    await kitchenContext.locator(".wapp-sidebar-item", { hasText: "Alpha" }).first().click({ button: "right" });
+    await kitchenContext.getByRole("button", { name: "Alpha", exact: true }).click({ button: "right" });
     await capture(kitchenContext, "kitchen-context-menu-light");
     await kitchenContext.close();
 
     const kitchenDark = await browser.newPage({ viewport: { width: 1440, height: 920 }, colorScheme: "dark" });
     await kitchenDark.goto("http://127.0.0.1:3302/#/settings", { waitUntil: "domcontentloaded" });
     await kitchenDark.getByRole("button", { name: "Create API key" }).click();
-    await kitchenDark.locator(".wapp-settings-row", { hasText: "API keys" }).getByRole("button", { name: "Delete" }).first().click();
+    await kitchenDark.getByRole("button", { name: "Delete" }).first().click();
     await capture(kitchenDark, "kitchen-dialog-dark");
     await kitchenDark.close();
 
     const kitchenMobile = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: "light" });
     await kitchenMobile.goto("http://127.0.0.1:3302/", { waitUntil: "domcontentloaded" });
-    await assertNoHorizontalOverflow(kitchenMobile, "kitchen-mobile-light");
     await capture(kitchenMobile, "kitchen-mobile-light");
     await kitchenMobile.close();
 

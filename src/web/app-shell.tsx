@@ -114,9 +114,10 @@ export function AppShell({
 
   const topSidebarActions = topActions.slice(0, 2);
   const sidebarToggleLabel = sidebarCollapsed ? "Show sidebar" : "Collapse sidebar";
+  const closeSidebar = () => setSidebarOpen(false);
   const navigateFromSidebarHeader = (nextRoute: WebAppRoute) => {
     navigate(nextRoute);
-    setSidebarOpen(false);
+    closeSidebar();
   };
   const runSidebarHeaderAction = (action: SidebarAction) => {
     if (action.onAction) {
@@ -124,19 +125,31 @@ export function AppShell({
     } else if (action.route) {
       navigate(action.route);
     }
-    setSidebarOpen(false);
+    closeSidebar();
   };
 
   return (
     <main className={`wapp-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarOpen ? "sidebar-open" : ""}`}>
-      <div className="wapp-mobile-backdrop" onClick={() => setSidebarOpen(false)} />
-      <aside className="wapp-sidebar">
+      <div
+        className="wapp-mobile-backdrop"
+        role="button"
+        tabIndex={0}
+        aria-label="Close sidebar"
+        onClick={closeSidebar}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            closeSidebar();
+          }
+        }}
+      />
+      <aside id="wapp-sidebar" className="wapp-sidebar">
         <div className="wapp-sidebar-header">
           <button type="button" className="wapp-brand" onClick={() => navigateFromSidebarHeader(homeRoute)}>{appName}</button>
           <div className="wapp-sidebar-actions">
             {topSidebarActions.map((action) => <IconButton key={action.id} className="wapp-sidebar-top-button" title={action.title} aria-label={action.title} onClick={() => runSidebarHeaderAction(action)}><ActionIcon icon={action.icon} /></IconButton>)}
             <IconButton className="wapp-sidebar-top-button" title="Settings" aria-label="Open settings" active={route.view === "settings"} onClick={() => navigateFromSidebarHeader({ view: "settings" })}><Icon name="settings" /></IconButton>
-            <IconButton className="wapp-sidebar-top-button" title={sidebarToggleLabel} aria-label={sidebarToggleLabel} onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton>
+            <IconButton className="wapp-sidebar-top-button" title={sidebarToggleLabel} aria-label={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton>
           </div>
         </div>
         <div className="wapp-sidebar-scroll">
@@ -168,7 +181,7 @@ export function AppShell({
       <section className="wapp-main">
         <header className="wapp-main-header">
           <div className="wapp-main-header-title">
-            {sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : <IconButton className="wapp-mobile-only wapp-sidebar-top-button" aria-label="Show sidebar" title="Show sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton>}
+            {sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : <IconButton className="wapp-mobile-only wapp-sidebar-top-button" aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton>}
             <h1>{headerTitle}</h1>
           </div>
           {primaryHeaderActions || headerActions.length ? (
