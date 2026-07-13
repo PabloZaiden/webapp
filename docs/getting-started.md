@@ -83,6 +83,18 @@ my-app api items
 my-app notify --message "optional app-owned command"
 ```
 
+For a non-interactive authenticated API command, pass the app's `envPrefix`
+to `runApiCliCommand()` and provide the exact environment pair:
+
+```bash
+export MY_APP_BASE_URL=https://app.example.test
+export MY_APP_API_KEY='key-from-settings'
+my-app api items
+```
+
+The pair is used when no stored device credentials are available. A missing
+or partial pair preserves anonymous CLI requests.
+
 See `docs/cli.md` for framework CLI helpers and generic API command support.
 
 Frontend entrypoints should use `renderWebApp` so Bun/browser hot reload reuses the existing React root instead of calling `createRoot()` twice. Import the framework CSS explicitly so Bun hot reload observes style changes:
