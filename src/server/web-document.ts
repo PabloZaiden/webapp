@@ -347,6 +347,27 @@ ${scriptTags}
 `;
 }
 
+async function bundleNativeRenderer(preludePath: string, outputDir: string): Promise<string> {
+  const result = await Bun.build({
+    entrypoints: [preludePath],
+    outdir: outputDir,
+    target: "browser",
+    format: "esm",
+    minify: true,
+  });
+  if (!result.success) {
+    for (const log of result.logs) {
+      console.error(log);
+    }
+    throw new Error("Native web renderer build failed");
+  }
+  const [renderer] = result.outputs;
+  if (!renderer) {
+    throw new Error("Native web renderer build produced no output");
+  }
+  return renderer.path;
+}
+
 async function createWebDocument(
   config: RuntimeConfig,
   webInput: WebAppDocumentConfig | undefined,
@@ -383,6 +404,7 @@ async function createWebDocument(
     writeFileSync(resolve(cacheDir, "site.webmanifest"), manifest);
   }
   const preludePath = resolve(cacheDir, "webapp-prelude.ts");
+  let rendererPath: string | undefined;
   if (!compiled) {
     const reactDomClientPath = resolution.reactDomClientPath;
     if (!reactDomClientPath) {
@@ -394,9 +416,10 @@ import { configureWebAppRenderer } from ${JSON.stringify(frameworkWebPath)};
 
 configureWebAppRenderer(createRoot);
 `);
+    rendererPath = await bundleNativeRenderer(preludePath, cacheDir);
   }
   const relativeEntry = entryFile ? toWebPath(relative(cacheDir, entryFile)) : undefined;
-  const relativePrelude = entryFile ? toWebPath(relative(cacheDir, preludePath)) : undefined;
+  const relativePrelude = rendererPath ? toWebPath(relative(cacheDir, rendererPath)) : undefined;
   const faviconPath = favicon ? `/webapp-favicon${pathExtension(resolveWebAsset(favicon.src, packageRoot)) || ".png"}` : "/webapp-icon.svg";
   const appleTouchPath = appleTouch ? `/webapp-apple-touch-icon${pathExtension(resolveWebAsset(appleTouch.src, packageRoot)) || ".png"}` : faviconPath;
   if (favicon) {
