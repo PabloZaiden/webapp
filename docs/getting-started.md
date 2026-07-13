@@ -186,7 +186,7 @@ The app configures an uppercase `envPrefix`; the framework reads only variables 
 | `{PREFIX}_TRUST_PROXY` | `false` | Explicitly trust the documented `X-Forwarded-*` headers; keep disabled for direct deployments |
 | `{PREFIX}_TRUST_PROXY_HEADERS` | `proto,host,prefix` when enabled | Comma-separated subset of supported forwarded values: `proto`, `host`, `prefix` |
 | `{PREFIX}_TRUST_PROXY_CHAIN` | `first` | Select the left-most (`first`) or right-most (`last`) non-empty value from comma-separated forwarded headers |
-| `{PREFIX}_PUBLIC_BASE_URL` | request origin | Authoritative external origin for auth/device URLs; it overrides forwarded protocol and host values |
+| `{PREFIX}_PUBLIC_BASE_URL` | request origin | Authoritative absolute `http` or `https` origin for auth/device URLs; it overrides forwarded protocol and host values |
 | `{PREFIX}_AUTH_ISSUER` | `urn:{prefix}:webapp` | JWT issuer override |
 
 The configured data directory contains the framework-owned

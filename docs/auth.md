@@ -84,3 +84,10 @@ single-value headers. Do not expose the application directly to untrusted
 clients when trust mode is enabled. This release does not implement a
 proxy-address allowlist, so the network boundary and proxy sanitization are
 required.
+
+Applications that generate their own public URLs should use
+`getRequestOriginInfo` or `getRequestBaseUrl` from
+`@pablozaiden/webapp/server` with the server's runtime config instead of
+parsing `{PREFIX}_PUBLIC_BASE_URL` independently. The framework validates the
+configured public base URL during startup and applies the same trusted-proxy
+policy used by its authentication and origin checks.

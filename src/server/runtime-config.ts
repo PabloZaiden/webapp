@@ -84,6 +84,22 @@ function parseBoolean(raw: string | undefined, fallback: boolean, name: string):
   throw new Error(`${name} must be true or false; received "${raw}"`);
 }
 
+function parsePublicBaseUrl(raw: string | undefined, name: string): string | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`${name} must be a valid absolute http(s) URL; received "${raw}"`);
+  }
+  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || parsed.username || parsed.password || parsed.origin === "null") {
+    throw new Error(`${name} must be a valid absolute http(s) URL; received "${raw}"`);
+  }
+  return raw;
+}
+
 function parseTrustProxyHeaders(raw: string | undefined, enabled: boolean, name: string): TrustProxyHeader[] {
   if (raw === undefined) {
     return enabled ? [...TRUST_PROXY_HEADERS] : [];
@@ -122,6 +138,7 @@ export function readRuntimeConfig(input: {
   const envPrefix = assertEnvPrefix(input.envPrefix);
   const logLevelRaw = readEnv(envPrefix, "LOG_LEVEL");
   const logLevel = parseLogLevel(logLevelRaw, input.defaultLogLevel ?? "info", envName(envPrefix, "LOG_LEVEL"));
+  const publicBaseUrl = parsePublicBaseUrl(readEnv(envPrefix, "PUBLIC_BASE_URL"), envName(envPrefix, "PUBLIC_BASE_URL"));
   const trustProxyEnabled = parseBoolean(readEnv(envPrefix, "TRUST_PROXY"), false, envName(envPrefix, "TRUST_PROXY"));
   const trustProxy = {
     enabled: trustProxyEnabled,
@@ -138,7 +155,7 @@ export function readRuntimeConfig(input: {
     logLevelFromEnv: Boolean(logLevelRaw),
     passkeyDisabled: isTruthyEnv(readEnv(envPrefix, "DISABLE_PASSKEY")),
     sameOriginDisabled: isTruthyEnv(readEnv(envPrefix, "DISABLE_SAME_ORIGIN_CHECK")),
-    publicBaseUrl: readEnv(envPrefix, "PUBLIC_BASE_URL"),
+    publicBaseUrl,
     authIssuer: readEnv(envPrefix, "AUTH_ISSUER"),
     trustProxy,
     development: process.env["NODE_ENV"] === "production" ? false : { hmr: true, console: true },

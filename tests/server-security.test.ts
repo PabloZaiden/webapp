@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { RealtimeBus, createWebAppServer, defineRoutes, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
+import { RealtimeBus, createWebAppServer, defineRoutes, getRequestBaseUrl, getRequestOriginInfo, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
 import { createApiKey } from "../src/server/auth/api-keys";
 import { sha256 } from "../src/server/auth/crypto";
 import { readRuntimeConfig, safeRuntimeConfig } from "../src/server/runtime-config";
@@ -623,6 +623,54 @@ describe("server security defaults", () => {
         process.env["TEST_LOG_LEVEL"] = previous;
       }
     }
+  });
+
+  test("runtime config rejects invalid public base URLs", () => {
+    const invalidCases = [
+      { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_MISSING_SCHEME", value: "public.example.test" },
+      { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_PROTOCOL", value: "ftp://public.example.test" },
+      { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_HOST", value: "https://public example.test" },
+    ] as const;
+    for (const testCase of invalidCases) {
+      const key = `${testCase.envPrefix}_PUBLIC_BASE_URL`;
+      const previous = process.env[key];
+      process.env[key] = testCase.value;
+      try {
+        expect(() => readRuntimeConfig({ appName: "Test", envPrefix: testCase.envPrefix })).toThrow(key);
+      } finally {
+        if (previous === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = previous;
+        }
+      }
+    }
+  });
+
+  test("request-origin helpers resolve trusted proxy values for app URLs", () => {
+    withEnv({
+      TEST_REQUEST_ORIGIN_HELPERS_TRUST_PROXY: "true",
+      TEST_REQUEST_ORIGIN_HELPERS_TRUST_PROXY_HEADERS: "proto,host,prefix",
+      TEST_REQUEST_ORIGIN_HELPERS_TRUST_PROXY_CHAIN: "first",
+      TEST_REQUEST_ORIGIN_HELPERS_PUBLIC_BASE_URL: "https://public.example.test",
+    }, () => {
+      const config = readRuntimeConfig({ appName: "Test", envPrefix: "TEST_REQUEST_ORIGIN_HELPERS" });
+      const request = new Request("http://internal.example.test/api/resource", {
+        headers: {
+          "x-forwarded-proto": "http",
+          "x-forwarded-host": "attacker.example.test",
+          "x-forwarded-prefix": "/proxy/",
+        },
+      });
+
+      expect(getRequestOriginInfo(request, config)).toEqual({
+        origin: "https://public.example.test",
+        hostname: "public.example.test",
+        secure: true,
+        pathPrefix: "/proxy",
+      });
+      expect(getRequestBaseUrl(request, config)).toBe("https://public.example.test/proxy");
+    });
   });
 
   test("runtime config disables forwarded-header trust by default", () => {
