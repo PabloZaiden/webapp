@@ -121,7 +121,7 @@ configureWebAppRenderer(createRoot);
       sourcemap: "external",
       define: { ...options.define, ...options.web?.build?.define },
       plugins: browserPlugins,
-    }));
+    }), packageRoot);
     if (!browserBuild.success) {
       for (const log of browserBuild.logs) {
         console.error(log);
@@ -157,7 +157,7 @@ import ${JSON.stringify(entrypoint)};
       sourcemap: "external",
       define: options.define,
       compile: options.target ? { target: options.target, outfile: options.outfile } : { outfile: options.outfile },
-    }));
+    }), packageRoot);
     if (!result.success) {
       for (const log of result.logs) {
         console.error(log);
