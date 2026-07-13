@@ -40,6 +40,17 @@ Run this checklist before releasing a framework app or cutting a checkpoint.
 4. Delete the key from Settings and confirm the confirmation dialog appears.
 5. Confirm the deleted token no longer authenticates.
 
+## CLI API-key authentication
+
+1. Set `${PREFIX}_BASE_URL` and `${PREFIX}_API_KEY` for an app whose CLI passes
+   its `envPrefix` to `runApiCliCommand()`.
+2. Run a protected API command and confirm it reaches the configured server
+   without starting an interactive device flow.
+3. Remove either variable and confirm the request falls back to anonymous
+   behavior.
+4. Use an expired, invalid, or insufficient-scope key and confirm the CLI
+   reports the server rejection without refreshing or retrying the key.
+
 ## Device auth
 
 1. Call `POST /api/auth/device` with `client_id` and `scope`.
