@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -11,15 +11,44 @@ import type { SidebarNode } from "../src/web/sidebar/types";
 import { WebAppRoot } from "../src/web/WebAppRoot";
 import { configureWebAppRenderer, renderWebApp } from "../src/web/render";
 
-GlobalRegistrator.register({ url: "http://localhost/" });
+if (!GlobalRegistrator.isRegistered) {
+  GlobalRegistrator.register({ url: "http://localhost/" });
+}
 configureWebAppRenderer(createRoot);
+
+async function ensureHappyDom() {
+  if (
+    GlobalRegistrator.isRegistered
+    && typeof document !== "undefined"
+    && document.body
+    && typeof window !== "undefined"
+    && typeof window.history?.replaceState === "function"
+  ) {
+    return;
+  }
+  if (GlobalRegistrator.isRegistered) {
+    await GlobalRegistrator.unregister();
+  }
+  GlobalRegistrator.register({ url: "http://localhost/" });
+}
+
+beforeEach(ensureHappyDom);
 
 afterEach(() => {
   cleanup();
-  document.body.innerHTML = "";
+  if (typeof document !== "undefined" && document.body) {
+    document.body.innerHTML = "";
+  }
   localStorage.clear();
   configureWebAppClient();
   window.history.replaceState(null, "", "http://localhost/");
+});
+
+afterAll(async () => {
+  cleanup();
+  if (GlobalRegistrator.isRegistered) {
+    await GlobalRegistrator.unregister();
+  }
 });
 
 function mockConfigFetch(onRequest?: (input: RequestInfo | URL, init?: RequestInit) => void) {

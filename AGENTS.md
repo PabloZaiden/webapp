@@ -18,6 +18,7 @@
 
 - All destructive delete actions must use the framework `ConfirmDialog` before calling the delete endpoint. Do not wire delete buttons directly to mutations.
 - Route components rendered by `WebAppRoot.routes` must use `Page` as the top-level wrapper; do not render content directly into `.wapp-main-content` or duplicate the fixed framework title with an app-local heading. Use `<Page layout="full">` for viewport-sized child content instead of overriding framework page CSS.
+- Use the framework `useToast` notification service for transient user feedback. Do not add application-owned toast providers, queues, or notification styling; use inline `ErrorState`, loading primitives, or validation messages for persistent page/form state.
 
 ## Runtime input and API boundaries
 

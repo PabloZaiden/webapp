@@ -122,6 +122,42 @@ renderWebApp(
 ```
 
 `renderWebApp` renders into `#root` by default and reuses the existing React root across hot reloads. Pass a custom element id or `Element` only when the app uses a different mount point.
+
+### Transient notifications
+
+The standard `renderWebApp` runtime provides the framework notification service
+to the application tree. Use the public hook for short-lived action outcomes;
+do not add an application-owned provider, queue, timer system, or notification
+CSS:
+
+```tsx
+import { useToast } from "@pablozaiden/webapp/web";
+
+function SaveButton() {
+  const toast = useToast();
+
+  async function save() {
+    await saveRecord();
+    toast.success("Saved");
+  }
+
+  return <button type="button" onClick={() => void save()}>Save</button>;
+}
+```
+
+`useToast()` exposes `success`, `error`, `warning`, and `info` helpers. Each
+returns a stable ID that can be passed to `dismiss`; `dismissAll` removes every
+active notification. Pass an `id` to replace an existing notification and
+reset its timer. Notifications dismiss after 8 seconds by default; provide a
+positive `duration` in milliseconds for a custom timeout or use
+`duration: 0` for a persistent notification that requires explicit dismissal.
+The framework keeps at most five active notifications.
+
+Use `ErrorState`, loading states, and field validation for persistent page or
+form state. Use `ConfirmDialog` for destructive confirmation. Do not report the
+same failure in both an inline error state and a toast unless both surfaces
+serve distinct, intentional purposes.
+
 `WebAppRoot` owns the shell and `.wapp-main-content`; each route component should return a `Page` wrapper so standard content margins, mobile padding and scroll behavior stay consistent. `Page` uses the padded layout by default. For routes whose child content fills the available shell viewport and owns its own spacing or scrolling, use the framework full layout instead of overriding framework CSS:
 
 ```tsx

@@ -11,6 +11,20 @@ The framework intentionally provides a consistent base UI:
 - Main content should prefer panels, toolbars, badges and simple forms over custom one-off layouts.
 - `WebAppRoot` owns the fixed main title bar and `.wapp-main-content`; app routes should not render or style those shell elements directly.
 
+## Transient notifications
+
+Use `useToast()` from `@pablozaiden/webapp/web` for short-lived success,
+error, warning, or informational feedback. The standard `renderWebApp` runtime
+already owns the provider, queue, timers, live region, dismissal controls, and
+styling, so applications must not add a parallel toast provider, queue, or
+notification CSS. Use the returned ID with `dismiss` when an operation needs
+to close a persistent notification, or use `dismissAll` to clear the queue.
+
+Use inline `ErrorState`, loading states, and field validation when the
+information belongs to persistent page or form state. Use `ConfirmDialog` for
+destructive confirmation rather than a toast, and avoid reporting one failure
+twice without a distinct user-facing reason.
+
 ## Mobile breakpoint and viewport synchronization
 
 The framework owns the mobile shell breakpoint. `MOBILE_BREAKPOINT_PX` and `MOBILE_MEDIA_QUERY` are exported from `@pablozaiden/webapp/web` for application JavaScript that needs to coordinate with the shell; do not add an independent `innerWidth` threshold for shell behavior. The generated document initializes the `data-wapp-mobile` marker on the root element before the client and styles load, and `WebAppRoot` keeps it synchronized with media-query changes. Custom CSS that follows the framework mobile mode should use that marker rather than repeating a numeric media query.

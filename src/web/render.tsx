@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { Root } from "react-dom/client";
+import { ToastProvider } from "./toast";
 
 declare global {
   var __pablozaidenWebAppRoots: WeakMap<Element, Root> | undefined;
@@ -9,6 +10,10 @@ declare global {
 function roots(): WeakMap<Element, Root> {
   globalThis.__pablozaidenWebAppRoots ??= new WeakMap<Element, Root>();
   return globalThis.__pablozaidenWebAppRoots;
+}
+
+function WebAppRuntime({ element }: { element: ReactNode }) {
+  return <ToastProvider>{element}</ToastProvider>;
 }
 
 export function configureWebAppRenderer(createRoot: (target: Element) => Root): void {
@@ -30,6 +35,6 @@ export function renderWebApp(element: ReactNode, container: Element | string = "
     root = createRoot(target);
     registry.set(target, root);
   }
-  root.render(element);
+  root.render(<WebAppRuntime element={element} />);
   return root;
 }

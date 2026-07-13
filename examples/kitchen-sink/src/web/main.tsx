@@ -1,4 +1,4 @@
-import { Badge, Button, EmptyState, Page, Panel, TextField, WebAppRoot, appFetch, appPath, appRequest, appWebSocketUrl, renderWebApp, replaceHashRoute, useCallback, useEffect, useMemo, useRealtimeRefresh, useState, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
+import { Badge, Button, EmptyState, Page, Panel, TextField, WebAppRoot, appFetch, appPath, appRequest, appWebSocketUrl, renderWebApp, replaceHashRoute, useCallback, useEffect, useMemo, useRealtimeRefresh, useState, useToast, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
 
@@ -29,7 +29,24 @@ function Home({ projects }: { projects: Project[] }) {
           </div>
         )) : <EmptyState title="No projects" />}
       </Panel>
+      <NotificationExamples />
     </Page>
+  );
+}
+
+function NotificationExamples() {
+  const toast = useToast();
+  return (
+    <Panel title="Framework notifications" description="Transient feedback without an app-owned provider or queue.">
+      <div className="sink-inline">
+        <Button type="button" variant="primary" onClick={() => toast.success("Project saved successfully.")}>Success</Button>
+        <Button type="button" variant="danger" onClick={() => toast.error("The project could not be saved.")}>Error</Button>
+        <Button type="button" onClick={() => toast.warning("This action may take a moment.")}>Warning</Button>
+        <Button type="button" variant="ghost" onClick={() => toast.info("This is an informational notification.")}>Info</Button>
+        <Button type="button" variant="ghost" onClick={() => toast.info("Dismiss this persistent notification.", { id: "kitchen-sink-persistent", duration: 0 })}>Persistent info</Button>
+        <Button type="button" variant="ghost" onClick={() => toast.dismissAll()}>Dismiss all</Button>
+      </div>
+    </Panel>
   );
 }
 
