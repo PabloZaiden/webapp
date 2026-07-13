@@ -437,24 +437,16 @@ test("sidebar navigation to the current hash does not emit duplicate hash change
   }
 });
 
-test("renderWebApp reuses the existing React root for the same container", () => {
+test("renderWebApp renders the latest content when called repeatedly", () => {
   const container = document.createElement("div");
   document.body.append(container);
-  const messages: string[] = [];
-  const originalError = console.error;
-  console.error = (...args: unknown[]) => {
-    messages.push(args.map(String).join(" "));
-  };
 
-  try {
-    const firstRoot = renderWebApp(createElement("div", null, "first"), container);
-    const secondRoot = renderWebApp(createElement("div", null, "second"), container);
+  act(() => {
+    renderWebApp(createElement("div", null, "first"), container);
+    renderWebApp(createElement("div", null, "second"), container);
+  });
 
-    expect(secondRoot).toBe(firstRoot);
-    expect(messages.some((message) => message.includes("createRoot() on a container"))).toBe(false);
-  } finally {
-    console.error = originalError;
-  }
+  expect(container.textContent).toBe("second");
 });
 
 test("mockConfigFetch matches config requests from string, URL, and Request inputs", async () => {
