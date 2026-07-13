@@ -1,5 +1,5 @@
 import type { Server, WebSocketHandler } from "bun";
-import type { CurrentUser, LogLevelName, WebAppConfigResponse } from "../contracts";
+import type { LogLevelName, WebAppConfigResponse } from "../contracts";
 import type { RealtimeBus, WebSocketData } from "./realtime/bus";
 import type { WebAppStore } from "./auth/store";
 import type { RuntimeConfig } from "./runtime-config";

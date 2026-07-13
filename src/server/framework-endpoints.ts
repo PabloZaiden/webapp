@@ -28,7 +28,6 @@ import {
   completeOwnerPasskeySetup,
   completeSetupRegistration,
   deletePasskey,
-  getPasskeySessionUser,
   getSetupDetails,
   isPasskeyAuthRequired,
   logoutHeaders,
