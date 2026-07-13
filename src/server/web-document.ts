@@ -376,7 +376,6 @@ async function createWebDocument(
 ): Promise<WebDocument> {
   return await withBunBuildLock(
     () => createWebDocumentUnlocked(config, webInput, resolution),
-    resolution.packageRoot,
   );
 }
 

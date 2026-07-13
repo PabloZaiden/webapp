@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
 let previousBuild: Promise<void> = Promise.resolve();
 
@@ -29,8 +29,9 @@ function errorCode(error: unknown): string | undefined {
   return typeof error.code === "string" ? error.code : undefined;
 }
 
-function lockPathFor(packageRoot: string): string {
-  const key = createHash("sha256").update(resolve(packageRoot)).digest("hex");
+function lockPathFor(): string {
+  const scope = process.env["HOME"] ?? process.env["USERPROFILE"] ?? process.env["USER"] ?? "default";
+  const key = createHash("sha256").update(scope).digest("hex");
   return join(tmpdir(), `webapp-bun-build-${key}`);
 }
 
@@ -128,8 +129,8 @@ async function reclaimStaleLock(path: string, observed: LockState): Promise<bool
   return true;
 }
 
-async function acquireFileLock(packageRoot: string): Promise<OwnedLock> {
-  const path = lockPathFor(packageRoot);
+async function acquireFileLock(): Promise<OwnedLock> {
+  const path = lockPathFor();
   const metadata: LockMetadata = {
     version: LOCK_METADATA_VERSION,
     pid: process.pid,
@@ -157,7 +158,7 @@ async function acquireFileLock(packageRoot: string): Promise<OwnedLock> {
 
     const now = Date.now();
     if (now >= deadline) {
-      throw new Error(`Timed out acquiring the Bun build lock for "${packageRoot}".`);
+      throw new Error("Timed out acquiring the Bun build lock.");
     }
     await waitForLock(Math.min(LOCK_POLL_INTERVAL_MS, Math.max(1, deadline - now)));
   }
@@ -177,8 +178,8 @@ async function releaseFileLock(lock: OwnedLock): Promise<void> {
   }
 }
 
-async function withFileLock<T>(packageRoot: string, operation: () => Promise<T>): Promise<T> {
-  const lock = await acquireFileLock(packageRoot);
+async function withFileLock<T>(operation: () => Promise<T>): Promise<T> {
+  const lock = await acquireFileLock();
   let result!: T;
   let operationFailed = false;
   let operationError: unknown;
@@ -208,7 +209,6 @@ async function withFileLock<T>(packageRoot: string, operation: () => Promise<T>)
 
 export async function withBunBuildLock<T>(
   operation: () => Promise<T>,
-  packageRoot = process.cwd(),
 ): Promise<T> {
   const waitForPreviousBuild = previousBuild;
   let releaseBuild: (() => void) | undefined;
@@ -217,7 +217,7 @@ export async function withBunBuildLock<T>(
   });
   await waitForPreviousBuild;
   try {
-    return await withFileLock(packageRoot, operation);
+    return await withFileLock(operation);
   } finally {
     releaseBuild?.();
   }
