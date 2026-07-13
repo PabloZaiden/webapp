@@ -8,7 +8,6 @@ import type {
   WebAppIconConfig,
   WebAppPwaConfig,
 } from "./server-types";
-import { withBunBuildLock } from "../bun-build-lock";
 import { findPackageRoot, resolveReactDomClient } from "../package-resolution";
 import { MOBILE_MEDIA_QUERY, MOBILE_STATE_ATTRIBUTE } from "../web/mobile";
 import { notFound, withSecurityHeaders } from "./responses";
@@ -348,38 +347,7 @@ ${scriptTags}
 `;
 }
 
-async function bundleNativeRenderer(preludePath: string, outputDir: string): Promise<string> {
-  const result = await Bun.build({
-    entrypoints: [preludePath],
-    outdir: outputDir,
-    target: "browser",
-    format: "esm",
-    minify: true,
-  });
-  if (!result.success) {
-    for (const log of result.logs) {
-      console.error(log);
-    }
-    throw new Error("Native web renderer build failed");
-  }
-  const [renderer] = result.outputs;
-  if (!renderer) {
-    throw new Error("Native web renderer build produced no output");
-  }
-  return renderer.path;
-}
-
 async function createWebDocument(
-  config: RuntimeConfig,
-  webInput: WebAppDocumentConfig | undefined,
-  resolution: WebDocumentResolution,
-): Promise<WebDocument> {
-  return await withBunBuildLock(
-    () => createWebDocumentUnlocked(config, webInput, resolution),
-  );
-}
-
-async function createWebDocumentUnlocked(
   config: RuntimeConfig,
   webInput: WebAppDocumentConfig | undefined,
   resolution: WebDocumentResolution,
@@ -415,22 +383,20 @@ async function createWebDocumentUnlocked(
     writeFileSync(resolve(cacheDir, "site.webmanifest"), manifest);
   }
   const preludePath = resolve(cacheDir, "webapp-prelude.ts");
-  let rendererPath: string | undefined;
   if (!compiled) {
     const reactDomClientPath = resolution.reactDomClientPath;
     if (!reactDomClientPath) {
       throw new Error("Native web document resolution is missing the resolved react-dom/client module.");
     }
-    const frameworkWebPath = toWebPath(fileURLToPath(new URL("../web/renderer-config.ts", import.meta.url)));
+    const frameworkWebPath = toWebPath(fileURLToPath(new URL("../web/index.ts", import.meta.url)));
     writeFileSync(preludePath, `import { createRoot } from ${JSON.stringify(toWebPath(reactDomClientPath))};
 import { configureWebAppRenderer } from ${JSON.stringify(frameworkWebPath)};
 
 configureWebAppRenderer(createRoot);
 `);
-    rendererPath = await bundleNativeRenderer(preludePath, cacheDir);
   }
   const relativeEntry = entryFile ? toWebPath(relative(cacheDir, entryFile)) : undefined;
-  const relativePrelude = rendererPath ? toWebPath(relative(cacheDir, rendererPath)) : undefined;
+  const relativePrelude = entryFile ? toWebPath(relative(cacheDir, preludePath)) : undefined;
   const faviconPath = favicon ? `/webapp-favicon${pathExtension(resolveWebAsset(favicon.src, packageRoot)) || ".png"}` : "/webapp-icon.svg";
   const appleTouchPath = appleTouch ? `/webapp-apple-touch-icon${pathExtension(resolveWebAsset(appleTouch.src, packageRoot)) || ".png"}` : faviconPath;
   if (favicon) {

@@ -1,13 +1,11 @@
 import type { ReactNode } from "react";
 import type { Root } from "react-dom/client";
-import { configuredWebAppRenderer } from "./renderer-config";
 import { ToastProvider } from "./toast";
 
 declare global {
   var __pablozaidenWebAppRoots: WeakMap<Element, Root> | undefined;
+  var __pablozaidenCreateWebAppRoot: ((target: Element) => Root) | undefined;
 }
-
-export { configureWebAppRenderer } from "./renderer-config";
 
 function roots(): WeakMap<Element, Root> {
   globalThis.__pablozaidenWebAppRoots ??= new WeakMap<Element, Root>();
@@ -18,6 +16,10 @@ function WebAppRuntime({ element }: { element: ReactNode }) {
   return <ToastProvider>{element}</ToastProvider>;
 }
 
+export function configureWebAppRenderer(createRoot: (target: Element) => Root): void {
+  globalThis.__pablozaidenCreateWebAppRoot = createRoot;
+}
+
 export function renderWebApp(element: ReactNode, container: Element | string = "root"): Root {
   const target = typeof container === "string" ? document.getElementById(container) : container;
   if (!target) {
@@ -26,7 +28,7 @@ export function renderWebApp(element: ReactNode, container: Element | string = "
   const registry = roots();
   let root = registry.get(target);
   if (!root) {
-    const createRoot = configuredWebAppRenderer();
+    const createRoot = globalThis.__pablozaidenCreateWebAppRoot;
     if (!createRoot) {
       throw new Error("Web app renderer is not configured. Use the framework-generated document or call configureWebAppRenderer(createRoot).");
     }
