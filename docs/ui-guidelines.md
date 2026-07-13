@@ -48,7 +48,7 @@ Every route component rendered by `WebAppRoot.routes` should return `Page` at th
 
 ## Visual validation captures
 
-Generated screenshots live in `artifacts/screenshots`:
+Reference screenshots live in `artifacts/screenshots`:
 
 | Capture | Purpose |
 | --- | --- |
@@ -64,7 +64,7 @@ Generated screenshots live in `artifacts/screenshots`:
 | `kitchen-dialog-dark.png` | Confirm dialog overlay |
 | `kitchen-device-light.png` | Device auth approval flow |
 
-Use `bun run screenshots` to regenerate these captures with Playwright. Browser automation and screenshot capture must stay Playwright-based and cross-platform; do not hard-code local Chrome or OS-specific browser paths.
+Use the temporary Playwright harness described in `skills/webapp/SKILL.md` when new visual captures are needed. Browser automation and screenshot capture must stay Playwright-based and cross-platform; do not hard-code local Chrome or OS-specific browser paths.
 
 Use these captures as the manual visual baseline before changing shell, sidebar, settings or dialog styles. When screenshots are captured to validate a visual change, review them against the specific goal; capturing files without checking the result is not validation.
 
