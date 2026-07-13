@@ -92,12 +92,20 @@ function parsePublicBaseUrl(raw: string | undefined, name: string): string | und
   try {
     parsed = new URL(raw);
   } catch {
-    throw new Error(`${name} must be a valid absolute http(s) URL; received "${raw}"`);
+    throw new Error(`${name} must be a valid absolute http(s) origin; received "${raw}"`);
   }
-  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || parsed.username || parsed.password || parsed.origin === "null") {
-    throw new Error(`${name} must be a valid absolute http(s) URL; received "${raw}"`);
+  if (
+    (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+    parsed.username ||
+    parsed.password ||
+    parsed.origin === "null" ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new Error(`${name} must be a valid absolute http(s) origin; received "${raw}"`);
   }
-  return raw;
+  return parsed.origin;
 }
 
 function parseTrustProxyHeaders(raw: string | undefined, enabled: boolean, name: string): TrustProxyHeader[] {

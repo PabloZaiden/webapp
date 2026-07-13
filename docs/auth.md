@@ -74,8 +74,9 @@ The same normalized request context drives expected same-origin origins,
 WebSocket origin checks, passkey expected origins and RP IDs, the `Secure`
 cookie attribute, cookie paths, setup links, and device/discovery URLs.
 `{PREFIX}_PUBLIC_BASE_URL` is authoritative for origin, hostname, and secure
-state even when forwarded headers are present; trusted prefixes remain
-policy-controlled for path-bearing cookies and links.
+state even when forwarded headers are present. It must be an origin-only
+absolute `http` or `https` URL; trusted prefixes remain policy-controlled for
+path-bearing cookies and links.
 
 Trust mode is a deployment boundary setting, not a way to trust arbitrary
 client input. The reverse proxy must strip client-supplied forwarded headers

@@ -630,6 +630,9 @@ describe("server security defaults", () => {
       { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_MISSING_SCHEME", value: "public.example.test" },
       { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_PROTOCOL", value: "ftp://public.example.test" },
       { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_HOST", value: "https://public example.test" },
+      { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_PATH", value: "https://public.example.test/app" },
+      { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_QUERY", value: "https://public.example.test/?tenant=app" },
+      { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_HASH", value: "https://public.example.test/#app" },
     ] as const;
     for (const testCase of invalidCases) {
       const key = `${testCase.envPrefix}_PUBLIC_BASE_URL`;
@@ -645,6 +648,15 @@ describe("server security defaults", () => {
         }
       }
     }
+  });
+
+  test("normalizes a public base URL to its origin", () => {
+    withEnv({
+      TEST_RUNTIME_PUBLIC_BASE_NORMALIZED_PUBLIC_BASE_URL: "https://public.example.test/",
+    }, () => {
+      const config = readRuntimeConfig({ appName: "Test", envPrefix: "TEST_RUNTIME_PUBLIC_BASE_NORMALIZED" });
+      expect(config.publicBaseUrl).toBe("https://public.example.test");
+    });
   });
 
   test("request-origin helpers resolve trusted proxy values for app URLs", () => {
