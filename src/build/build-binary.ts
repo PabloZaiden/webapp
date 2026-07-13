@@ -2,6 +2,7 @@ import type { BunPlugin } from "bun";
 import tailwindPlugin from "bun-plugin-tailwind";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { findPackageRoot, resolveReactDomClient } from "../package-resolution";
 
 export const BUN_COMPILE_TARGETS = [
@@ -96,8 +97,9 @@ export async function buildWebAppBinary(options: BuildWebAppBinaryOptions): Prom
     const rendererEntry = resolve(cacheDir, "webapp-renderer-prelude.ts");
     const clientEntry = resolve(cacheDir, "webapp-client-entry.ts");
     const browserOutDir = resolve(cacheDir, "browser");
+    const frameworkWebPath = fileURLToPath(new URL("../web/renderer-config.ts", import.meta.url)).replaceAll("\\", "/");
     writeFileSync(rendererEntry, `import { createRoot } from ${JSON.stringify(reactDomClientPath.replaceAll("\\", "/"))};
-import { configureWebAppRenderer } from "@pablozaiden/webapp/web";
+import { configureWebAppRenderer } from ${JSON.stringify(frameworkWebPath)};
 
 configureWebAppRenderer(createRoot);
 `);

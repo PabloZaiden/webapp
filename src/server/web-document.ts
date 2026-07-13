@@ -388,7 +388,7 @@ async function createWebDocument(
     if (!reactDomClientPath) {
       throw new Error("Native web document resolution is missing the resolved react-dom/client module.");
     }
-    const frameworkWebPath = toWebPath(fileURLToPath(new URL("../web/index.ts", import.meta.url)));
+    const frameworkWebPath = toWebPath(fileURLToPath(new URL("../web/renderer-config.ts", import.meta.url)));
     writeFileSync(preludePath, `import { createRoot } from ${JSON.stringify(toWebPath(reactDomClientPath))};
 import { configureWebAppRenderer } from ${JSON.stringify(frameworkWebPath)};
 
