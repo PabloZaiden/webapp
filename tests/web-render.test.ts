@@ -242,6 +242,7 @@ async function renderShortcutWebApp() {
   }));
 
   await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
+  await act(async () => {});
 
   return view;
 }
