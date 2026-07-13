@@ -74,8 +74,9 @@ The same normalized request context drives expected same-origin origins,
 WebSocket origin checks, passkey expected origins and RP IDs, the `Secure`
 cookie attribute, cookie paths, setup links, and device/discovery URLs.
 `{PREFIX}_PUBLIC_BASE_URL` is authoritative for origin, hostname, and secure
-state even when forwarded headers are present; trusted prefixes remain
-policy-controlled for path-bearing cookies and links.
+state even when forwarded headers are present. It must be an origin-only
+absolute `http` or `https` URL; trusted prefixes remain policy-controlled for
+path-bearing cookies and links.
 
 Trust mode is a deployment boundary setting, not a way to trust arbitrary
 client input. The reverse proxy must strip client-supplied forwarded headers
@@ -84,3 +85,10 @@ single-value headers. Do not expose the application directly to untrusted
 clients when trust mode is enabled. This release does not implement a
 proxy-address allowlist, so the network boundary and proxy sanitization are
 required.
+
+Applications that generate their own public URLs should use
+`getRequestOriginInfo` or `getRequestBaseUrl` from
+`@pablozaiden/webapp/server` with the server's runtime config instead of
+parsing `{PREFIX}_PUBLIC_BASE_URL` independently. The framework validates the
+configured public base URL during startup and applies the same trusted-proxy
+policy used by its authentication and origin checks.
