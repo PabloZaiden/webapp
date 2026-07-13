@@ -10,7 +10,8 @@ import { ToastProvider } from "../src/web/toast";
 
 async function ensureHappyDom() {
   if (
-    typeof document !== "undefined"
+    GlobalRegistrator.isRegistered
+    && typeof document !== "undefined"
     && document.body
     && typeof window !== "undefined"
     && typeof window.history?.replaceState === "function"

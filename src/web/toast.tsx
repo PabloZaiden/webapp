@@ -21,7 +21,7 @@ export interface ToastShowOptions extends ToastOptions {
 }
 
 export interface ToastService {
-  toasts: Toast[];
+  toasts: readonly Toast[];
   show: (message: string, options?: ToastShowOptions) => ToastId;
   success: (message: string, options?: ToastOptions) => ToastId;
   error: (message: string, options?: ToastOptions) => ToastId;
@@ -179,14 +179,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const activeIds = new Set(toasts.map((toast) => toast.id));
-    for (const [id, timer] of timersRef.current) {
+    for (const id of timersRef.current.keys()) {
       if (activeIds.has(id)) {
         continue;
       }
-      clearTimeout(timer);
-      timersRef.current.delete(id);
+      clearTimer(id);
     }
-  }, [toasts]);
+  }, [clearTimer, toasts]);
 
   useEffect(() => () => {
     for (const timer of timersRef.current.values()) {
