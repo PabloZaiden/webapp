@@ -122,7 +122,19 @@ renderWebApp(
 ```
 
 `renderWebApp` renders into `#root` by default and reuses the existing React root across hot reloads. Pass a custom element id or `Element` only when the app uses a different mount point.
-`WebAppRoot` owns the shell and `.wapp-main-content`; each route component should return a `Page` wrapper so standard content margins, mobile padding and scroll behavior stay consistent.
+`WebAppRoot` owns the shell and `.wapp-main-content`; each route component should return a `Page` wrapper so standard content margins, mobile padding and scroll behavior stay consistent. `Page` uses the padded layout by default. For routes whose child content fills the available shell viewport and owns its own spacing or scrolling, use the framework full layout instead of overriding framework CSS:
+
+```tsx
+function TerminalRoute() {
+  return (
+    <Page layout="full">
+      <Terminal />
+    </Page>
+  );
+}
+```
+
+The `full` layout removes the page gutters and provides a flex-sized, overflow-contained surface for viewport-sized content. Use it for terminals, editors, previews and similar surfaces; the child should provide any internal padding and scrolling it needs.
 
 Use the framework URL helpers for browser API calls, websocket URLs and app-local links instead of deriving paths from `window.location` in each app. They honor `<base>`, explicit `publicBasePath` config, and reverse-proxy subpaths for direct path deep links such as `/workspaces`:
 

@@ -25,7 +25,7 @@ Use these first:
 
 | Component | Use |
 | --- | --- |
-| `Page` | Required top-level wrapper for route content rendered by `WebAppRoot.routes`; provides standard margins/padding and mobile spacing |
+| `Page` | Required top-level wrapper for route content rendered by `WebAppRoot.routes`; uses standard margins/padding and mobile spacing by default, or `layout="full"` for viewport-sized content |
 | `Toolbar` | Page title/actions inside main content |
 | `Panel` | Cards/sections; use `actions` for a top-right menu/action area |
 | `ActionMenu` | Three-line action menu for secondary surfaces; entity-level shell menus should usually come from `SidebarNode.actions` so the framework renders them in the sidebar context menu and fixed title bar |
@@ -44,7 +44,7 @@ Use these first:
 
 For entity actions, prefer the framework title bar: define one `ActionMenuItem[]` builder and attach it to `SidebarNode.actions` for the route-backed node. The framework reuses those actions for both sidebar right-click and the active route title-bar menu. Use `WebAppRoot.header.getActions` only for additional actions not owned by a sidebar node.
 
-Every route component rendered by `WebAppRoot.routes` should return `Page` at the top level, including loading/error/empty states. Do not render a `Panel`, `DataList`, `EmptyState` or custom div directly into `WebAppRoot`; that skips the standard content margins and recreates the visual bug where cards touch the main content edge. Use `EntityHeader` only when the page needs a content-specific heading distinct from the fixed framework title bar; do not duplicate the active route title immediately below the header.
+Every route component rendered by `WebAppRoot.routes` should return `Page` at the top level, including loading/error/empty states. Do not render a `Panel`, `DataList`, `EmptyState` or custom div directly into `WebAppRoot`; that skips the standard content margins and recreates the visual bug where cards touch the main content edge. For a route whose child owns viewport-sized layout and scrolling, use `<Page layout="full">` rather than overriding `.wapp-page` from the application. Use `EntityHeader` only when the page needs a content-specific heading distinct from the fixed framework title bar; do not duplicate the active route title immediately below the header.
 
 ## Visual validation captures
 

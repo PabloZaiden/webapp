@@ -621,6 +621,15 @@ textarea::placeholder {
   padding: 1.5rem 2rem max(2rem, var(--wapp-mobile-bottom-clearance));
 }
 
+.wapp-page-full {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
 .wapp-page,
 .wapp-panel,
 .wapp-modal-body {
@@ -1908,6 +1917,10 @@ textarea::placeholder {
 
 :root[data-wapp-mobile] .wapp-page {
   padding: 1rem 1rem max(1rem, var(--wapp-mobile-bottom-clearance));
+}
+
+:root[data-wapp-mobile] .wapp-page-full {
+  padding: 0;
 }
 
 :root[data-wapp-mobile] .wapp-panel-header,

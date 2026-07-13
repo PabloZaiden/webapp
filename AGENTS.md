@@ -17,7 +17,7 @@
 ## Framework UI conventions
 
 - All destructive delete actions must use the framework `ConfirmDialog` before calling the delete endpoint. Do not wire delete buttons directly to mutations.
-- Route components rendered by `WebAppRoot.routes` must use `Page` as the top-level wrapper; do not render content directly into `.wapp-main-content` or duplicate the fixed framework title with an app-local heading.
+- Route components rendered by `WebAppRoot.routes` must use `Page` as the top-level wrapper; do not render content directly into `.wapp-main-content` or duplicate the fixed framework title with an app-local heading. Use `<Page layout="full">` for viewport-sized child content instead of overriding framework page CSS.
 
 ## Runtime input and API boundaries
 
