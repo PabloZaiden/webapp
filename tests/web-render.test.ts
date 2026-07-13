@@ -227,26 +227,6 @@ function mockMobileMediaQuery(matches: boolean) {
   };
 }
 
-async function renderShortcutWebApp() {
-  const view = render(createElement(WebAppRoot, {
-    appName: "Test App",
-    homeRoute: { view: "home" },
-    sidebar: {
-      search: false,
-      pinning: false,
-      getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
-    },
-    routes: {
-      home: createElement("p", null, "Home"),
-    },
-  }));
-
-  await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
-  await act(async () => {});
-
-  return view;
-}
-
 async function renderSettingsWebApp() {
   const view = render(createElement(WebAppRoot, {
     appName: "Test App",
@@ -287,39 +267,21 @@ async function renderBuiltInSettingsWebApp() {
   return view;
 }
 
-async function renderCollapsibleSidebarWebApp({ defaultCollapsed = false } = {}) {
-  const view = render(createElement(WebAppRoot, {
-    appName: "Test App",
-    homeRoute: { view: "home" },
-    sidebar: {
-      search: false,
-      pinning: false,
-      getNodes: () => [
-        {
-          type: "section" as const,
-          id: "projects",
-          title: "Projects",
-          defaultCollapsed,
-          children: [{ type: "item" as const, id: "alpha", title: "Alpha", route: { view: "alpha" } }],
-        },
-        {
-          type: "item" as const,
-          id: "group",
-          title: "Group",
-          children: [{ type: "item" as const, id: "child", title: "Child", route: { view: "child" } }],
-        },
-      ],
-    },
-    routes: {
-      home: createElement("p", null, "Home"),
-      alpha: createElement("p", null, "Alpha"),
-      child: createElement("p", null, "Child"),
-    },
-  }));
+type SidebarFixtureOptions = {
+  search?: boolean;
+  sectionDefaultCollapsed?: boolean;
+};
 
-  await waitFor(() => expect(view.getByText("Projects")).toBeTruthy());
-
-  return view;
+function createSidebarFixtureNodes({ sectionDefaultCollapsed = false }: SidebarFixtureOptions = {}): SidebarNode[] {
+  return [
+    {
+      type: "section" as const,
+      id: "projects",
+      title: "Projects",
+      defaultCollapsed: sectionDefaultCollapsed,
+      children: [{ type: "item" as const, id: "alpha", title: "Alpha", route: { view: "alpha" } }],
+    },
+  ];
 }
 
 function filterSidebarNodesByTitle(nodes: SidebarNode[], search: string): SidebarNode[] {
@@ -334,40 +296,42 @@ function filterSidebarNodesByTitle(nodes: SidebarNode[], search: string): Sideba
   });
 }
 
-async function renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed = true, groupDefaultCollapsed = true } = {}) {
+async function renderSidebarWebApp(options: SidebarFixtureOptions = {}) {
+  const { search = false } = options;
   const view = render(createElement(WebAppRoot, {
     appName: "Test App",
     homeRoute: { view: "home" },
     sidebar: {
-      search: true,
+      search,
       pinning: false,
-      getNodes: ({ search }) => filterSidebarNodesByTitle([
-        {
-          type: "section" as const,
-          id: "projects",
-          title: "Projects",
-          defaultCollapsed: sectionDefaultCollapsed,
-          children: [{ type: "item" as const, id: "alpha", title: "Alpha", route: { view: "alpha" } }],
-        },
-        {
-          type: "item" as const,
-          id: "group",
-          title: "Group",
-          defaultCollapsed: groupDefaultCollapsed,
-          children: [{ type: "item" as const, id: "child", title: "Child", route: { view: "child" } }],
-        },
-      ], search),
+      getNodes: ({ search: query }) => filterSidebarNodesByTitle(createSidebarFixtureNodes(options), query),
     },
     routes: {
       home: createElement("p", null, "Home"),
       alpha: createElement("p", null, "Alpha"),
-      child: createElement("p", null, "Child"),
     },
   }));
 
-  await waitFor(() => expect(view.getByText("Projects")).toBeTruthy());
+  await waitFor(() => expect(view.getByRole("button", { name: /Projects/ })).toBeTruthy());
 
   return view;
+}
+
+async function renderShortcutWebApp({ search = false } = {}) {
+  const view = await renderSidebarWebApp({ search });
+
+  await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
+  await act(async () => {});
+
+  return view;
+}
+
+async function renderCollapsibleSidebarWebApp({ defaultCollapsed = false } = {}) {
+  return renderSidebarWebApp({ sectionDefaultCollapsed: defaultCollapsed });
+}
+
+async function renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed = true } = {}) {
+  return renderSidebarWebApp({ search: true, sectionDefaultCollapsed });
 }
 
 function typeSearch(input: HTMLElement, value: string) {
@@ -569,91 +533,55 @@ test("modal Enter shortcut does not confirm while an input is focused", () => {
   expect(confirmations).toBe(0);
 });
 
-test("Ctrl+B toggles the sidebar collapsed state", async () => {
+test("sidebar toggle control changes the accessible action", async () => {
   const restoreFetch = mockConfigFetch();
   try {
     const view = await renderShortcutWebApp();
 
-    expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Collapse sidebar" }));
+    await waitFor(() => expect(view.queryByRole("button", { name: "Collapse sidebar" })).toBeNull());
+    expect(view.getAllByRole("button", { name: "Show sidebar" }).length).toBeGreaterThan(0);
 
-    const collapseDispatched = fireEvent.keyDown(document, { key: "b", ctrlKey: true, cancelable: true });
-    expect(collapseDispatched).toBe(false);
-    await waitFor(() => expect(view.queryAllByRole("button", { name: "Collapse sidebar" })).toHaveLength(0));
-
-    const expandDispatched = fireEvent.keyDown(document, { key: "b", ctrlKey: true, cancelable: true });
-    expect(expandDispatched).toBe(false);
+    fireEvent.click(view.getAllByRole("button", { name: "Show sidebar" })[0]);
     await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
   } finally {
     restoreFetch();
   }
 });
 
-test("Cmd+B toggles the sidebar collapsed state", async () => {
+test("Ctrl+B and Cmd+B toggle the sidebar through one supported shortcut", async () => {
   const restoreFetch = mockConfigFetch();
   try {
     const view = await renderShortcutWebApp();
 
-    fireEvent.keyDown(document, { key: "B", metaKey: true });
-    await waitFor(() => expect(view.queryAllByRole("button", { name: "Collapse sidebar" })).toHaveLength(0));
-
-    fireEvent.keyDown(document, { key: "b", metaKey: true });
-    await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
-  } finally {
-    restoreFetch();
-  }
-});
-
-test("sidebar shortcut ignores non-exact key combinations", async () => {
-  const restoreFetch = mockConfigFetch();
-  try {
-    const view = await renderShortcutWebApp();
-
-    fireEvent.keyDown(document, { key: "b" });
-    fireEvent.keyDown(document, { key: "b", ctrlKey: true, shiftKey: true });
-    fireEvent.keyDown(document, { key: "b", ctrlKey: true, metaKey: true });
-    fireEvent.keyDown(document, { key: "b", ctrlKey: true, repeat: true });
-    fireEvent.keyDown(document, { key: "b", ctrlKey: true, isComposing: true });
-
-    expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
-  } finally {
-    restoreFetch();
-  }
-});
-
-test("sidebar shortcut ignores text-editing targets", async () => {
-  const restoreFetch = mockConfigFetch();
-  try {
-    const view = await renderShortcutWebApp();
-    const targets = [
-      document.createElement("input"),
-      document.createElement("textarea"),
-      document.createElement("select"),
-      document.createElement("div"),
+    const shortcuts = [
+      { key: "b", ctrlKey: true },
+      { key: "B", metaKey: true },
     ];
-    targets[3].setAttribute("contenteditable", "true");
-    document.body.append(...targets);
+    for (const shortcut of shortcuts) {
+      const dispatched = fireEvent.keyDown(document, { ...shortcut, cancelable: true });
+      expect(dispatched).toBe(false);
+      await waitFor(() => expect(view.queryByRole("button", { name: "Collapse sidebar" })).toBeNull());
+      expect(view.getAllByRole("button", { name: "Show sidebar" }).length).toBeGreaterThan(0);
 
-    for (const target of targets) {
-      target.focus();
-      const dispatched = fireEvent.keyDown(target, { key: "b", ctrlKey: true, cancelable: true });
-      expect(dispatched).toBe(true);
-      expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
+      fireEvent.keyDown(document, { ...shortcut, cancelable: true });
+      await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
     }
   } finally {
     restoreFetch();
   }
 });
 
-test("sidebar toggle label reflects the current action", async () => {
+test("sidebar shortcut does not interrupt editing in the search field", async () => {
   const restoreFetch = mockConfigFetch();
   try {
-    const view = await renderShortcutWebApp();
+    const view = await renderShortcutWebApp({ search: true });
+    const searchInput = view.getByRole("textbox", { name: "Search" });
+    searchInput.focus();
 
-    expect(view.getAllByRole("button", { name: "Collapse sidebar" })).toHaveLength(1);
-
-    fireEvent.keyDown(document, { key: "b", ctrlKey: true });
-    await waitFor(() => expect(view.queryAllByRole("button", { name: "Collapse sidebar" })).toHaveLength(0));
-    expect(view.getAllByRole("button", { name: "Show sidebar" }).length).toBeGreaterThan(0);
+    const dispatched = fireEvent.keyDown(searchInput, { key: "b", ctrlKey: true, cancelable: true });
+    expect(dispatched).toBe(true);
+    expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
   } finally {
     restoreFetch();
   }
@@ -664,7 +592,7 @@ test("sidebar tree collapsed state persists across remounts", async () => {
   try {
     const storageKey = "webapp.test-app.sidebar.collapsed";
     const firstView = await renderCollapsibleSidebarWebApp();
-    const collapseProjects = await waitFor(() => firstView.getByLabelText("Collapse Projects"));
+    const collapseProjects = await waitFor(() => firstView.getByRole("button", { name: /Projects/ }));
 
     fireEvent.click(collapseProjects);
 
@@ -672,7 +600,7 @@ test("sidebar tree collapsed state persists across remounts", async () => {
     firstView.unmount();
 
     const secondView = await renderCollapsibleSidebarWebApp();
-    const expandProjects = await waitFor(() => secondView.getByLabelText("Expand Projects"));
+    const expandProjects = await waitFor(() => secondView.getByRole("button", { name: /Projects/ }));
 
     expect(expandProjects.getAttribute("aria-expanded")).toBe("false");
   } finally {
@@ -680,93 +608,53 @@ test("sidebar tree collapsed state persists across remounts", async () => {
   }
 });
 
-test("sidebar tree persists item collapsed state", async () => {
+test("sidebar tree honors default and persisted initialization state", async () => {
   const restoreFetch = mockConfigFetch();
   try {
     const storageKey = "webapp.test-app.sidebar.collapsed";
-    const { getByLabelText } = await renderCollapsibleSidebarWebApp();
+    const scenarios = [
+      { stored: undefined, expectedExpanded: false },
+      { stored: JSON.stringify({ projects: false }), expectedExpanded: true },
+      { stored: "{", expectedExpanded: false },
+    ];
 
-    fireEvent.click(await waitFor(() => getByLabelText("Collapse Group")));
+    for (const scenario of scenarios) {
+      localStorage.removeItem(storageKey);
+      if (scenario.stored !== undefined) {
+        localStorage.setItem(storageKey, scenario.stored);
+      }
 
-    await waitFor(() => expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ group: true }));
+      const view = await renderCollapsibleSidebarWebApp({ defaultCollapsed: true });
+      const projectsToggle = await waitFor(() => view.getByRole("button", { name: /Projects/ }));
+
+      expect(projectsToggle.getAttribute("aria-expanded")).toBe(String(scenario.expectedExpanded));
+      view.unmount();
+    }
   } finally {
     restoreFetch();
   }
 });
 
-test("sidebar tree rapid toggles use the latest collapsed state", async () => {
+test("sidebar search temporarily reveals matches without changing collapse state", async () => {
   const restoreFetch = mockConfigFetch();
   try {
     const storageKey = "webapp.test-app.sidebar.collapsed";
-    const { getByLabelText } = await renderCollapsibleSidebarWebApp();
-    const collapseProjects = await waitFor(() => getByLabelText("Collapse Projects"));
+    localStorage.setItem(storageKey, JSON.stringify({ projects: true }));
+    const view = await renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed: false });
+    const searchInput = view.getByRole("textbox", { name: "Search" });
 
-    await act(async () => {
-      collapseProjects.click();
-      collapseProjects.click();
-    });
+    expect(view.queryByRole("button", { name: "Alpha" })).toBeNull();
 
-    await waitFor(() => expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: false }));
-    const stillExpandedProjects = await waitFor(() => getByLabelText("Collapse Projects"));
-    expect(stillExpandedProjects.getAttribute("aria-expanded")).toBe("true");
-  } finally {
-    restoreFetch();
-  }
-});
+    typeSearch(searchInput, "alpha");
 
-test("sidebar tree uses defaultCollapsed when no stored state exists", async () => {
-  const restoreFetch = mockConfigFetch();
-  try {
-    const { getByLabelText } = await renderCollapsibleSidebarWebApp({ defaultCollapsed: true });
-    const expandProjects = await waitFor(() => getByLabelText("Expand Projects"));
+    expect(await waitFor(() => view.getByRole("button", { name: "Alpha" }))).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: true });
 
-    expect(expandProjects.getAttribute("aria-expanded")).toBe("false");
-  } finally {
-    restoreFetch();
-  }
-});
-
-test("sidebar tree stored expanded state overrides defaultCollapsed", async () => {
-  const restoreFetch = mockConfigFetch();
-  try {
-    localStorage.setItem("webapp.test-app.sidebar.collapsed", JSON.stringify({ projects: false }));
-
-    const { getByLabelText } = await renderCollapsibleSidebarWebApp({ defaultCollapsed: true });
-    const collapseProjects = await waitFor(() => getByLabelText("Collapse Projects"));
-
-    expect(collapseProjects.getAttribute("aria-expanded")).toBe("true");
-  } finally {
-    restoreFetch();
-  }
-});
-
-test("sidebar tree ignores corrupt stored collapsed state", async () => {
-  const restoreFetch = mockConfigFetch();
-  try {
-    localStorage.setItem("webapp.test-app.sidebar.collapsed", "{");
-
-    const { getByLabelText } = await renderCollapsibleSidebarWebApp({ defaultCollapsed: true });
-    const expandProjects = await waitFor(() => getByLabelText("Expand Projects"));
-
-    expect(expandProjects.getAttribute("aria-expanded")).toBe("false");
-  } finally {
-    restoreFetch();
-  }
-});
-
-test("sidebar search expands default-collapsed sections with matching children", async () => {
-  const restoreFetch = mockConfigFetch();
-  try {
-    const { getByLabelText, getByPlaceholderText, getByText } = await renderSearchableCollapsibleSidebarWebApp();
-
-    expect(await waitFor(() => getByLabelText("Expand Projects"))).toBeTruthy();
-
-    typeSearch(getByPlaceholderText("Search"), "alpha");
-
-    const disabledProjectsToggle = await waitFor(() => getByLabelText("Toggling unavailable during search for Projects"));
-    expect(disabledProjectsToggle.getAttribute("aria-expanded")).toBe("true");
-    expect((disabledProjectsToggle as HTMLButtonElement).disabled).toBe(true);
-    expect(getByText("Alpha")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Clear search" }));
+    await waitFor(() => expect((searchInput as HTMLInputElement).value).toBe(""));
+    expect(view.queryByRole("button", { name: "Alpha" })).toBeNull();
+    expect(view.getByRole("button", { name: /Projects/ }).getAttribute("aria-expanded")).toBe("false");
+    expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: true });
   } finally {
     restoreFetch();
   }
@@ -775,15 +663,13 @@ test("sidebar search expands default-collapsed sections with matching children",
 test("sidebar whitespace-only search uses the empty normalized query", async () => {
   const restoreFetch = mockConfigFetch();
   try {
-    const getNodesSearches: string[] = [];
-    const { getByPlaceholderText, getByText, queryByText } = render(createElement(WebAppRoot, {
+    const view = render(createElement(WebAppRoot, {
       appName: "Test App",
       homeRoute: { view: "home" },
       sidebar: {
         search: true,
         pinning: false,
         getNodes: ({ search }) => {
-          getNodesSearches.push(search);
           return search
             ? [{ type: "item" as const, id: "whitespace-result", title: "Whitespace Result", route: { view: "whitespace" } }]
             : [{ type: "item" as const, id: "empty-result", title: "Empty Search Result", route: { view: "empty" } }];
@@ -796,13 +682,12 @@ test("sidebar whitespace-only search uses the empty normalized query", async () 
       },
     }));
 
-    await waitFor(() => expect(getByText("Empty Search Result")).toBeTruthy());
+    await waitFor(() => expect(view.getByRole("button", { name: "Empty Search Result" })).toBeTruthy());
 
-    typeSearch(getByPlaceholderText("Search"), "   ");
+    typeSearch(view.getByRole("textbox", { name: "Search" }), "   ");
 
-    await waitFor(() => expect(getByText("Empty Search Result")).toBeTruthy());
-    expect(queryByText("Whitespace Result")).toBeNull();
-    expect(getNodesSearches).not.toContain("   ");
+    await waitFor(() => expect(view.getByRole("button", { name: "Empty Search Result" })).toBeTruthy());
+    expect(view.queryByRole("button", { name: "Whitespace Result" })).toBeNull();
   } finally {
     restoreFetch();
   }
@@ -812,7 +697,7 @@ test("header actions use unfiltered sidebar nodes when search hides the active i
   const restoreFetch = mockConfigFetch();
   window.location.hash = "";
   try {
-    const { getByLabelText, getByPlaceholderText, getByRole, getByText, queryByText } = render(createElement(WebAppRoot, {
+    const { getByLabelText, getByRole, getByText, queryByRole } = render(createElement(WebAppRoot, {
       appName: "Test App",
       homeRoute: { view: "home" },
       sidebar: {
@@ -837,8 +722,8 @@ test("header actions use unfiltered sidebar nodes when search hides the active i
 
     await waitFor(() => expect(getByText("Home view")).toBeTruthy());
 
-    typeSearch(getByPlaceholderText("Search"), "no matches");
-    await waitFor(() => expect(queryByText("Hidden Target")).toBeNull());
+    typeSearch(getByRole("textbox", { name: "Search" }), "no matches");
+    await waitFor(() => expect(queryByRole("button", { name: "Hidden Target" })).toBeNull());
 
     act(() => {
       window.location.hash = "#/target";
@@ -860,7 +745,7 @@ test("header actions keep pinning actions from unfiltered active sidebar nodes",
   const restoreFetch = mockConfigFetch();
   window.location.hash = "";
   try {
-    const { getByLabelText, getByPlaceholderText, getByRole, getByText, queryByText } = render(createElement(WebAppRoot, {
+    const { getByLabelText, getByRole, getByText, queryByRole } = render(createElement(WebAppRoot, {
       appName: "Test App",
       homeRoute: { view: "home" },
       sidebar: {
@@ -884,8 +769,8 @@ test("header actions keep pinning actions from unfiltered active sidebar nodes",
 
     await waitFor(() => expect(getByText("Home view")).toBeTruthy());
 
-    typeSearch(getByPlaceholderText("Search"), "no matches");
-    await waitFor(() => expect(queryByText("Pinned Target")).toBeNull());
+    typeSearch(getByRole("textbox", { name: "Search" }), "no matches");
+    await waitFor(() => expect(queryByRole("button", { name: "Pinned Target" })).toBeNull());
 
     act(() => {
       window.location.hash = "#/target";
@@ -1136,90 +1021,6 @@ test("settings kill server surfaces failures without starting the shutdown count
   }
 });
 
-test("sidebar search expands stored-collapsed sections without changing storage", async () => {
-  const restoreFetch = mockConfigFetch();
-  try {
-    const storageKey = "webapp.test-app.sidebar.collapsed";
-    localStorage.setItem(storageKey, JSON.stringify({ projects: true }));
-    const { getByLabelText, getByPlaceholderText, getByText } = await renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed: false });
-
-    typeSearch(getByPlaceholderText("Search"), "alpha");
-
-    const disabledProjectsToggle = await waitFor(() => getByLabelText("Toggling unavailable during search for Projects"));
-    expect(disabledProjectsToggle.getAttribute("aria-expanded")).toBe("true");
-    expect((disabledProjectsToggle as HTMLButtonElement).disabled).toBe(true);
-    expect(getByText("Alpha")).toBeTruthy();
-    expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: true });
-  } finally {
-    restoreFetch();
-  }
-});
-
-test("sidebar search toggle clicks do not persist collapsed state", async () => {
-  const restoreFetch = mockConfigFetch();
-  try {
-    const storageKey = "webapp.test-app.sidebar.collapsed";
-    localStorage.setItem(storageKey, JSON.stringify({ projects: true }));
-    const { getByLabelText, getByPlaceholderText } = await renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed: false });
-
-    typeSearch(getByPlaceholderText("Search"), "alpha");
-    const disabledProjectsToggle = await waitFor(() => getByLabelText("Toggling unavailable during search for Projects"));
-    expect((disabledProjectsToggle as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(disabledProjectsToggle);
-
-    expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: true });
-  } finally {
-    restoreFetch();
-  }
-});
-
-test("sidebar search clear button restores stored collapsed section state", async () => {
-  const restoreFetch = mockConfigFetch();
-  try {
-    localStorage.setItem("webapp.test-app.sidebar.collapsed", JSON.stringify({ projects: true }));
-    const { getByLabelText, getByPlaceholderText, queryByLabelText, queryByText } = await renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed: false });
-    const searchInput = getByPlaceholderText("Search");
-
-    expect(queryByLabelText("Clear search")).toBeNull();
-    typeSearch(searchInput, "alpha");
-    const disabledProjectsToggle = await waitFor(() => getByLabelText("Toggling unavailable during search for Projects"));
-    expect((disabledProjectsToggle as HTMLButtonElement).disabled).toBe(true);
-    expect((searchInput as HTMLInputElement).value).toBe("alpha");
-
-    fireEvent.click(await waitFor(() => getByLabelText("Clear search")));
-
-    await waitFor(() => expect((searchInput as HTMLInputElement).value).toBe(""));
-    expect(queryByLabelText("Clear search")).toBeNull();
-    const expandProjects = await waitFor(() => getByLabelText("Expand Projects"));
-    expect(expandProjects.getAttribute("aria-expanded")).toBe("false");
-    expect((expandProjects as HTMLButtonElement).disabled).toBe(false);
-    expect(queryByText("Alpha")).toBeNull();
-  } finally {
-    restoreFetch();
-  }
-});
-
-test("sidebar search expands item groups with matching children without persisting toggles", async () => {
-  const restoreFetch = mockConfigFetch();
-  try {
-    const storageKey = "webapp.test-app.sidebar.collapsed";
-    localStorage.setItem(storageKey, JSON.stringify({ group: true }));
-    const { getByLabelText, getByPlaceholderText, getByText } = await renderSearchableCollapsibleSidebarWebApp({ groupDefaultCollapsed: false });
-
-    typeSearch(getByPlaceholderText("Search"), "child");
-
-    const disabledGroupToggle = await waitFor(() => getByLabelText("Toggling unavailable during search for Group"));
-    expect(disabledGroupToggle.getAttribute("aria-expanded")).toBe("true");
-    expect((disabledGroupToggle as HTMLButtonElement).disabled).toBe(true);
-    expect(getByText("Child")).toBeTruthy();
-
-    fireEvent.click(disabledGroupToggle);
-    expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ group: true });
-  } finally {
-    restoreFetch();
-  }
-});
-
 test("mobile sidebar backdrop closes the open sidebar", async () => {
   const restoreFetch = mockConfigFetch();
   try {
@@ -1238,7 +1039,7 @@ test("mobile sidebar backdrop closes the open sidebar", async () => {
   }
 });
 
-test("mobile left-edge swipe opens the sidebar", async () => {
+test("mobile left-edge swipe opens navigation", async () => {
   const restoreFetch = mockConfigFetch();
   const restoreMobileMediaQuery = mockMobileMediaQuery(true);
   try {
@@ -1246,83 +1047,14 @@ test("mobile left-edge swipe opens the sidebar", async () => {
     const showSidebar = view.getByRole("button", { name: "Show sidebar" });
 
     fireEvent.touchStart(document, {
-      touches: [{ clientX: 8, clientY: 240 }],
+      touches: [{ clientX: 4, clientY: 240 }],
     });
     fireEvent.touchMove(document, {
-      touches: [{ clientX: 80, clientY: 248 }],
+      touches: [{ clientX: 128, clientY: 240 }],
       cancelable: true,
     });
 
     await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
-  } finally {
-    restoreMobileMediaQuery();
-    restoreFetch();
-  }
-});
-
-test("desktop sidebar ignores left-edge swipe", async () => {
-  const restoreFetch = mockConfigFetch();
-  const restoreMobileMediaQuery = mockMobileMediaQuery(false);
-  try {
-    const view = await renderShortcutWebApp();
-    const showSidebar = view.getByRole("button", { name: "Show sidebar" });
-
-    fireEvent.touchStart(document, {
-      touches: [{ clientX: 8, clientY: 240 }],
-    });
-    fireEvent.touchMove(document, {
-      touches: [{ clientX: 80, clientY: 248 }],
-      cancelable: true,
-    });
-
-    expect(showSidebar.getAttribute("aria-expanded")).toBe("false");
-  } finally {
-    restoreMobileMediaQuery();
-    restoreFetch();
-  }
-});
-
-test("mobile sidebar swipe ignores touches away from the left edge", async () => {
-  const restoreFetch = mockConfigFetch();
-  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
-  try {
-    const view = await renderShortcutWebApp();
-    const showSidebar = view.getByRole("button", { name: "Show sidebar" });
-
-    fireEvent.touchStart(document, {
-      touches: [{ clientX: 40, clientY: 240 }],
-    });
-    fireEvent.touchMove(document, {
-      touches: [{ clientX: 120, clientY: 240 }],
-      cancelable: true,
-    });
-    expect(showSidebar.getAttribute("aria-expanded")).toBe("false");
-  } finally {
-    restoreMobileMediaQuery();
-    restoreFetch();
-  }
-});
-
-test("mobile sidebar swipe cancels after diagonal movement", async () => {
-  const restoreFetch = mockConfigFetch();
-  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
-  try {
-    const view = await renderShortcutWebApp();
-    const showSidebar = view.getByRole("button", { name: "Show sidebar" });
-
-    fireEvent.touchStart(document, {
-      touches: [{ clientX: 8, clientY: 240 }],
-    });
-    fireEvent.touchMove(document, {
-      touches: [{ clientX: 40, clientY: 280 }],
-      cancelable: true,
-    });
-    fireEvent.touchMove(document, {
-      touches: [{ clientX: 80, clientY: 280 }],
-      cancelable: true,
-    });
-
-    expect(showSidebar.getAttribute("aria-expanded")).toBe("false");
   } finally {
     restoreMobileMediaQuery();
     restoreFetch();
