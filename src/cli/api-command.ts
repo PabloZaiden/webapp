@@ -83,6 +83,7 @@ async function resolveAuth(input: ApiCliCommandOptions): Promise<ResolvedApiCliA
     return {
       headers: refreshed ? getAuthorizedHeaders(refreshed, headers) : headers,
       source: "device",
+      baseUrl: (refreshed ?? stored).baseUrl,
     };
   }
   if (input.envPrefix) {
@@ -120,7 +121,7 @@ export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<Cli
   }
   const payload = readOption(input.args, ["--payload", "--data", "-d"]);
   const auth = await resolveAuth(input);
-  const baseUrl = (auth.baseUrl ?? input.baseUrl ?? "http://localhost:3000").replace(/\/+$/, "");
+  const baseUrl = (input.baseUrl ?? auth.baseUrl ?? "http://localhost:3000").replace(/\/+$/, "");
   const url = new URL(`${baseUrl}${match.path}`);
   const headers = auth.headers;
   let body: string | undefined;

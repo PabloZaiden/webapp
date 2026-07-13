@@ -41,12 +41,18 @@ const result = await runApiCliCommand({
   args,
   envPrefix: "MY_APP",
   credentials,
+  // Optional explicit override; stored credentials provide the default URL.
+  // baseUrl: "https://app.example.test",
 });
 ```
 
 `runApiCliCommand` can list endpoints, print schema metadata, call endpoints
 with `--method` and `--payload`, attach bearer credentials, and refresh stored
 device credentials once on `401`.
+When stored device credentials are available, their `baseUrl` is used by
+default; pass `baseUrl` only to intentionally override that server. Without
+stored credentials, the environment API-key rules below determine the request
+URL.
 
 ## Stateless API-key authentication
 

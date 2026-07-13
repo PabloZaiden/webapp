@@ -177,7 +177,7 @@ describe("generic API CLI command", () => {
     expect(requestedAuth).toEqual(["Bearer invalid-key"]);
   });
 
-  test("keeps stored device credentials ahead of environment auth", async () => {
+  test("uses the stored device base URL by default", async () => {
     const requested: Array<{ url: string; authorization: string | null }> = [];
     const stored: StoredDeviceCredentials = {
       baseUrl: "https://stored.example.test",
@@ -191,10 +191,9 @@ describe("generic API CLI command", () => {
       updatedAt: new Date().toISOString(),
     };
 
-    const result = await runApiCliCommand({
+    const commandInput = {
       catalog,
       args: ["item/123"],
-      baseUrl: "https://explicit.example.test",
       envPrefix: "TEST_CLI_STORED",
       environment: {
         TEST_CLI_STORED_BASE_URL: "https://env.example.test",
@@ -208,12 +207,50 @@ describe("generic API CLI command", () => {
         });
         return Response.json({ id: "123" });
       }) as typeof fetch,
-    });
+    };
+    const result = await runApiCliCommand(commandInput);
 
     expect(result.exitCode).toBe(0);
     expect(requested).toEqual([{
-      url: "https://explicit.example.test/api/items/123",
+      url: "https://stored.example.test/api/items/123",
       authorization: "Bearer stored-token",
     }]);
+  });
+});
+
+describe("generic API CLI base URL overrides", () => {
+  test("uses an explicit base URL with stored device credentials", async () => {
+    const stored: StoredDeviceCredentials = {
+      baseUrl: "https://stored.example.test",
+      clientId: "cli",
+      accessToken: "stored-token",
+      refreshToken: "stored-refresh",
+      tokenType: "Bearer",
+      scope: "*",
+      accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    let requestedUrl = "";
+    let hasAuthorization = false;
+
+    const result = await runApiCliCommand({
+      catalog,
+      args: ["item/123"],
+      baseUrl: "https://explicit.example.test///",
+      credentials: {
+        read: async () => stored,
+        write: async () => undefined,
+      },
+      fetchFn: (async (input: string | URL | Request, init?: RequestInit) => {
+        requestedUrl = String(input);
+        hasAuthorization = new Headers(init?.headers).has("authorization");
+        return Response.json({ id: "123" });
+      }) as typeof fetch,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(requestedUrl).toBe("https://explicit.example.test/api/items/123");
+    expect(hasAuthorization).toBe(true);
   });
 });
