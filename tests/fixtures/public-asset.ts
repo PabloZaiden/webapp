@@ -1,3 +1,4 @@
 import { publicAssetMarker } from "./public-asset-helper";
 
-globalThis[Symbol.for("webapp.publicAssetMarker")] = publicAssetMarker;
+const globals = globalThis as { [key: symbol]: unknown };
+globals[Symbol.for("webapp.publicAssetMarker")] = publicAssetMarker;
