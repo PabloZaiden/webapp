@@ -106,6 +106,31 @@ Route context is user-aware:
 
 Use `ctx.filterOwned(records, getUserId)` and `ctx.requireOwned(record, getUserId)` when app records use a different ownership field. Return 404 for other-user resources so route responses do not reveal whether another user's id exists.
 
+## Supplying a validated runtime config
+
+`createWebAppServer` reads and validates `{PREFIX}_*` environment variables by
+default. An application that has already resolved a `RuntimeConfig` can pass it
+through `runtimeConfig` instead:
+
+```ts
+import { createWebAppServer, readRuntimeConfig } from "@pablozaiden/webapp/server";
+
+const runtimeConfig = readRuntimeConfig({ appName: "My App", envPrefix: "MY_APP" });
+const app = createWebAppServer({
+  appName: "My App",
+  envPrefix: "MY_APP",
+  runtimeConfig,
+  routes,
+});
+```
+
+The supplied config is used during every framework initialization step,
+including store selection, logging, authentication, document generation,
+request handling, and lifecycle setup. Its `appName` and `envPrefix` must match
+the constructor inputs. Do not mutate `app.config` after construction to
+replace constructor options; omit `runtimeConfig` when the framework should read
+the environment itself.
+
 Built-in endpoints include:
 
 | Endpoint | Purpose |

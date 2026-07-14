@@ -26,6 +26,7 @@ export type PublicRouteDefinition =
 export interface WebAppServerConfig<TEvent = unknown> {
   appName: string;
   envPrefix: string;
+  runtimeConfig?: RuntimeConfig;
   web?: WebAppDocumentConfig;
   version?: string;
   store?: WebAppStore;
