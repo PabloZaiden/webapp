@@ -126,6 +126,100 @@ describe("request body validation", () => {
     expect(body.details).toEqual(expect.arrayContaining([expect.objectContaining({ path: ["title"] })]));
   });
 
+  test("validates JSON content type and request byte limits", async () => {
+    const itemSchema = z.object({ title: z.string().min(1) });
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_REQUEST_VALIDATION_LIMITS",
+      store: testStore("request-validation-limits"),
+      auth: { passkeys: false },
+      routes: defineRoutes({
+        "/api/items": {
+          auth: "public",
+          sameOrigin: "never",
+          POST: async (req) => jsonResponse({
+            item: await parseJson(req, itemSchema, { maxBytes: 100, requireContentType: true }),
+          }),
+        },
+      }),
+    });
+
+    const valid = await app.handleRequest(new Request("http://localhost/api/items", {
+      method: "POST",
+      headers: { "content-type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ title: "First item" }),
+    }));
+    expect(valid?.status).toBe(200);
+
+    const invalidContentType = await app.handleRequest(new Request("http://localhost/api/items", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ title: "First item" }),
+    }));
+    expect(invalidContentType?.status).toBe(400);
+    expect(await responseJson<{ error: string }>(invalidContentType)).toMatchObject({
+      error: "invalid_request_content_type",
+    });
+
+    const declaredOversized = await app.handleRequest(new Request("http://localhost/api/items", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": "101",
+      },
+      body: JSON.stringify({ title: "First item" }),
+    }));
+    expect(declaredOversized?.status).toBe(413);
+    expect(await responseJson<{ error: string }>(declaredOversized)).toMatchObject({
+      error: "request_body_too_large",
+    });
+
+    const streamedOversized = await app.handleRequest(new Request("http://localhost/api/items", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"title":"'));
+          controller.enqueue(new TextEncoder().encode("x".repeat(100)));
+          controller.close();
+        },
+      }),
+    }));
+    expect(streamedOversized?.status).toBe(413);
+    expect(await responseJson<{ error: string }>(streamedOversized)).toMatchObject({
+      error: "request_body_too_large",
+    });
+  });
+
+  test("rejects malformed content length as a structured client error", async () => {
+    const itemSchema = z.object({ title: z.string().min(1) });
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_REQUEST_VALIDATION_LENGTH",
+      store: testStore("request-validation-length"),
+      auth: { passkeys: false },
+      routes: defineRoutes({
+        "/api/items": {
+          auth: "public",
+          sameOrigin: "never",
+          POST: async (req) => jsonResponse({
+            item: await parseJson(req, itemSchema, { maxBytes: 100 }),
+          }),
+        },
+      }),
+    });
+
+    const response = await app.handleRequest(new Request("http://localhost/api/items", {
+      method: "POST",
+      headers: { "content-length": "not-a-number" },
+      body: JSON.stringify({ title: "First item" }),
+    }));
+    expect(response?.status).toBe(400);
+    expect(await responseJson<{ error: string }>(response)).toMatchObject({
+      error: "invalid_request_content_length",
+    });
+  });
+
   test("validates framework preference fields at runtime", async () => {
     const envKey = "TEST_REQUEST_VALIDATION_PREFERENCE_DISABLE_PASSKEY";
     const previous = process.env[envKey];

@@ -3,6 +3,7 @@ import tailwindPlugin from "bun-plugin-tailwind";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
 import { findPackageRoot, resolveReactDomClient } from "../package-resolution";
+import { compileWebAppPublicAsset, type WebAppPublicAssetOptions } from "../server/public-assets";
 
 export const BUN_COMPILE_TARGETS = [
   "bun-linux-x64",
@@ -27,12 +28,18 @@ export interface BuildWebAppBinaryOptions {
   define?: Record<string, string>;
   web?: {
     entry?: string;
+    publicAssets?: WebAppPublicAssetOptions[];
     build?: {
       plugins?: BunPlugin[];
       define?: Record<string, string>;
       disableDefaultPlugins?: boolean;
     };
   };
+}
+
+interface CompiledPublicAsset {
+  path: string;
+  body: string;
 }
 
 function formatTargetValue(value: unknown): string {
@@ -125,6 +132,17 @@ configureWebAppRenderer(createRoot);
       }
       throw new Error("Browser build failed");
     }
+    const publicAssets: CompiledPublicAsset[] = [];
+    for (const publicAsset of options.web?.publicAssets ?? []) {
+      const body = await compileWebAppPublicAsset({
+        ...publicAsset,
+        define: { ...options.define, ...publicAsset.define },
+      });
+      publicAssets.push({
+        path: publicAsset.path,
+        body: Buffer.from(body).toString("base64"),
+      });
+    }
     const assets = browserBuild.outputs
       .filter((output) => extname(output.path).toLowerCase() !== ".map")
       .map((output) => {
@@ -142,6 +160,7 @@ configureWebAppRenderer(createRoot);
       });
     const compiledAssetsModule = resolve(cacheDir, "compiled-webapp-assets.ts");
     writeFileSync(compiledAssetsModule, `globalThis[Symbol.for("webapp.compiledClient")] = ${JSON.stringify({ packageRoot, assets })};
+globalThis[Symbol.for("webapp.compiledPublicAssets")] = ${JSON.stringify({ assets: publicAssets })};
 `);
     const compiledEntrypoint = resolve(cacheDir, "entrypoint.ts");
     writeFileSync(compiledEntrypoint, `import "./compiled-webapp-assets";

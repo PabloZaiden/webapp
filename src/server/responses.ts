@@ -38,6 +38,36 @@ export class InvalidJsonError extends Error {
   }
 }
 
+export class InvalidRequestContentTypeError extends Error {
+  readonly code = "invalid_request_content_type";
+  readonly status = 400;
+
+  constructor() {
+    super("Request content type must be application/json");
+    this.name = "InvalidRequestContentTypeError";
+  }
+}
+
+export class InvalidRequestContentLengthError extends Error {
+  readonly code = "invalid_request_content_length";
+  readonly status = 400;
+
+  constructor() {
+    super("Request content length must be a non-negative integer");
+    this.name = "InvalidRequestContentLengthError";
+  }
+}
+
+export class RequestBodyTooLargeError extends Error {
+  readonly code = "request_body_too_large";
+  readonly status = 413;
+
+  constructor() {
+    super("Request body is too large");
+    this.name = "RequestBodyTooLargeError";
+  }
+}
+
 export interface RequestBodyValidationIssue {
   path: Array<string | number>;
   code: string;
@@ -61,7 +91,13 @@ export class InvalidRequestBodyError extends Error {
 }
 
 export function requestBodyErrorResponse(error: unknown): Response | undefined {
-  if (error instanceof InvalidJsonError || error instanceof InvalidRequestBodyError) {
+  if (
+    error instanceof InvalidJsonError
+    || error instanceof InvalidRequestContentTypeError
+    || error instanceof InvalidRequestContentLengthError
+    || error instanceof InvalidRequestBodyError
+    || error instanceof RequestBodyTooLargeError
+  ) {
     return errorResponse(error.status, error.code, error.message, "details" in error ? error.details : undefined);
   }
   return undefined;
@@ -75,16 +111,114 @@ function validateJson<TSchema extends z.ZodTypeAny>(value: unknown, schema: TSch
   return result.data;
 }
 
-export async function parseUnknownJson(req: Request): Promise<unknown> {
+export interface ParseJsonOptions {
+  maxBytes?: number;
+  requireContentType?: boolean;
+}
+
+function validateParseJsonOptions(options: ParseJsonOptions): void {
+  if (options.maxBytes !== undefined && (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 0)) {
+    throw new RangeError("parseJson maxBytes must be a non-negative safe integer");
+  }
+}
+
+function hasJsonContentType(req: Request): boolean {
+  const contentType = req.headers.get("content-type");
+  if (!contentType) {
+    return false;
+  }
+  const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
+  return mediaType === "application/json" || mediaType?.endsWith("+json") === true;
+}
+
+function declaredContentLength(req: Request, maxBytes: number | undefined): void {
+  const value = req.headers.get("content-length");
+  if (value === null) {
+    return;
+  }
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) {
+    throw new InvalidRequestContentLengthError();
+  }
+  const length = BigInt(normalized);
+  if (maxBytes !== undefined && length > BigInt(maxBytes)) {
+    throw new RequestBodyTooLargeError();
+  }
+}
+
+async function cancelOversizedBody(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  await reader.cancel("Request body is too large");
+}
+
+async function readLimitedRequestBody(req: Request, maxBytes: number): Promise<string> {
+  declaredContentLength(req, maxBytes);
+  if (!req.body) {
+    return "";
+  }
+
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    if (!value) {
+      continue;
+    }
+    byteLength += value.byteLength;
+    if (byteLength > maxBytes) {
+      await cancelOversizedBody(reader);
+      throw new RequestBodyTooLargeError();
+    }
+    chunks.push(value);
+  }
+
+  const body = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   try {
-    return await req.json();
+    return new TextDecoder("utf-8", { fatal: true }).decode(body);
   } catch {
     throw new InvalidJsonError();
   }
 }
 
-export async function parseJson<TSchema extends z.ZodTypeAny>(req: Request, schema: TSchema): Promise<z.infer<TSchema>> {
-  return validateJson(await parseUnknownJson(req), schema);
+async function readRequestBody(req: Request, maxBytes: number | undefined): Promise<string> {
+  if (maxBytes === undefined) {
+    declaredContentLength(req, undefined);
+    return await req.text();
+  }
+  return await readLimitedRequestBody(req, maxBytes);
+}
+
+function parseJsonText(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new InvalidJsonError();
+  }
+}
+
+export async function parseUnknownJson(req: Request, options: ParseJsonOptions = {}): Promise<unknown> {
+  validateParseJsonOptions(options);
+  if (options.requireContentType && !hasJsonContentType(req)) {
+    throw new InvalidRequestContentTypeError();
+  }
+  return parseJsonText(await readRequestBody(req, options.maxBytes));
+}
+
+export async function parseJson<TSchema extends z.ZodTypeAny>(
+  req: Request,
+  schema: TSchema,
+  options: ParseJsonOptions = {},
+): Promise<z.infer<TSchema>> {
+  return validateJson(await parseUnknownJson(req, options), schema);
 }
 
 export async function parseOptionalJson<TSchema extends z.ZodTypeAny>(req: Request, schema: TSchema): Promise<z.infer<TSchema> | undefined> {
