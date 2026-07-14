@@ -71,7 +71,7 @@ function NewProjectView({ refresh }: { refresh: () => Promise<void> }) {
 }
 
 function ProjectView({ route, projects }: { route: WebAppRoute; projects: Project[] }) {
-  const project = projects.find((item) => item.id === route.projectId);
+  const project = projects.find((item) => item.id === route["projectId"]);
   if (!project) return <Page><EmptyState title="Project not found" /></Page>;
   return (
     <Page>
@@ -193,7 +193,7 @@ function KitchenSinkApp() {
       header={{
         getActions: ({ route }) => {
           if (route.view !== "project") return [{ id: "new-project", label: "New project", onAction: () => { replaceHashRoute("#/new-project"); } }];
-          const project = projects.find((item) => item.id === route.projectId);
+          const project = projects.find((item) => item.id === route["projectId"]);
           return [
             { id: "new-project", label: "New project", onAction: () => { replaceHashRoute("#/new-project"); } },
             ...(project ? getProjectActions(project) : []),

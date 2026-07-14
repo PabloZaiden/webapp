@@ -408,7 +408,7 @@ test("sidebar navigation replaces hash history entries", async () => {
         home: createElement("p", null, "Home view"),
         target: createElement("p", null, "Target screen"),
       },
-      onRouteChange: (route) => routeChanges.push(`${route.view}:${route.projectId ?? ""}`),
+      onRouteChange: (route) => routeChanges.push(`${route.view}:${route["projectId"] ?? ""}`),
     }));
 
     await waitFor(() => expect(getByText("Home view")).toBeTruthy());
@@ -558,7 +558,7 @@ test("sidebar toggle control changes the accessible action", async () => {
     await waitFor(() => expect(view.queryByRole("button", { name: "Collapse sidebar" })).toBeNull());
     expect(view.getAllByRole("button", { name: "Show sidebar" }).length).toBeGreaterThan(0);
 
-    fireEvent.click(view.getAllByRole("button", { name: "Show sidebar" })[0]);
+    fireEvent.click(view.getAllByRole("button", { name: "Show sidebar" })[0]!);
     await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
   } finally {
     restoreFetch();

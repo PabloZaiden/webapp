@@ -51,6 +51,7 @@
 - Keep modules focused. Split files that combine unrelated concerns such as document generation, authentication, route dispatch, WebSockets, process lifecycle, navigation, gestures, and administration.
 - Centralize values shared by CSS and TypeScript.
 - Name and document browser workarounds and timing heuristics.
+- Keep the repository typecheck at least as strict as source-consuming applications: preserve `strict`, `noFallthroughCasesInSwitch`, `noUncheckedIndexedAccess`, `noImplicitOverride`, `noUnusedLocals`, `noUnusedParameters`, and `noPropertyAccessFromIndexSignature`. Package scripts and every CI/release workflow must invoke the canonical `bun run typecheck` command; do not weaken compiler options or bypass framework source errors in consumers.
 
 ## Test philosophy: behavior over implementation
 

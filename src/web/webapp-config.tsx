@@ -21,11 +21,11 @@ function isLogLevelName(value: unknown): boolean {
 
 function isCurrentUser(value: unknown): boolean {
   return isRecord(value)
-    && typeof value.id === "string"
-    && typeof value.username === "string"
-    && (value.role === "owner" || value.role === "admin" || value.role === "user")
-    && typeof value.isOwner === "boolean"
-    && typeof value.isAdmin === "boolean";
+    && typeof value["id"] === "string"
+    && typeof value["username"] === "string"
+    && (value["role"] === "owner" || value["role"] === "admin" || value["role"] === "user")
+    && typeof value["isOwner"] === "boolean"
+    && typeof value["isAdmin"] === "boolean";
 }
 
 function hasBooleanFields(value: unknown, fields: readonly string[]): boolean {
@@ -34,10 +34,10 @@ function hasBooleanFields(value: unknown, fields: readonly string[]): boolean {
 
 function isWebAppConfigResponse(value: unknown): value is WebAppConfigResponse {
   return isRecord(value)
-    && typeof value.appName === "string"
-    && typeof value.version === "string"
-    && (value.currentUser === undefined || isCurrentUser(value.currentUser))
-    && hasBooleanFields(value.passkeyAuth, [
+    && typeof value["appName"] === "string"
+    && typeof value["version"] === "string"
+    && (value["currentUser"] === undefined || isCurrentUser(value["currentUser"]))
+    && hasBooleanFields(value["passkeyAuth"], [
       "enabled",
       "passkeyConfigured",
       "passkeyDisabled",
@@ -46,12 +46,12 @@ function isWebAppConfigResponse(value: unknown): value is WebAppConfigResponse {
       "bootstrapRequired",
       "ownerPasskeySetupRequired",
     ])
-    && hasBooleanFields(value.userManagement, ["enabled", "canManageUsers"])
-    && isRecord(value.logLevel)
-    && isLogLevelName(value.logLevel.level)
-    && typeof value.logLevel.fromEnv === "boolean"
-    && hasBooleanFields(value.deviceAuth, ["enabled"])
-    && hasBooleanFields(value.apiKeys, ["enabled"]);
+    && hasBooleanFields(value["userManagement"], ["enabled", "canManageUsers"])
+    && isRecord(value["logLevel"])
+    && isLogLevelName(value["logLevel"]["level"])
+    && typeof value["logLevel"]["fromEnv"] === "boolean"
+    && hasBooleanFields(value["deviceAuth"], ["enabled"])
+    && hasBooleanFields(value["apiKeys"], ["enabled"]);
 }
 
 export function parseWebAppConfigResponse(value: unknown): WebAppConfigResponse {
