@@ -26,7 +26,22 @@ export interface RuntimeConfig {
   development: false | { hmr: true; console: true };
 }
 
-const LOG_LEVELS = new Set(["trace", "debug", "info", "warn", "error"]);
+const LOG_LEVELS = new Set<LogLevelName>(["trace", "debug", "info", "warn", "error"]);
+
+function isSupportedLogLevel(value: unknown): value is LogLevelName {
+  return typeof value === "string" && LOG_LEVELS.has(value as LogLevelName);
+}
+
+export function resolveEffectiveLogLevel(
+  config: Pick<RuntimeConfig, "logLevel" | "logLevelFromEnv">,
+  savedLogLevel?: unknown,
+): LogLevelName {
+  return config.logLevelFromEnv
+    ? config.logLevel
+    : isSupportedLogLevel(savedLogLevel)
+      ? savedLogLevel
+      : config.logLevel;
+}
 
 export function isTruthyEnv(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase();
@@ -64,10 +79,10 @@ function parseLogLevel(raw: string | undefined, fallback: LogLevelName, name: st
   if (!raw) {
     return fallback;
   }
-  if (!LOG_LEVELS.has(raw)) {
+  if (!isSupportedLogLevel(raw)) {
     throw new Error(`${name} must be one of trace, debug, info, warn, error; received "${raw}"`);
   }
-  return raw as LogLevelName;
+  return raw;
 }
 
 function parseBoolean(raw: string | undefined, fallback: boolean, name: string): boolean {

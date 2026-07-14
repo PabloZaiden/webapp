@@ -154,6 +154,22 @@ describe("request body validation", () => {
       }));
       expect(invalid?.status).toBe(400);
       expect(await responseJson<{ error: string }>(invalid)).toMatchObject({ error: "invalid_request_body" });
+
+      const validLogLevel = await app.handleRequest(new Request("http://localhost/api/preferences/log-level", {
+        method: "PUT",
+        headers: { origin: "http://localhost" },
+        body: JSON.stringify({ level: "debug" }),
+      }));
+      expect(validLogLevel?.status).toBe(200);
+      expect(await responseJson<{ level: string }>(validLogLevel)).toEqual({ level: "debug" });
+
+      const invalidLogLevel = await app.handleRequest(new Request("http://localhost/api/preferences/log-level", {
+        method: "PUT",
+        headers: { origin: "http://localhost" },
+        body: JSON.stringify({ level: "verbose" }),
+      }));
+      expect(invalidLogLevel?.status).toBe(400);
+      expect(await responseJson<{ error: string }>(invalidLogLevel)).toMatchObject({ error: "invalid_request_body" });
     } finally {
       if (previous === undefined) {
         delete process.env[envKey];

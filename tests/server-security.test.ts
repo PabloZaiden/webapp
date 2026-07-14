@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { RealtimeBus, createWebAppServer, defineRoutes, getRequestBaseUrl, getRequestOriginInfo, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
 import { createApiKey } from "../src/server/auth/api-keys";
 import { sha256 } from "../src/server/auth/crypto";
-import { readRuntimeConfig, safeRuntimeConfig } from "../src/server/runtime-config";
+import { readRuntimeConfig, resolveEffectiveLogLevel, safeRuntimeConfig } from "../src/server/runtime-config";
 import type { UserRecord, WebAppStore } from "../src/server/auth/store";
 
 const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
@@ -130,6 +130,127 @@ describe("server security defaults", () => {
     });
     const disabledConfig = await responseJson<{ passkeyAuth: { enabled: boolean; authenticated: boolean } }>(await disabledApp.handleRequest(new Request("http://localhost/api/config")));
     expect(disabledConfig.passkeyAuth).toMatchObject({ enabled: false, authenticated: true });
+  });
+
+  test("log-level endpoints share effective state and preserve environment locking", async () => {
+    const envPrefix = "TEST_LOG_LEVEL_ENDPOINT";
+    const disablePasskeyKey = `${envPrefix}_DISABLE_PASSKEY`;
+    const logLevelKey = `${envPrefix}_LOG_LEVEL`;
+    const changes: string[] = [];
+
+    await withEnv({ [disablePasskeyKey]: "true" }, async () => {
+      const store = testStore("log-level-endpoint");
+      const app = createWebAppServer({
+        appName: "Test",
+        envPrefix,
+        store,
+        auth: { passkeys: true },
+        logLevel: { onChange: (level) => changes.push(level) },
+        routes: defineRoutes({}),
+      });
+
+      const configBefore = await responseJson<{ logLevel: { level: string; fromEnv: boolean } }>(
+        await app.handleRequest(new Request("http://localhost/api/config")),
+      );
+      const preferenceBefore = await responseJson<{ level: string; fromEnv: boolean }>(
+        await app.handleRequest(new Request("http://localhost/api/preferences/log-level")),
+      );
+      expect(configBefore.logLevel).toEqual({ level: "info", fromEnv: false });
+      expect(preferenceBefore).toEqual(configBefore.logLevel);
+
+      const missingOrigin = await app.handleRequest(new Request("http://localhost/api/preferences/log-level", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ level: "warn" }),
+      }));
+      expect(missingOrigin?.status).toBe(403);
+      expect(store.getLogLevelPreference()).toBeUndefined();
+
+      const update = await app.handleRequest(new Request("http://localhost/api/preferences/log-level", {
+        method: "PUT",
+        headers: { origin: "http://localhost", "content-type": "application/json" },
+        body: JSON.stringify({ level: "debug" }),
+      }));
+      expect(update?.status).toBe(200);
+      expect(store.getLogLevelPreference()).toBe("debug");
+      expect(changes).toEqual(["info", "debug"]);
+
+      const configAfter = await responseJson<{ logLevel: { level: string; fromEnv: boolean } }>(
+        await app.handleRequest(new Request("http://localhost/api/config")),
+      );
+      const preferenceAfter = await responseJson<{ level: string; fromEnv: boolean }>(
+        await app.handleRequest(new Request("http://localhost/api/preferences/log-level")),
+      );
+      expect(configAfter.logLevel).toEqual({ level: "debug", fromEnv: false });
+      expect(preferenceAfter).toEqual(configAfter.logLevel);
+    });
+
+    await withEnv({ [disablePasskeyKey]: "true", [logLevelKey]: "error" }, async () => {
+      const store = testStore("log-level-endpoint-env");
+      store.initialize();
+      store.setLogLevelPreference("debug");
+      const app = createWebAppServer({
+        appName: "Test",
+        envPrefix,
+        store,
+        auth: { passkeys: true },
+        logLevel: { onChange: (level) => changes.push(level) },
+        routes: defineRoutes({}),
+      });
+
+      const config = await responseJson<{ logLevel: { level: string; fromEnv: boolean } }>(
+        await app.handleRequest(new Request("http://localhost/api/config")),
+      );
+      const preference = await responseJson<{ level: string; fromEnv: boolean }>(
+        await app.handleRequest(new Request("http://localhost/api/preferences/log-level")),
+      );
+      expect(config.logLevel).toEqual({ level: "error", fromEnv: true });
+      expect(preference).toEqual(config.logLevel);
+      expect(changes.at(-1)).toBe("error");
+
+      const lockedUpdate = await app.handleRequest(new Request("http://localhost/api/preferences/log-level", {
+        method: "PUT",
+        headers: { origin: "http://localhost", "content-type": "application/json" },
+        body: JSON.stringify({ level: "trace" }),
+      }));
+      expect(lockedUpdate?.status).toBe(409);
+      expect(store.getLogLevelPreference()).toBe("debug");
+    });
+
+    const unauthorizedApp = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_LOG_LEVEL_AUTH",
+      store: testStore("log-level-auth"),
+      auth: { passkeys: true },
+      routes: defineRoutes({}),
+    });
+    const unauthorized = await unauthorizedApp.handleRequest(new Request("http://localhost/api/preferences/log-level"));
+    expect(unauthorized?.status).toBe(401);
+  });
+
+  test("falls back to runtime log level when the persisted value is invalid", async () => {
+    const envPrefix = "TEST_LOG_LEVEL_INVALID_PERSISTED";
+    const disablePasskeyKey = `${envPrefix}_DISABLE_PASSKEY`;
+
+    await withEnv({ [disablePasskeyKey]: "true" }, async () => {
+      const store = testStore("log-level-invalid-persisted");
+      store.initialize();
+      store.setPreference("logLevel", "verbose");
+
+      const app = createWebAppServer({
+        appName: "Test",
+        envPrefix,
+        store,
+        auth: { passkeys: true },
+        routes: defineRoutes({}),
+      });
+
+      const config = await responseJson<{ logLevel: { level: string; fromEnv: boolean } }>(
+        await app.handleRequest(new Request("http://localhost/api/config")),
+      );
+      expect(config.logLevel).toEqual({ level: "info", fromEnv: false });
+      expect(resolveEffectiveLogLevel({ logLevel: "warn", logLevelFromEnv: false }, "verbose")).toBe("warn");
+    });
   });
 
   test("config extensions cannot override framework-owned fields", async () => {

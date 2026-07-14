@@ -59,7 +59,7 @@ import {
   tokenRequestSchema,
   userRoleRequestSchema,
 } from "./request-schemas";
-import type { RuntimeConfig } from "./runtime-config";
+import { resolveEffectiveLogLevel, type RuntimeConfig } from "./runtime-config";
 import { setLogLevel } from "./logger";
 import { errorResponse, jsonResponse, notFound, parseJson, successResponse } from "./responses";
 import type { WebSocketData } from "./realtime/bus";
@@ -112,7 +112,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         canManageUsers: Boolean(user?.isAdmin),
       },
       logLevel: {
-        level: (config.logLevelFromEnv ? config.logLevel : store.getLogLevelPreference() ?? config.logLevel) as LogLevelName,
+        level: resolveEffectiveLogLevel(config, store.getLogLevelPreference()),
         fromEnv: config.logLevelFromEnv,
       },
       apiKeys: { enabled: Boolean(apiKeysEnabled) },
@@ -416,7 +416,10 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         if (auth instanceof Response) return auth;
         ensureAdmin(auth);
         if (req.method === "GET") {
-          return jsonResponse({ level: store.getLogLevelPreference() ?? config.logLevel, fromEnv: config.logLevelFromEnv });
+          return jsonResponse({
+            level: resolveEffectiveLogLevel(config, store.getLogLevelPreference()),
+            fromEnv: config.logLevelFromEnv,
+          });
         }
         if (req.method === "PUT") {
           const originFailure = checkSameOrigin(req, config, auth, "mutations");
