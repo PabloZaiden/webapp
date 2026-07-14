@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { RealtimeBus, createWebAppServer, defineRoutes, getRequestBaseUrl, getRequestOriginInfo, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
 import { createApiKey } from "../src/server/auth/api-keys";
 import { sha256 } from "../src/server/auth/crypto";
-import { readRuntimeConfig, safeRuntimeConfig } from "../src/server/runtime-config";
+import { readRuntimeConfig, resolveEffectiveLogLevel, safeRuntimeConfig } from "../src/server/runtime-config";
 import type { UserRecord, WebAppStore } from "../src/server/auth/store";
 
 const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
@@ -226,6 +226,31 @@ describe("server security defaults", () => {
     });
     const unauthorized = await unauthorizedApp.handleRequest(new Request("http://localhost/api/preferences/log-level"));
     expect(unauthorized?.status).toBe(401);
+  });
+
+  test("falls back to runtime log level when the persisted value is invalid", async () => {
+    const envPrefix = "TEST_LOG_LEVEL_INVALID_PERSISTED";
+    const disablePasskeyKey = `${envPrefix}_DISABLE_PASSKEY`;
+
+    await withEnv({ [disablePasskeyKey]: "true" }, async () => {
+      const store = testStore("log-level-invalid-persisted");
+      store.initialize();
+      store.setPreference("logLevel", "verbose");
+
+      const app = createWebAppServer({
+        appName: "Test",
+        envPrefix,
+        store,
+        auth: { passkeys: true },
+        routes: defineRoutes({}),
+      });
+
+      const config = await responseJson<{ logLevel: { level: string; fromEnv: boolean } }>(
+        await app.handleRequest(new Request("http://localhost/api/config")),
+      );
+      expect(config.logLevel).toEqual({ level: "info", fromEnv: false });
+      expect(resolveEffectiveLogLevel({ logLevel: "warn", logLevelFromEnv: false }, "verbose")).toBe("warn");
+    });
   });
 
   test("config extensions cannot override framework-owned fields", async () => {
