@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ThemePreference, WebAppConfigResponse } from "../contracts";
+import type { WebAppConfigResponse } from "../contracts";
 import { appJson } from "./api-client";
 import { AppShell } from "./app-shell";
 import { DeviceVerificationScreen, PasskeyAuthScreen, UserSetupScreen } from "./auth-screens";
@@ -10,6 +10,7 @@ import { flattenSidebarItems, toStoredPin, useSidebarCollapsedState, useSidebarP
 import { SettingsView } from "./settings/settings-view";
 import type { HeaderContext, WebAppRootProps } from "./root-types";
 import type { ActionMenuItem, SidebarNode, WebAppRoute } from "./sidebar/types";
+import { ThemeProvider } from "./theme";
 
 export { replaceHashRoute, replaceWebAppRoute, routeToHash } from "./routing";
 export type { HeaderContext, SettingsAction, SettingsRow, SettingsSection, WebAppRootProps } from "./root-types";
@@ -29,16 +30,6 @@ function useConfig() {
   return { config, error, refresh };
 }
 
-function useTheme() {
-  const [theme, setTheme] = useState<ThemePreference>(() => (localStorage.getItem("webapp.theme") as ThemePreference | null) ?? "system");
-  useEffect(() => {
-    const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-    document.documentElement.classList.toggle("dark", dark);
-    localStorage.setItem("webapp.theme", theme);
-  }, [theme]);
-  return { theme, setTheme };
-}
-
 function routeMatches(left: WebAppRoute | undefined, right: WebAppRoute): boolean {
   if (!left) {
     return false;
@@ -46,14 +37,26 @@ function routeMatches(left: WebAppRoute | undefined, right: WebAppRoute): boolea
   return left.view === right.view && Object.entries(left).every(([key, value]) => key === "view" || right[key] === value);
 }
 
-export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRouteChange, settings, version }: WebAppRootProps) {
+function WebAppRootContent({
+  appName,
+  homeRoute,
+  sidebar,
+  routes,
+  header,
+  onRouteChange,
+  settings,
+  version,
+  config,
+  error,
+  refresh,
+}: WebAppRootProps & {
+  config?: WebAppConfigResponse;
+  error?: string;
+  refresh: () => Promise<void>;
+}) {
   const isMobile = useMobileBreakpoint();
   useMobileViewportHeight(isMobile);
-  const { config, error, refresh } = useConfig();
   const { route, navigate } = useRoute(homeRoute);
-  const { theme, setTheme } = useTheme();
-  const [themeLoading, setThemeLoading] = useState(false);
-  const [themeLoadError, setThemeLoadError] = useState<Error>();
   const [search, setSearch] = useState("");
   const sidebarSearchId = useId();
   const sidebarSearchInputRef = useRef<HTMLInputElement>(null);
@@ -125,29 +128,6 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   }, [augmentPinningActions, baseNodes, currentPins, filteredNodes, pinningEnabled, sidebar.pinning, sidebarSearchActive]);
   const activeActionNodes = useMemo(() => augmentPinningActions(baseNodes), [augmentPinningActions, baseNodes]);
 
-  const retryThemeLoad = useCallback(async () => {
-    if (!config?.currentUser) {
-      setThemeLoading(false);
-      setThemeLoadError(undefined);
-      return;
-    }
-
-    setThemeLoading(true);
-    setThemeLoadError(undefined);
-    try {
-      const result = await appJson<{ theme: ThemePreference }>("/api/preferences/theme");
-      setTheme(result.theme);
-    } catch (err) {
-      setThemeLoadError(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      setThemeLoading(false);
-    }
-  }, [config?.currentUser?.id, setTheme]);
-
-  useEffect(() => {
-    void retryThemeLoad();
-  }, [retryThemeLoad]);
-
   useEffect(() => {
     onRouteChange?.(route);
   }, [onRouteChange, route]);
@@ -171,7 +151,7 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
   const effectiveVersion = version ?? config.version;
   let view: ReactNode;
   if (route.view === "settings") {
-    view = <SettingsView config={config} refresh={refresh} customSections={settings?.sections ?? []} theme={theme} setTheme={setTheme} themeLoading={themeLoading} themeLoadError={themeLoadError} retryThemeLoad={retryThemeLoad} />;
+    view = <SettingsView config={config} refresh={refresh} customSections={settings?.sections ?? []} />;
   } else {
     const registeredView = routes[route.view];
     view = typeof registeredView === "function"
@@ -218,5 +198,14 @@ export function WebAppRoot({ appName, homeRoute, sidebar, routes, header, onRout
       headerActions={headerActions}
       view={view}
     />
+  );
+}
+
+export function WebAppRoot(props: WebAppRootProps) {
+  const { config, error, refresh } = useConfig();
+  return (
+    <ThemeProvider userId={config?.currentUser?.id}>
+      <WebAppRootContent {...props} config={config} error={error} refresh={refresh} />
+    </ThemeProvider>
   );
 }

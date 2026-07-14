@@ -1,19 +1,17 @@
-import type { ThemePreference, WebAppConfigResponse } from "../../contracts";
+import type { WebAppConfigResponse } from "../../contracts";
 import { appJson } from "../api-client";
 import { Badge, Button, ErrorState, FormSection, LoadingState, SelectField } from "../components";
+import { isThemePreference, useTheme } from "../theme";
 
 export interface AccountSectionProps {
   config: WebAppConfigResponse;
-  theme: ThemePreference;
-  setTheme: (theme: ThemePreference) => void;
-  themeLoading: boolean;
-  themeLoadError?: Error;
-  retryThemeLoad: () => Promise<void>;
   refresh: () => Promise<void>;
   setError: (error: string | undefined) => void;
 }
 
-export function AccountSection({ config, theme, setTheme, themeLoading, themeLoadError, retryThemeLoad, refresh, setError }: AccountSectionProps) {
+export function AccountSection({ config, refresh, setError }: AccountSectionProps) {
+  const { preference, setPreference, loading, error, retry } = useTheme();
+
   return (
     <>
       {config.currentUser ? (
@@ -22,20 +20,24 @@ export function AccountSection({ config, theme, setTheme, themeLoading, themeLoa
         </FormSection>
       ) : null}
       <FormSection title="Display Settings">
-        <SelectField label="Theme" value={theme} onChange={(event) => {
-          const next = event.currentTarget.value as ThemePreference;
-          setTheme(next);
+        <SelectField label="Theme" value={preference} onChange={(event) => {
+          const next = event.currentTarget.value;
+          if (!isThemePreference(next)) {
+            setError(`Unknown theme preference: ${next}`);
+            return;
+          }
+          setPreference(next);
           void appJson("/api/preferences/theme", { method: "PUT", body: JSON.stringify({ theme: next }) }).catch((err) => setError(String(err)));
         }}>
           <option value="system">System</option>
           <option value="light">Light</option>
           <option value="dark">Dark</option>
         </SelectField>
-        {themeLoading ? <LoadingState title="Loading saved theme" /> : null}
-        {themeLoadError ? (
+        {loading ? <LoadingState title="Loading saved theme" /> : null}
+        {error ? (
           <ErrorState
-            description={themeLoadError.message}
-            action={<Button type="button" loading={themeLoading} onClick={() => void retryThemeLoad()}>Retry</Button>}
+            description={error.message}
+            action={<Button type="button" loading={loading} onClick={() => void retry()}>Retry</Button>}
           />
         ) : null}
       </FormSection>

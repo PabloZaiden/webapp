@@ -7,5 +7,7 @@ export * from "./realtime/useRealtime";
 export { useToast } from "./toast";
 export type { Toast, ToastId, ToastOptions, ToastService, ToastShowOptions, ToastVariant } from "./toast";
 export { MOBILE_BREAKPOINT_PX, MOBILE_MEDIA_QUERY, MOBILE_STATE_ATTRIBUTE } from "./mobile";
+export { useTheme } from "./theme";
+export type { ResolvedTheme, WebAppThemeState } from "./theme";
 export { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 export type { ThemePreference } from "../contracts";

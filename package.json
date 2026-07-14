@@ -36,7 +36,9 @@
     "build": "bun run tsc && bun run --cwd examples/kitchen-sink build && bun run --cwd examples/notes-todo build",
     "build:kitchen-sink": "bun run --cwd examples/kitchen-sink build",
     "build:notes-todo": "bun run --cwd examples/notes-todo build",
-    "test": "bun test",
+    "test": "bun run test:build-binary && bun run test:remaining",
+    "test:build-binary": "bun test tests/build-binary.test.ts",
+    "test:remaining": "bun test --path-ignore-patterns=**/build-binary.test.ts",
     "tsc": "mkdir -p .cache/tsc && bunx tsc --noEmit --pretty false --incremental --tsBuildInfoFile .cache/tsc/build.tsbuildinfo"
   },
   "dependencies": {
