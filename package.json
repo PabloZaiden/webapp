@@ -33,13 +33,15 @@
     "dev": "bun run --cwd examples/notes-todo dev",
     "dev:kitchen-sink": "bun run --cwd examples/kitchen-sink dev",
     "dev:notes-todo": "bun run --cwd examples/notes-todo dev",
-    "build": "bun run tsc && bun run --cwd examples/kitchen-sink build && bun run --cwd examples/notes-todo build",
+    "build": "bun run typecheck && bun run build:examples",
+    "build:examples": "bun run --cwd examples/kitchen-sink build && bun run --cwd examples/notes-todo build",
     "build:kitchen-sink": "bun run --cwd examples/kitchen-sink build",
     "build:notes-todo": "bun run --cwd examples/notes-todo build",
     "test": "bun run test:build-binary && bun run test:remaining",
     "test:build-binary": "bun test tests/build-binary.test.ts",
     "test:remaining": "bun test --path-ignore-patterns=**/build-binary.test.ts",
-    "tsc": "mkdir -p .cache/tsc && bunx tsc --noEmit --pretty false --incremental --tsBuildInfoFile .cache/tsc/build.tsbuildinfo"
+    "typecheck": "mkdir -p .cache/tsc && bunx tsc --noEmit --pretty false --incremental --tsBuildInfoFile .cache/tsc/build.tsbuildinfo",
+    "tsc": "bun run typecheck"
   },
   "dependencies": {
     "@simplewebauthn/browser": "13.3.0",

@@ -93,7 +93,7 @@ function createNotesTodoRoutes(store: WebAppStore, appStore: NotesTodoStore) {
       requestSchema: updateNoteSchema,
       async PATCH(req, ctx) {
         const user = ctx.requireUser();
-        const note = ctx.requireOwned(appStore.getNote(ctx.params.id, user.id));
+        const note = ctx.requireOwned(appStore.getNote(ctx.params["id"]!, user.id));
         const body = await parseJson(req, updateNoteSchema);
         if (body.sectionId !== undefined && !sectionBelongsToUser(appStore, body.sectionId, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
         const updated = appStore.updateNote(note.id, user.id, { ...body, updatedAt: nowIso() });
@@ -103,7 +103,7 @@ function createNotesTodoRoutes(store: WebAppStore, appStore: NotesTodoStore) {
       },
       DELETE(_req, ctx) {
         const user = ctx.requireUser();
-        const note = ctx.requireOwned(appStore.getNote(ctx.params.id, user.id));
+        const note = ctx.requireOwned(appStore.getNote(ctx.params["id"]!, user.id));
         if (!appStore.deleteNote(note.id, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
         ctx.userRealtime.publishDeleted("notes", note.id);
         return jsonResponse({ success: true });
@@ -131,7 +131,7 @@ function createNotesTodoRoutes(store: WebAppStore, appStore: NotesTodoStore) {
       requestSchema: updateTodoSchema,
       async PATCH(req, ctx) {
         const user = ctx.requireUser();
-        const todo = ctx.requireOwned(appStore.getTodo(ctx.params.id, user.id));
+        const todo = ctx.requireOwned(appStore.getTodo(ctx.params["id"]!, user.id));
         const body = await parseJson(req, updateTodoSchema);
         if (body.sectionId !== undefined && !sectionBelongsToUser(appStore, body.sectionId, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
         const updated = appStore.updateTodo(todo.id, user.id, { ...body, updatedAt: nowIso() });
@@ -141,7 +141,7 @@ function createNotesTodoRoutes(store: WebAppStore, appStore: NotesTodoStore) {
       },
       DELETE(_req, ctx) {
         const user = ctx.requireUser();
-        const todo = ctx.requireOwned(appStore.getTodo(ctx.params.id, user.id));
+        const todo = ctx.requireOwned(appStore.getTodo(ctx.params["id"]!, user.id));
         if (!appStore.deleteTodo(todo.id, user.id)) return jsonResponse({ error: "not_found" }, { status: 404 });
         ctx.userRealtime.publishDeleted("todos", todo.id);
         return jsonResponse({ success: true });
@@ -162,7 +162,7 @@ function createNotesTodoRoutes(store: WebAppStore, appStore: NotesTodoStore) {
         if (!owner) return jsonResponse({ ok: true, accepted: false }, { status: 202 });
         ensureSeedData(store, appStore, owner.id);
         const inbox = appStore.ensureInbox(owner.id);
-        appStore.createTodo({ id: crypto.randomUUID(), userId: owner.id, sectionId: inbox.id, title: body?.title ?? `Webhook from ${ctx.params.source}`, completed: false, priority: "normal", updatedAt: nowIso() });
+        appStore.createTodo({ id: crypto.randomUUID(), userId: owner.id, sectionId: inbox.id, title: body?.title ?? `Webhook from ${ctx.params["source"]!}`, completed: false, priority: "normal", updatedAt: nowIso() });
         ctx.realtime.publishChanged("todos", { target: { userId: owner.id } });
         return jsonResponse({ ok: true });
       },

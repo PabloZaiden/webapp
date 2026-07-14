@@ -107,7 +107,7 @@ function Dashboard({ sections, notes, todos }: { sections: Section[]; notes: Not
 }
 
 function SectionView({ route, sections, notes, todos }: { route: WebAppRoute; sections: Section[]; notes: Note[]; todos: Todo[] }) {
-  const sectionId = String(route.sectionId ?? sections[0]?.id ?? "");
+  const sectionId = String(route["sectionId"] ?? sections[0]?.id ?? "");
   const section = sections.find((item) => item.id === sectionId);
   if (!section) return <Page><EmptyState title="List not found" /></Page>;
 
@@ -146,7 +146,7 @@ function SectionView({ route, sections, notes, todos }: { route: WebAppRoute; se
 }
 
 function TasksView({ route, sections, todos }: { route: WebAppRoute; sections: Section[]; todos: Todo[] }) {
-  const filter = String(route.filter ?? "open");
+  const filter = String(route["filter"] ?? "open");
   const filtered = todos.filter((todo) => {
     if (filter === "high") return !todo.completed && todo.priority === "high";
     if (filter === "completed") return todo.completed;
@@ -192,7 +192,7 @@ function NotesView({ sections, notes }: { sections: Section[]; notes: Note[] }) 
 }
 
 function NoteEditor({ route, notes, sections, refresh }: { route: WebAppRoute; notes: Note[]; sections: Section[]; refresh: () => Promise<void> }) {
-  const note = notes.find((item) => item.id === route.noteId);
+  const note = notes.find((item) => item.id === route["noteId"]);
   const [title, setTitle] = useState(note?.title ?? "");
   const [body, setBody] = useState(note?.body ?? "");
   const [sectionId, setSectionId] = useState(note?.sectionId ?? sections[0]?.id ?? "");
@@ -221,7 +221,7 @@ function NoteEditor({ route, notes, sections, refresh }: { route: WebAppRoute; n
 }
 
 function TodoEditor({ route, todos, sections, refresh }: { route: WebAppRoute; todos: Todo[]; sections: Section[]; refresh: () => Promise<void> }) {
-  const todo = todos.find((item) => item.id === route.todoId);
+  const todo = todos.find((item) => item.id === route["todoId"]);
   const [title, setTitle] = useState(todo?.title ?? "");
   const [sectionId, setSectionId] = useState(todo?.sectionId ?? sections[0]?.id ?? "");
   const [priority, setPriority] = useState<Todo["priority"]>(todo?.priority ?? "normal");
@@ -255,7 +255,7 @@ function TodoEditor({ route, todos, sections, refresh }: { route: WebAppRoute; t
 
 function NewSectionView({ route, sections, refresh }: { route: WebAppRoute; sections: Section[]; refresh: () => Promise<void> }) {
   const [title, setTitle] = useState("");
-  const parentId = String(route.parentId ?? "");
+  const parentId = String(route["parentId"] ?? "");
   async function submit() {
     if (!title.trim()) return;
     const section = await api<Section>("/api/sections", { method: "POST", body: JSON.stringify({ title, parentId: parentId || undefined }) });
@@ -281,7 +281,7 @@ function NewSectionView({ route, sections, refresh }: { route: WebAppRoute; sect
 function NewNoteView({ route, sections, refresh }: { route: WebAppRoute; sections: Section[]; refresh: () => Promise<void> }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [sectionId, setSectionId] = useState(String(route.sectionId ?? sections[0]?.id ?? ""));
+  const [sectionId, setSectionId] = useState(String(route["sectionId"] ?? sections[0]?.id ?? ""));
   async function submit() {
     if (!title.trim() || !sectionId) return;
     const note = await api<Note>("/api/notes", { method: "POST", body: JSON.stringify({ title, body, sectionId }) });
@@ -306,7 +306,7 @@ function NewNoteView({ route, sections, refresh }: { route: WebAppRoute; section
 
 function NewTodoView({ route, sections, refresh }: { route: WebAppRoute; sections: Section[]; refresh: () => Promise<void> }) {
   const [title, setTitle] = useState("");
-  const [sectionId, setSectionId] = useState(String(route.sectionId ?? sections[0]?.id ?? ""));
+  const [sectionId, setSectionId] = useState(String(route["sectionId"] ?? sections[0]?.id ?? ""));
   const [priority, setPriority] = useState<Todo["priority"]>("normal");
   async function submit() {
     if (!title.trim() || !sectionId) return;
@@ -499,28 +499,28 @@ function NotesTodoApp() {
       return [{ id: "new-note", label: "New note", onAction: () => navigateTo({ view: "new-note", sectionId: sections[0]?.id }) }];
     }
     if (route.view === "section") {
-      const section = sections.find((item) => item.id === route.sectionId);
+      const section = sections.find((item) => item.id === route["sectionId"]);
       return section ? sectionActions(section) : [];
     }
     if (route.view === "note") {
-      const note = notes.find((item) => item.id === route.noteId);
+      const note = notes.find((item) => item.id === route["noteId"]);
       return note ? noteActions(note) : [];
     }
     if (route.view === "todo") {
-      const todo = todos.find((item) => item.id === route.todoId);
+      const todo = todos.find((item) => item.id === route["todoId"]);
       return todo ? todoActions(todo) : [];
     }
     return [];
   }, [noteActions, notes, sectionActions, sections, todoActions, todos]);
 
   const renderTitle = useCallback(({ route, defaultTitle }: { route: WebAppRoute; defaultTitle: string }) => {
-    if (route.view === "section") return sections.find((item) => item.id === route.sectionId)?.title ?? "List";
-    if (route.view === "note") return notes.find((item) => item.id === route.noteId)?.title ?? "Note";
-    if (route.view === "todo") return todos.find((item) => item.id === route.todoId)?.title ?? "Task";
+    if (route.view === "section") return sections.find((item) => item.id === route["sectionId"])?.title ?? "List";
+    if (route.view === "note") return notes.find((item) => item.id === route["noteId"])?.title ?? "Note";
+    if (route.view === "todo") return todos.find((item) => item.id === route["todoId"])?.title ?? "Task";
     if (route.view === "new-section") return "New list";
     if (route.view === "new-note") return "New note";
     if (route.view === "new-todo") return "New task";
-    if (route.view === "tasks") return route.filter === "high" ? "High priority" : route.filter === "completed" ? "Completed" : "Open tasks";
+    if (route.view === "tasks") return route["filter"] === "high" ? "High priority" : route["filter"] === "completed" ? "Completed" : "Open tasks";
     if (route.view === "notes") return "All notes";
     return defaultTitle;
   }, [notes, sections, todos]);

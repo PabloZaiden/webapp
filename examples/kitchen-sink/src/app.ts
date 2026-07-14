@@ -42,7 +42,7 @@ function createKitchenSinkRoutes(store: WebAppStore, appStore: KitchenSinkStore)
       requestSchema: projectUpdateSchema,
       async PATCH(req, ctx) {
         const user = ctx.requireUser();
-        const project = ctx.requireOwned(appStore.getProject(ctx.params.id, user.id));
+        const project = ctx.requireOwned(appStore.getProject(ctx.params["id"]!, user.id));
         const body = await parseJson(req, projectUpdateSchema);
         const updated = appStore.updateProject(project.id, user.id, { ...body, updatedAt: new Date().toISOString() });
         if (!updated) return jsonResponse({ error: "not_found" }, { status: 404 });
@@ -69,7 +69,7 @@ function createKitchenSinkRoutes(store: WebAppStore, appStore: KitchenSinkStore)
         const owner = store.getOwnerUser();
         if (!owner) return jsonResponse({ ok: true, accepted: false }, { status: 202 });
         ensureSeedProjects(store, appStore, owner.id);
-        appStore.createProject({ id: crypto.randomUUID(), userId: owner.id, name: `Webhook ${ctx.params.source}`, status: "running", updatedAt: new Date().toISOString() });
+        appStore.createProject({ id: crypto.randomUUID(), userId: owner.id, name: `Webhook ${ctx.params["source"]!}`, status: "running", updatedAt: new Date().toISOString() });
         ctx.realtime.publishChanged("projects", { target: { userId: owner.id } });
         return jsonResponse({ ok: true });
       },

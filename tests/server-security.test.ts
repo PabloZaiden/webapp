@@ -808,8 +808,8 @@ describe("server security defaults", () => {
 
   test("runtime config disables forwarded-header trust by default", () => {
     const config = readRuntimeConfig({ appName: "Test", envPrefix: "TEST_RUNTIME_TRUST_DEFAULT" });
-    expect(config.trustProxy).toEqual({ enabled: false, headers: [], chain: "first" });
-    expect(safeRuntimeConfig(config).trustProxy).toEqual({ enabled: false, headers: [], chain: "first" });
+    expect(config["trustProxy"]).toEqual({ enabled: false, headers: [], chain: "first" });
+    expect(safeRuntimeConfig(config)["trustProxy"]).toEqual({ enabled: false, headers: [], chain: "first" });
   });
 
   test("runtime config parses the explicit trust-proxy policy", () => {
@@ -824,8 +824,8 @@ describe("server security defaults", () => {
     process.env[keys[2]] = "last";
     try {
       const config = readRuntimeConfig({ appName: "Test", envPrefix: "TEST_RUNTIME_TRUST_ENABLED" });
-      expect(config.trustProxy).toEqual({ enabled: true, headers: ["proto", "host"], chain: "last" });
-      expect(safeRuntimeConfig(config).trustProxy).toEqual({ enabled: true, headers: ["proto", "host"], chain: "last" });
+      expect(config["trustProxy"]).toEqual({ enabled: true, headers: ["proto", "host"], chain: "last" });
+      expect(safeRuntimeConfig(config)["trustProxy"]).toEqual({ enabled: true, headers: ["proto", "host"], chain: "last" });
     } finally {
       keys.forEach((key, index) => {
         const value = previous[index];
@@ -1303,7 +1303,7 @@ describe("server security defaults", () => {
         },
         "/api/records/:id": {
           auth: "user",
-          GET: (_req, ctx) => jsonResponse(ctx.requireOwned(records.find((record) => record.id === ctx.params.id))),
+          GET: (_req, ctx) => jsonResponse(ctx.requireOwned(records.find((record) => record.id === ctx.params["id"]))),
         },
       }),
     });

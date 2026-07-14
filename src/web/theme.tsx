@@ -43,10 +43,10 @@ function readSystemTheme(): ResolvedTheme {
 }
 
 function parseThemeResponse(value: unknown): ThemePreference {
-  if (!isRecord(value) || !isThemePreference(value.theme)) {
+  if (!isRecord(value) || !isThemePreference(value["theme"])) {
     throw new Error("Theme preference response was invalid.");
   }
-  return value.theme;
+  return value["theme"];
 }
 
 function toError(value: unknown): Error {
@@ -97,8 +97,8 @@ export function ThemeProvider({ userId, children }: { userId?: string; children:
     const root = document.documentElement;
     root.classList.toggle("dark", resolvedTheme === "dark");
     root.style.colorScheme = resolvedTheme;
-    root.dataset.theme = preference;
-    root.dataset.resolvedTheme = resolvedTheme;
+    root.dataset["theme"] = preference;
+    root.dataset["resolvedTheme"] = resolvedTheme;
     window.localStorage.setItem(THEME_STORAGE_KEY, preference);
   }, [preference, resolvedTheme]);
 
