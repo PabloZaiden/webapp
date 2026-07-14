@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { RealtimeBus, createWebAppServer, defineRoutes, getRequestBaseUrl, getRequestOriginInfo, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
+import { RealtimeBus, createWebAppServer, defineRoutes, getRequestBaseUrl, getRequestOriginInfo, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent, type RuntimeConfig } from "@pablozaiden/webapp/server";
 import { createApiKey } from "../src/server/auth/api-keys";
 import { sha256 } from "../src/server/auth/crypto";
 import { readRuntimeConfig, resolveEffectiveLogLevel, safeRuntimeConfig } from "../src/server/runtime-config";
@@ -226,6 +226,98 @@ describe("server security defaults", () => {
     });
     const unauthorized = await unauthorizedApp.handleRequest(new Request("http://localhost/api/preferences/log-level"));
     expect(unauthorized?.status).toBe(401);
+  });
+
+  test("uses supplied runtime config throughout construction", async () => {
+    const envPrefix = "TEST_SUPPLIED_RUNTIME_CONFIG";
+    const dataDir = join(tmpdir(), `webapp-supplied-runtime-config-${crypto.randomUUID()}`);
+    const runtimeConfig: RuntimeConfig = {
+      appName: "Configured App",
+      envPrefix,
+      host: "127.0.0.1",
+      port: 4321,
+      dataDir,
+      logLevel: "debug",
+      logLevelFromEnv: true,
+      passkeyDisabled: true,
+      sameOriginDisabled: true,
+      publicBaseUrl: "https://public.example.test",
+      authIssuer: undefined,
+      trustProxy: { enabled: true, headers: ["prefix"], chain: "last" },
+      development: false,
+    };
+    const changes: string[] = [];
+
+    try {
+      await withEnv({
+        [`${envPrefix}_PORT`]: "not-a-port",
+        [`${envPrefix}_LOG_LEVEL`]: "not-a-log-level",
+        [`${envPrefix}_DATA_DIR`]: join(dataDir, "wrong"),
+      }, async () => {
+        const app = createWebAppServer({
+          appName: runtimeConfig.appName,
+          envPrefix,
+          runtimeConfig,
+          auth: { passkeys: true },
+          logLevel: { onChange: (level) => changes.push(level) },
+          routes: defineRoutes({}),
+        });
+
+        expect(app.config).toMatchObject({
+          appName: runtimeConfig.appName,
+          envPrefix,
+          host: runtimeConfig.host,
+          port: runtimeConfig.port,
+          dataDir,
+          logLevel: runtimeConfig.logLevel,
+          passkeyDisabled: true,
+          sameOriginDisabled: true,
+          publicBaseUrl: runtimeConfig.publicBaseUrl,
+          trustProxy: runtimeConfig.trustProxy,
+          development: false,
+        });
+        expect(existsSync(join(dataDir, "webapp.sqlite"))).toBe(true);
+        expect(changes).toEqual(["debug"]);
+
+        const config = await responseJson<{ appName: string; logLevel: { level: string; fromEnv: boolean }; passkeyAuth: { passkeyDisabled: boolean } }>(
+          await app.handleRequest(new Request("http://internal.example/api/config")),
+        );
+        expect(config).toMatchObject({
+          appName: runtimeConfig.appName,
+          logLevel: { level: "debug", fromEnv: true },
+          passkeyAuth: { passkeyDisabled: true },
+        });
+        expect(getRequestBaseUrl(new Request("http://internal.example/api/config", {
+          headers: { "x-forwarded-prefix": "/listen/" },
+        }), app.config)).toBe("https://public.example.test/listen");
+      });
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a runtime config for a different application", () => {
+    const runtimeConfig: RuntimeConfig = {
+      appName: "Other App",
+      envPrefix: "OTHER_APP",
+      host: "localhost",
+      port: 3000,
+      dataDir: join(tmpdir(), `webapp-mismatched-runtime-config-${crypto.randomUUID()}`),
+      logLevel: "info",
+      logLevelFromEnv: false,
+      passkeyDisabled: true,
+      sameOriginDisabled: true,
+      trustProxy: { enabled: false, headers: [], chain: "first" },
+      development: false,
+    };
+
+    expect(() => createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_MISMATCHED_RUNTIME_CONFIG",
+      runtimeConfig,
+      auth: { passkeys: false },
+      routes: defineRoutes({}),
+    })).toThrow("runtimeConfig appName and envPrefix must match");
   });
 
   test("falls back to runtime log level when the persisted value is invalid", async () => {

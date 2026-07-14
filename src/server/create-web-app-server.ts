@@ -41,7 +41,10 @@ function canUseSpaFallback(req: Request): boolean {
 }
 
 export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<TEvent>): WebAppServer<TEvent> {
-  const config = readRuntimeConfig({ appName: input.appName, envPrefix: input.envPrefix });
+  const config = input.runtimeConfig ?? readRuntimeConfig({ appName: input.appName, envPrefix: input.envPrefix });
+  if (config.appName !== input.appName || config.envPrefix !== input.envPrefix) {
+    throw new Error("runtimeConfig appName and envPrefix must match the createWebAppServer inputs");
+  }
   const store = input.store ?? sqliteWebAppStore({ dataDir: config.dataDir });
   store.initialize();
   const savedLogLevel = store.getLogLevelPreference();
