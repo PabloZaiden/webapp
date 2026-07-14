@@ -26,6 +26,13 @@ export interface RuntimeConfig {
   development: false | { hmr: true; console: true };
 }
 
+export function resolveEffectiveLogLevel(
+  config: Pick<RuntimeConfig, "logLevel" | "logLevelFromEnv">,
+  savedLogLevel?: LogLevelName,
+): LogLevelName {
+  return config.logLevelFromEnv ? config.logLevel : savedLogLevel ?? config.logLevel;
+}
+
 const LOG_LEVELS = new Set(["trace", "debug", "info", "warn", "error"]);
 
 export function isTruthyEnv(value: string | undefined): boolean {

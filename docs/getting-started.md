@@ -151,6 +151,45 @@ function ThemeAwareRoute() {
 resolved value. Do not inspect or mutate framework-owned root classes or
 attributes to infer theme state.
 
+### Client log-level state
+
+The framework loads the effective client log level as part of the shared
+`WebAppRoot` configuration request. Components rendered inside `WebAppRoot`
+can subscribe with `useLogLevel()`; they should not fetch framework
+configuration or `/api/preferences/log-level` in an app-local initializer:
+
+```tsx
+import { useEffect } from "react";
+import { useLogLevel } from "@pablozaiden/webapp/web";
+import type { LogLevelName } from "@pablozaiden/webapp/contracts";
+
+function LoggerAdapter({ setLevel }: { setLevel: (level: LogLevelName) => void }) {
+  const { level, fromEnv, loading, error, retry } = useLogLevel();
+
+  useEffect(() => {
+    if (level !== undefined) {
+      setLevel(level);
+    }
+  }, [level, setLevel]);
+
+  if (error) {
+    return <button type="button" onClick={() => void retry()}>Retry log-level configuration</button>;
+  }
+  if (loading || level === undefined) {
+    return null;
+  }
+
+  return <span aria-hidden="true">{fromEnv ? "Log level is environment-controlled." : null}</span>;
+}
+```
+
+`level` and `fromEnv` are unavailable until valid framework configuration has
+loaded. Do not substitute a default level when `error` is set. The framework
+Settings control owns persistence and updates the shared state without a page
+reload; `fromEnv` indicates that the server environment locks the value.
+`LoggerAdapter` remains application-owned and can adapt the state to any
+logging library.
+
 ### Transient notifications
 
 The standard `renderWebApp` runtime provides the framework notification service

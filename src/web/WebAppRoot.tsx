@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { WebAppConfigResponse } from "../contracts";
-import { appJson } from "./api-client";
 import { AppShell } from "./app-shell";
 import { DeviceVerificationScreen, PasskeyAuthScreen, UserSetupScreen } from "./auth-screens";
 import { EmptyState, Panel } from "./components";
@@ -11,24 +10,10 @@ import { SettingsView } from "./settings/settings-view";
 import type { HeaderContext, WebAppRootProps } from "./root-types";
 import type { ActionMenuItem, SidebarNode, WebAppRoute } from "./sidebar/types";
 import { ThemeProvider } from "./theme";
+import { WebAppConfigProvider, useWebAppConfig } from "./webapp-config";
 
 export { replaceHashRoute, replaceWebAppRoute, routeToHash } from "./routing";
 export type { HeaderContext, SettingsAction, SettingsRow, SettingsSection, WebAppRootProps } from "./root-types";
-
-function useConfig() {
-  const [config, setConfig] = useState<WebAppConfigResponse>();
-  const [error, setError] = useState<string>();
-  const refresh = useCallback(async () => {
-    try {
-      setConfig(await appJson<WebAppConfigResponse>("/api/config"));
-      setError(undefined);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-  useEffect(() => void refresh(), [refresh]);
-  return { config, error, refresh };
-}
 
 function routeMatches(left: WebAppRoute | undefined, right: WebAppRoute): boolean {
   if (!left) {
@@ -51,7 +36,7 @@ function WebAppRootContent({
   refresh,
 }: WebAppRootProps & {
   config?: WebAppConfigResponse;
-  error?: string;
+  error?: Error;
   refresh: () => Promise<void>;
 }) {
   const isMobile = useMobileBreakpoint();
@@ -132,8 +117,8 @@ function WebAppRootContent({
     onRouteChange?.(route);
   }, [onRouteChange, route]);
 
-  if (error) {
-    return <main className="wapp-auth-screen"><Panel title="Unable to load app" description={error} /></main>;
+  if (error && !config) {
+    return <main className="wapp-auth-screen"><Panel title="Unable to load app" description={error.message} /></main>;
   }
   if (!config) {
     return <main className="wapp-auth-screen">Loading...</main>;
@@ -201,11 +186,19 @@ function WebAppRootContent({
   );
 }
 
-export function WebAppRoot(props: WebAppRootProps) {
-  const { config, error, refresh } = useConfig();
+function WebAppRootWithConfig(props: WebAppRootProps) {
+  const { config, error, refresh } = useWebAppConfig();
   return (
     <ThemeProvider userId={config?.currentUser?.id}>
       <WebAppRootContent {...props} config={config} error={error} refresh={refresh} />
     </ThemeProvider>
+  );
+}
+
+export function WebAppRoot(props: WebAppRootProps) {
+  return (
+    <WebAppConfigProvider>
+      <WebAppRootWithConfig {...props} />
+    </WebAppConfigProvider>
   );
 }

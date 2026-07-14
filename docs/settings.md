@@ -23,6 +23,16 @@ when the operating-system color scheme changes in `system` mode. Prefer CSS
 dark-mode styling when no JavaScript theme value is required, and do not infer
 theme state by observing framework-owned DOM classes or attributes.
 
+Application code can use `useLogLevel()` from `@pablozaiden/webapp/web` to
+adapt an application-owned logger to the framework's effective client setting.
+The hook exposes `level`, `fromEnv`, `loading`, `error`, and `retry`. The level
+and environment metadata are unavailable until `/api/config` has loaded and
+validated; configuration failures remain visible through `error` instead of
+falling back to a fabricated level. The framework Settings selector updates
+the shared hook state after a successful save, and `fromEnv` is true when
+`{PREFIX}_LOG_LEVEL` locks the value. Applications should not add a separate
+configuration fetch or initializer component.
+
 Security lists only show useful active credentials. Expired API keys are purged before listing, and revoked or expired device-auth refresh sessions are not shown. Revoked refresh sessions may remain in storage when needed for token-reuse protection, but they are hidden from Settings.
 
 Destructive actions in Settings use the framework `ConfirmDialog` before mutating. This includes deleting users, deleting API keys, deleting passkeys, revoking device-auth sessions, and killing the server.

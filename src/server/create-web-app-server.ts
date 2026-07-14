@@ -1,7 +1,7 @@
 import type { Server } from "bun";
 import { sqliteWebAppStore } from "./auth/sqlite-store";
 import { createRealtimeBus } from "./realtime/bus";
-import { readRuntimeConfig } from "./runtime-config";
+import { readRuntimeConfig, resolveEffectiveLogLevel } from "./runtime-config";
 import {
   WEBAPP_SOCKET_HANDLER,
   type WebAppServer,
@@ -45,7 +45,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const store = input.store ?? sqliteWebAppStore({ dataDir: config.dataDir });
   store.initialize();
   const savedLogLevel = store.getLogLevelPreference();
-  const activeLogLevel = config.logLevelFromEnv ? config.logLevel : savedLogLevel ?? config.logLevel;
+  const activeLogLevel = resolveEffectiveLogLevel(config, savedLogLevel);
   setLogLevel(activeLogLevel);
   input.logLevel?.onChange?.(activeLogLevel);
   const realtime = createRealtimeBus<TEvent>();

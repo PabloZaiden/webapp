@@ -124,6 +124,12 @@ Built-in endpoints include:
 | `/api/server/kill` | Authenticated server shutdown |
 | `/api/ws` | Realtime websocket by default |
 
+The effective log level in `GET /api/config` and `GET
+/api/preferences/log-level` is resolved identically: an environment-provided
+`{PREFIX}_LOG_LEVEL` wins over the persisted preference, and sets `fromEnv`
+to `true`. PUT remains an authenticated, same-origin admin mutation and
+returns a conflict when the environment controls the value.
+
 ## Framework-owned web document and PWA metadata
 
 `createWebAppServer` owns the browser document. Apps do not provide `index.html`; the framework generates a Bun `HTMLBundle` internally so Bun hot reload and asset rewriting keep working. By default the frontend entrypoint is `./web/main.tsx` relative to the Bun entry file. The generated document also initializes the shared `data-wapp-mobile` state before client styles load so CSS and `WebAppRoot` use the same mobile breakpoint. The generated viewport keeps the app at `initial-scale=1` with `maximum-scale=1` and `user-scalable=no`; clients and mobile browsers that honor those viewport scaling tokens, including iPhone and iPad, cannot change the app scale with pinch-to-zoom while normal scrolling remains enabled. Clients that ignore the tokens are unaffected.
