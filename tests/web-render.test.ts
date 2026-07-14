@@ -8,7 +8,7 @@ import type { ApiKeySummary, AuthSessionSummary, ThemePreference, WebAppConfigRe
 import { configureWebAppClient, onAuthRequired } from "../src/web/api-client";
 import { MOBILE_MEDIA_QUERY } from "../src/web/mobile";
 import type { SidebarNode } from "../src/web/sidebar/types";
-import { useTheme } from "../src/web/theme";
+import { useTheme } from "../src/web";
 import { WebAppRoot } from "../src/web/WebAppRoot";
 import { configureWebAppRenderer, renderWebApp } from "../src/web/render";
 

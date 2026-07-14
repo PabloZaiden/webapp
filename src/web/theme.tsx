@@ -22,6 +22,10 @@ export function isThemePreference(value: unknown): value is ThemePreference {
   return value === "system" || value === "light" || value === "dark";
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function readStoredPreference(): ThemePreference {
   if (typeof window === "undefined") {
     return "system";
@@ -39,7 +43,7 @@ function readSystemTheme(): ResolvedTheme {
 }
 
 function parseThemeResponse(value: unknown): ThemePreference {
-  if (!value || typeof value !== "object" || !("theme" in value) || !isThemePreference(value.theme)) {
+  if (!isRecord(value) || !isThemePreference(value.theme)) {
     throw new Error("Theme preference response was invalid.");
   }
   return value.theme;
