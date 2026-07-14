@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { RealtimeBus, createWebAppServer, defineRoutes, getRequestBaseUrl, getRequestOriginInfo, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent, type RuntimeConfig } from "@pablozaiden/webapp/server";
+import { RealtimeBus, createWebAppPublicAsset, createWebAppServer, defineRoutes, getRequestBaseUrl, getRequestOriginInfo, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent, type RuntimeConfig } from "@pablozaiden/webapp/server";
 import { createApiKey } from "../src/server/auth/api-keys";
 import { sha256 } from "../src/server/auth/crypto";
 import { readRuntimeConfig, resolveEffectiveLogLevel, safeRuntimeConfig } from "../src/server/runtime-config";
@@ -476,6 +476,35 @@ describe("server security defaults", () => {
     expect(spaPost?.status).toBe(404);
     expect(spaPost?.headers.get("content-type")).toContain("application/json");
     expect(await spaPost?.json()).toMatchObject({ error: "not_found" });
+  });
+
+  test("builds and serves app-owned public assets through a typed entrypoint", async () => {
+    const path = `/public-asset-${crypto.randomUUID()}.js`;
+    const app = createWebAppServer({
+      appName: "Public Asset Test",
+      envPrefix: "TEST_PUBLIC_ASSET",
+      store: testStore("public-asset"),
+      auth: { passkeys: false },
+      publicRoutes: {
+        [path]: createWebAppPublicAsset({
+          path,
+          entrypoint: new URL("./fixtures/public-asset.ts", import.meta.url),
+          contentType: "text/javascript; charset=utf-8",
+          headers: { "cache-control": "no-cache" },
+        }),
+      },
+      routes: defineRoutes({}),
+    });
+
+    const response = await app.handleRequest(new Request(`http://localhost${path}`));
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+    expect(response?.headers.get("cache-control")).toBe("no-cache");
+    expect(await response?.text()).toContain("webapp-public-asset");
+
+    const head = await app.handleRequest(new Request(`http://localhost${path}`, { method: "HEAD" }));
+    expect(head?.status).toBe(200);
+    expect(await head?.text()).toBe("");
   });
 
   test("generates framework-owned manifest routes and HTML metadata", async () => {

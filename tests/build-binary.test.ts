@@ -169,6 +169,69 @@ renderWebApp(<FixtureApp />);
   }
 });
 
+test("buildWebAppBinary embeds app-owned public assets", async () => {
+  const id = crypto.randomUUID();
+  const fixtureRoot = resolve(".cache/tests/build-binary-public-asset", id);
+  const srcDir = join(fixtureRoot, "src");
+  const outfile = join(fixtureRoot, "dist", "fixture-app");
+  const assetsPath = join(fixtureRoot, "compiled-assets.json");
+
+  rmSync(fixtureRoot, { recursive: true, force: true });
+  mkdirSync(srcDir, { recursive: true });
+  writeFileSync(join(srcDir, "index.ts"), `const publicAssets = globalThis[Symbol.for("webapp.compiledPublicAssets")];
+const outputPath = process.env["TEST_COMPILED_ASSETS_PATH"];
+
+if (!outputPath) {
+  throw new Error("TEST_COMPILED_ASSETS_PATH is required");
+}
+
+await Bun.write(outputPath, JSON.stringify(publicAssets));
+`);
+  writeFileSync(join(srcDir, "frontend.tsx"), "export {};\n");
+  writeFileSync(join(srcDir, "public-asset-helper.ts"), `export const marker = "embedded-public-asset";\n`);
+  writeFileSync(join(srcDir, "public-asset.ts"), `import { marker } from "./public-asset-helper";
+globalThis[Symbol.for("fixture.publicAssetMarker")] = marker;
+`);
+
+  try {
+    await buildWebAppBinary({
+      entrypoint: join(srcDir, "index.ts"),
+      outfile,
+      web: {
+        entry: "./frontend.tsx",
+        publicAssets: [{
+          path: "/fixture-public-asset.js",
+          entrypoint: join(srcDir, "public-asset.ts"),
+          contentType: "text/javascript; charset=utf-8",
+          format: "iife",
+        }],
+      },
+    });
+
+    const child = Bun.spawn([outfile], {
+      cwd: fixtureRoot,
+      env: { ...process.env, TEST_COMPILED_ASSETS_PATH: assetsPath },
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    const [exitCode, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stderr).text(),
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
+
+    const compiled = await Bun.file(assetsPath).json() as {
+      assets: Array<{ path: string; body: string }>;
+    };
+    expect(compiled.assets).toHaveLength(1);
+    expect(compiled.assets[0]?.path).toBe("/fixture-public-asset.js");
+    expect(Buffer.from(compiled.assets[0]?.body ?? "", "base64").byteLength).toBeGreaterThan(0);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("buildWebAppBinary resolves the renderer from an application-local package export", async () => {
   const fixtureRoot = resolve(".cache/tests/build-binary-package-resolution", crypto.randomUUID());
   const srcDir = join(fixtureRoot, "src");

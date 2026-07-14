@@ -55,11 +55,18 @@ timestamps, and other server-managed fields under application control.
 `parseJson(req, schema)` parses and validates the body at runtime. Malformed JSON
 returns a 400 `invalid_json` response, while a JSON value that does not satisfy
 the schema returns a 400 `invalid_request_body` response with field details.
-Use `parseOptionalJson(req, schema)` only for endpoints that deliberately allow
-an empty body. Only a zero-byte body is considered absent; whitespace-only
-content is non-empty malformed JSON and is rejected just like any other
-malformed body. `parseUnknownJson` returns `unknown` and is intentionally
-unvalidated, so application handlers should prefer a schema-backed parser.
+Pass `{ maxBytes, requireContentType: true }` when an endpoint needs a
+bounded JSON body. The parser rejects a non-JSON content type with a 400
+`invalid_request_content_type` response, rejects an invalid `Content-Length`
+with a 400 `invalid_request_content_length` response, rejects declared and
+streamed bodies over `maxBytes` with a 413 `request_body_too_large` response,
+and cancels a streamed body as soon as the limit is exceeded. JSON media types
+with a `+json` suffix are accepted. Use `parseOptionalJson(req, schema)` only
+for endpoints that deliberately allow an empty body. Only a zero-byte body is
+considered absent; whitespace-only content is non-empty malformed JSON and is
+rejected just like any other malformed body. `parseUnknownJson` returns
+`unknown` and is intentionally unvalidated, so application handlers should
+prefer a schema-backed parser.
 
 The Notes TODO webhook uses an absent body (or an object without `title`) to
 apply its source-based fallback title. When an owner does not exist, that
