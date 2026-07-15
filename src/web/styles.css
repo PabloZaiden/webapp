@@ -3,12 +3,17 @@
   --wapp-bg: var(--wapp-shell-bg);
   --wapp-shell-bg: rgb(249 250 251 / 0.95);
   --wapp-surface: #ffffff;
+  --wapp-surface-raised: #ffffff;
   --wapp-surface-muted: #f9fafb;
+  --wapp-surface-inset: #f9fafb;
   --wapp-border: #d1d5db;
   --wapp-border-soft: #e5e7eb;
+  --wapp-border-muted: #d1d5db;
   --wapp-text: #111827;
   --wapp-muted: #4b5563;
   --wapp-muted-2: #64748b;
+  --wapp-surface-pill: #e5e7eb;
+  --wapp-pill-text: #4b5563;
   --wapp-danger: #991b1b;
   --wapp-danger-bg: #991b1b;
   --wapp-toast-success: #166534;
@@ -53,12 +58,17 @@
   --wapp-bg: var(--wapp-shell-bg);
   --wapp-shell-bg: rgb(23 23 23 / 0.95);
   --wapp-surface: #262626;
+  --wapp-surface-raised: #171717;
   --wapp-surface-muted: #171717;
+  --wapp-surface-inset: rgb(10 10 10 / 0.5);
   --wapp-border: #374151;
   --wapp-border-soft: #27272a;
+  --wapp-border-muted: #1f2937;
   --wapp-text: #f3f4f6;
   --wapp-muted: #a1a1aa;
   --wapp-muted-2: #71717a;
+  --wapp-surface-pill: #262626;
+  --wapp-pill-text: #d1d5db;
   --wapp-danger: #fca5a5;
   --wapp-danger-bg: #7f1d1d;
   --wapp-toast-success: #bbf7d0;
@@ -693,7 +703,7 @@ textarea::placeholder {
   overflow-wrap: anywhere;
 }
 
-.wapp-panel {
+:where(.wapp-panel) {
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
@@ -703,8 +713,32 @@ textarea::placeholder {
   padding: 1.25rem;
 }
 
+.wapp-panel-muted {
+  border-color: var(--wapp-border-muted);
+  border-radius: 1rem;
+  background: var(--wapp-surface-inset);
+}
+
+.wapp-panel-plain {
+  border-color: transparent;
+  background: transparent;
+  padding: 0;
+}
+
+.wapp-panel-padding-compact {
+  padding: 1rem;
+}
+
+.wapp-panel-padding-none {
+  padding: 0;
+}
+
 .wapp-panel + .wapp-panel {
   margin-top: 1.5rem;
+}
+
+.grid > .wapp-panel {
+  margin-top: 0;
 }
 
 .wapp-panel-header {
@@ -727,6 +761,7 @@ textarea::placeholder {
   margin: 0;
   font-size: 1.125rem;
   font-weight: 600;
+  line-height: 1.75rem;
 }
 
 .wapp-panel-header p,
@@ -844,6 +879,12 @@ textarea::placeholder {
   border-radius: 0.875rem;
 }
 
+.wapp-data-list-cards {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+}
+
 .wapp-data-list-row {
   box-sizing: border-box;
   width: 100%;
@@ -855,6 +896,68 @@ textarea::placeholder {
   color: var(--wapp-text);
   padding: 0.875rem 1rem;
   text-align: left;
+}
+
+.wapp-data-list-row-card,
+.wapp-data-list-cards .wapp-data-list-row {
+  align-items: flex-start;
+  border: 1px solid var(--wapp-border-muted);
+  border-radius: 1rem;
+  background: var(--wapp-surface-raised);
+  padding: 0.75rem 1rem;
+}
+
+.wapp-data-list-row-card + .wapp-data-list-row-card,
+.wapp-data-list-cards .wapp-data-list-row + .wapp-data-list-row {
+  margin-top: 0.5rem;
+  border-top: 1px solid var(--wapp-border-muted);
+}
+
+.wapp-data-list-row-card .wapp-data-list-row-main strong,
+.wapp-data-list-cards .wapp-data-list-row .wapp-data-list-row-main strong {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+  line-height: 1.25rem;
+  white-space: normal;
+}
+
+.wapp-data-list-row-card .wapp-data-list-row-main small,
+.wapp-data-list-cards .wapp-data-list-row .wapp-data-list-row-main small {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.wapp-data-list-row-card .wapp-data-list-row-meta,
+.wapp-data-list-cards .wapp-data-list-row .wapp-data-list-row-meta {
+  border-radius: 999px;
+  background: var(--wapp-surface-pill);
+  color: var(--wapp-pill-text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.125rem 0.5rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.wapp-data-list-row-meta-below {
+  display: block;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  margin-top: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.wapp-data-list-row-card.interactive:hover,
+.wapp-data-list-cards .wapp-data-list-row.interactive:hover {
+  border-color: var(--wapp-border);
+  background: var(--wapp-surface-pill);
+}
+
+.wapp-data-list-row.disabled {
+  cursor: default;
+  opacity: 0.65;
 }
 
 .wapp-data-list-row + .wapp-data-list-row {
@@ -981,6 +1084,30 @@ textarea::placeholder {
   padding: 0.5rem 0.875rem;
   white-space: nowrap;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
+}
+
+.wapp-button-xs {
+  min-height: 2rem;
+  padding: 0.25rem 0.375rem;
+  font-size: 0.75rem;
+}
+
+.wapp-button-sm {
+  min-height: 2.25rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+}
+
+.wapp-button-md {
+  min-height: 2.75rem;
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+}
+
+.wapp-button-lg {
+  min-height: 3rem;
+  padding: 0.75rem 1.5rem;
+  font-size: 1.125rem;
 }
 
 .wapp-button-spinner {
@@ -1150,6 +1277,11 @@ textarea::placeholder {
   font-size: 0.6875rem;
   font-weight: 700;
   padding: 0.125rem 0.5rem;
+}
+
+.wapp-badge-md {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.625rem;
 }
 
 .wapp-sidebar-badge {

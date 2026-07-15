@@ -82,7 +82,7 @@
   border: 1px solid var(--wapp-border);
   border-radius: 0.875rem;
   padding: 1rem;
-  background: color-mix(in srgb, var(--wapp-panel), var(--wapp-muted) 5%);
+  background: var(--wapp-surface-raised);
 }
 
 .notes-stats strong {

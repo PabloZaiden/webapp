@@ -191,14 +191,7 @@ function KitchenSinkApp() {
         project: (route) => <ProjectView route={route} projects={projects} />,
       }}
       header={{
-        getActions: ({ route }) => {
-          if (route.view !== "project") return [{ id: "new-project", label: "New project", onAction: () => { replaceHashRoute("#/new-project"); } }];
-          const project = projects.find((item) => item.id === route["projectId"]);
-          return [
-            { id: "new-project", label: "New project", onAction: () => { replaceHashRoute("#/new-project"); } },
-            ...(project ? getProjectActions(project) : []),
-          ];
-        },
+        getActions: () => [{ id: "new-project", label: "New project", onAction: () => { replaceHashRoute("#/new-project"); } }],
       }}
       settings={{
         sections: [
