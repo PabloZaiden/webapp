@@ -6,8 +6,8 @@ export type ButtonVariant = "default" | "primary" | "danger" | "ghost";
 export type ButtonSize = "xs" | "sm" | "md" | "lg";
 
 export function Button({
-  variant = "default",
-  size = "sm",
+  variant = "primary",
+  size = "md",
   loading = false,
   className = "",
   disabled,
@@ -70,7 +70,7 @@ export function Panel({
   description,
   actions,
   children,
-  variant = "surface",
+  variant = "muted",
   padding = "default",
   className = "",
   ...props
@@ -150,7 +150,7 @@ export type DataListVariant = "divided" | "cards";
 export function DataList({
   children,
   empty,
-  variant = "divided",
+  variant = "cards",
 }: {
   children?: ReactNode;
   empty?: ReactNode;
@@ -169,7 +169,7 @@ export function DataListRow({
   actions,
   onClick,
   disabled = false,
-  variant = "default",
+  variant = "card",
   className = "",
 }: {
   title: ReactNode;

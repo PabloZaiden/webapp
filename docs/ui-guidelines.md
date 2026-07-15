@@ -56,6 +56,8 @@ Use these first:
 | `EmptyState` | Empty or missing content |
 | `ConfirmDialog` | Destructive confirmation |
 
+The default `Panel` is the muted card surface, `DataList` renders card rows, and `Button` uses the primary medium-sized action treatment. Use an explicit variant or size only when the surface is intentionally different from the application baseline.
+
 For entity actions, prefer the framework title bar: define one `ActionMenuItem[]` builder and attach it to `SidebarNode.actions` for the route-backed node. The framework reuses those actions for both sidebar right-click and the active route title-bar menu. Use `WebAppRoot.header.getActions` only for additional actions not owned by a sidebar node.
 
 Every route component rendered by `WebAppRoot.routes` should return `Page` at the top level, including loading/error/empty states. Do not render a `Panel`, `DataList`, `EmptyState` or custom div directly into `WebAppRoot`; that skips the standard content margins and recreates the visual bug where cards touch the main content edge. For a route whose child owns viewport-sized layout and scrolling, use `<Page layout="full">` rather than overriding `.wapp-page` from the application. Use `EntityHeader` only when the page needs a content-specific heading distinct from the fixed framework title bar; do not duplicate the active route title immediately below the header.
