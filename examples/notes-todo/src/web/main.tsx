@@ -88,6 +88,7 @@ function Dashboard({ sections, notes, todos }: { sections: Section[]; notes: Not
                 title={note.title}
                 description={sectionTitle(sections, note.sectionId)}
                 meta={new Date(note.updatedAt).toLocaleString()}
+                metaPlacement="below"
                 onClick={() => navigateTo({ view: "note", noteId: note.id })}
               />
             ))}
