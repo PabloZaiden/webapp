@@ -1157,25 +1157,25 @@ test("mobile left-edge swipe opens navigation", async () => {
 test("mobile shell follows the visual viewport while an editable control has focus", async () => {
   const restoreFetch = mockConfigFetch();
   const restoreMobileMediaQuery = mockMobileMediaQuery(true);
-  const previousCSS = window.CSS;
-  const previousVisualViewport = window.visualViewport;
-  const previousInnerHeight = window.innerHeight;
+  const previousCSSDescriptor = Object.getOwnPropertyDescriptor(window, "CSS");
+  const previousVisualViewportDescriptor = Object.getOwnPropertyDescriptor(window, "visualViewport");
+  const previousInnerHeightDescriptor = Object.getOwnPropertyDescriptor(window, "innerHeight");
   const visualViewport = createVisualViewportFixture(800);
 
-  Object.defineProperty(window, "CSS", {
-    configurable: true,
-    value: { supports: () => true },
-  });
-  Object.defineProperty(window, "visualViewport", {
-    configurable: true,
-    value: visualViewport.viewport,
-  });
-  Object.defineProperty(window, "innerHeight", {
-    configurable: true,
-    value: 800,
-  });
-
   try {
+    Object.defineProperty(window, "CSS", {
+      configurable: true,
+      value: { supports: () => true },
+    });
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: visualViewport.viewport,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 800,
+    });
+
     const view = render(createElement(WebAppRoot, {
       appName: "Test App",
       homeRoute: { view: "home" },
@@ -1204,8 +1204,20 @@ test("mobile shell follows the visual viewport while an editable control has foc
   } finally {
     restoreMobileMediaQuery();
     restoreFetch();
-    Object.defineProperty(window, "CSS", { configurable: true, value: previousCSS });
-    Object.defineProperty(window, "visualViewport", { configurable: true, value: previousVisualViewport });
-    Object.defineProperty(window, "innerHeight", { configurable: true, value: previousInnerHeight });
+    if (previousCSSDescriptor) {
+      Object.defineProperty(window, "CSS", previousCSSDescriptor);
+    } else {
+      Reflect.deleteProperty(window, "CSS");
+    }
+    if (previousVisualViewportDescriptor) {
+      Object.defineProperty(window, "visualViewport", previousVisualViewportDescriptor);
+    } else {
+      Reflect.deleteProperty(window, "visualViewport");
+    }
+    if (previousInnerHeightDescriptor) {
+      Object.defineProperty(window, "innerHeight", previousInnerHeightDescriptor);
+    } else {
+      Reflect.deleteProperty(window, "innerHeight");
+    }
   }
 });
