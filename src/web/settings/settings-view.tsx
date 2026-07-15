@@ -34,13 +34,15 @@ function StructuredSettingsSection({ section }: { section: SettingsSection }) {
         if (row.danger) {
           return <DangerZone key={row.id} title={row.title} description={row.description} actions={actions} />;
         }
+        const hasInlineContent = Boolean(row.content && row.contentPlacement === "inline");
         return (
-          <div className="wapp-settings-row" key={row.id}>
-            <div>
+          <div className={`wapp-settings-row${hasInlineContent ? " inline-content" : ""}`} key={row.id}>
+            <div className="wapp-settings-row-main">
               <strong>{row.title}</strong>
               {row.description ? <p>{row.description}</p> : null}
-              {row.content ? <div className="wapp-settings-row-content">{row.content}</div> : null}
+              {row.content && !hasInlineContent ? <div className="wapp-settings-row-content">{row.content}</div> : null}
             </div>
+            {hasInlineContent ? <div className="wapp-settings-row-content inline">{row.content}</div> : null}
             {actions ? <div className="wapp-row-actions">{actions}</div> : null}
           </div>
         );

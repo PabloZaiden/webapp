@@ -13,7 +13,14 @@ import { ThemeProvider } from "./theme";
 import { WebAppConfigProvider, useWebAppConfig } from "./webapp-config";
 
 export { replaceHashRoute, replaceWebAppRoute, routeToHash } from "./routing";
-export type { HeaderContext, SettingsAction, SettingsRow, SettingsSection, WebAppRootProps } from "./root-types";
+export type {
+  HeaderContext,
+  SettingsAction,
+  SettingsRow,
+  SettingsRowContentPlacement,
+  SettingsSection,
+  WebAppRootProps,
+} from "./root-types";
 
 function routeMatches(left: WebAppRoute | undefined, right: WebAppRoute): boolean {
   if (!left) {

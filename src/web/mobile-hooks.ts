@@ -6,6 +6,32 @@ import {
   MOBILE_VIEWPORT_FIRST_SETTLE_DELAY_MS,
 } from "./mobile";
 
+const NON_TEXT_INPUT_TYPES = new Set([
+  "button",
+  "checkbox",
+  "color",
+  "file",
+  "hidden",
+  "image",
+  "radio",
+  "range",
+  "reset",
+  "submit",
+]);
+
+function isEditableElement(element: Element | null): boolean {
+  if (!element) {
+    return false;
+  }
+  if (element instanceof HTMLTextAreaElement) {
+    return !element.disabled && !element.readOnly;
+  }
+  if (element instanceof HTMLInputElement) {
+    return !element.disabled && !element.readOnly && !NON_TEXT_INPUT_TYPES.has(element.type);
+  }
+  return element instanceof HTMLElement && element.isContentEditable;
+}
+
 export function useMobileBreakpoint(): boolean {
   const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.matchMedia(MOBILE_MEDIA_QUERY).matches);
 
@@ -50,6 +76,13 @@ export function useMobileViewportHeight(isMobile: boolean): void {
       root.style.removeProperty("--wapp-viewport-height");
     };
 
+    const shouldOverrideDynamicViewportHeight = () => {
+      if (!usesDynamicViewportUnit || !viewport || !isEditableElement(document.activeElement)) {
+        return false;
+      }
+      return viewport.height + 1 < window.innerHeight;
+    };
+
     const sync = () => {
       frame = 0;
       if (!isMobile) {
@@ -57,7 +90,8 @@ export function useMobileViewportHeight(isMobile: boolean): void {
         return;
       }
 
-      if (usesDynamicViewportUnit) {
+      const shouldUseVisualViewport = !usesDynamicViewportUnit || shouldOverrideDynamicViewportHeight();
+      if (!shouldUseVisualViewport) {
         clearViewportHeight();
       } else {
         const height = Math.round(viewport?.height ?? window.innerHeight);
@@ -89,7 +123,7 @@ export function useMobileViewportHeight(isMobile: boolean): void {
 
     const handleViewportTransition = () => {
       scheduleSync();
-      if (isMobile && !usesDynamicViewportUnit) {
+      if (isMobile) {
         scheduleViewportRetry(MOBILE_VIEWPORT_FIRST_SETTLE_DELAY_MS);
         scheduleViewportRetry(MOBILE_VIEWPORT_FINAL_SETTLE_DELAY_MS);
       }

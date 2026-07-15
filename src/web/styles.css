@@ -1359,6 +1359,16 @@ textarea::placeholder {
   gap: 1rem;
 }
 
+.wapp-settings-row-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.wapp-settings-row.inline-content {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
 .wapp-settings-row strong {
   font-size: 0.875rem;
   font-weight: 600;
@@ -1381,6 +1391,12 @@ textarea::placeholder {
 
 .wapp-settings-row-content {
   margin-top: 0.75rem;
+}
+
+.wapp-settings-row-content.inline {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-top: 0;
 }
 
 .wapp-row-actions {
@@ -2082,6 +2098,15 @@ textarea::placeholder {
 
 :root[data-wapp-mobile] .wapp-settings-row {
   display: block;
+}
+
+:root[data-wapp-mobile] .wapp-settings-row.inline-content {
+  display: flex;
+  align-items: center;
+}
+
+:root[data-wapp-mobile] .wapp-settings-row.inline-content .wapp-row-actions {
+  flex: 1 0 100%;
 }
 
 :root[data-wapp-mobile] .wapp-row-actions {

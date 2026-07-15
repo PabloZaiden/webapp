@@ -57,6 +57,12 @@ Apps can append structured custom sections:
             actions: [{ id: "sync-now", label: "Sync now", onAction: syncNow }],
           },
           {
+            id: "auto-sync",
+            title: "Automatic sync",
+            content: <input type="checkbox" checked={autoSync} onChange={toggleAutoSync} />,
+            contentPlacement: "inline",
+          },
+          {
             id: "disconnect",
             title: "Disconnect",
             scope: "admin",
@@ -72,5 +78,10 @@ Apps can append structured custom sections:
 ```
 
 `render` remains available as an escape hatch for custom controls inside a section. Prefer structured `rows` for simple settings because the framework keeps spacing, typography and danger-zone styling consistent.
+
+Row content is placed below the title and description by default. Use
+`contentPlacement: "inline"` for compact controls such as a checkbox or toggle
+that should remain on the right side of the row. Keep selects and larger
+controls at the default `"below"` placement.
 
 `scope` can be `user`, `admin` or `owner` on both sections and rows. Omitted scope behaves like `user`. Use `admin` for global app/server settings and `user` for preferences or data that belong to the signed-in user.

@@ -257,6 +257,48 @@ function mockMobileMediaQuery(matches: boolean) {
   };
 }
 
+function createVisualViewportFixture(initialHeight: number) {
+  const listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
+  let height = initialHeight;
+  const viewport = {
+    get height() {
+      return height;
+    },
+    offsetTop: 0,
+    addEventListener(type: string, listener: EventListenerOrEventListenerObject | null) {
+      if (!listener) {
+        return;
+      }
+      const typeListeners = listeners.get(type) ?? new Set<EventListenerOrEventListenerObject>();
+      typeListeners.add(listener);
+      listeners.set(type, typeListeners);
+    },
+    removeEventListener(type: string, listener: EventListenerOrEventListenerObject | null) {
+      if (!listener) {
+        return;
+      }
+      listeners.get(type)?.delete(listener);
+    },
+  };
+
+  return {
+    viewport,
+    setHeight(nextHeight: number) {
+      height = nextHeight;
+    },
+    emit(type: string) {
+      const event = new Event(type);
+      for (const listener of listeners.get(type) ?? []) {
+        if (typeof listener === "function") {
+          listener(event);
+        } else {
+          listener.handleEvent(event);
+        }
+      }
+    },
+  };
+}
+
 async function renderSettingsWebApp() {
   const view = render(createElement(WebAppRoot, {
     appName: "Test App",
@@ -1109,5 +1151,61 @@ test("mobile left-edge swipe opens navigation", async () => {
   } finally {
     restoreMobileMediaQuery();
     restoreFetch();
+  }
+});
+
+test("mobile shell follows the visual viewport while an editable control has focus", async () => {
+  const restoreFetch = mockConfigFetch();
+  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
+  const previousCSS = window.CSS;
+  const previousVisualViewport = window.visualViewport;
+  const previousInnerHeight = window.innerHeight;
+  const visualViewport = createVisualViewportFixture(800);
+
+  Object.defineProperty(window, "CSS", {
+    configurable: true,
+    value: { supports: () => true },
+  });
+  Object.defineProperty(window, "visualViewport", {
+    configurable: true,
+    value: visualViewport.viewport,
+  });
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    value: 800,
+  });
+
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+      },
+      routes: {
+        home: createElement("textarea", { "aria-label": "Message" }),
+      },
+    }));
+    const input = await waitFor(() => view.getByRole("textbox", { name: "Message" }));
+
+    input.focus();
+    visualViewport.setHeight(420);
+    visualViewport.emit("resize");
+
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue("--wapp-viewport-height")).toBe("420px"));
+
+    input.blur();
+    visualViewport.setHeight(800);
+    visualViewport.emit("resize");
+
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue("--wapp-viewport-height")).toBe(""));
+  } finally {
+    restoreMobileMediaQuery();
+    restoreFetch();
+    Object.defineProperty(window, "CSS", { configurable: true, value: previousCSS });
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: previousVisualViewport });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: previousInnerHeight });
   }
 });
