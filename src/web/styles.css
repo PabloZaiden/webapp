@@ -964,11 +964,6 @@ textarea::placeholder {
   border-top: 1px solid var(--wapp-border-soft);
 }
 
-.wapp-data-list-row-card + .wapp-data-list-row-card,
-.wapp-data-list-cards .wapp-data-list-row + .wapp-data-list-row {
-  border-top-color: var(--wapp-border-muted);
-}
-
 .wapp-data-list-row.interactive {
   cursor: pointer;
 }

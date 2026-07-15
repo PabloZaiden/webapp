@@ -39,7 +39,8 @@ export function Badge({
   children,
   ...props
 }: HTMLAttributes<HTMLSpanElement> & { variant?: BadgeVariant; size?: BadgeSize; children: ReactNode }) {
-  return <span {...props} className={`wapp-badge wapp-badge-${variant} wapp-badge-${size} ${className}`}>{children}</span>;
+  const sizeClass = size === "md" ? "wapp-badge-md" : "";
+  return <span {...props} className={["wapp-badge", `wapp-badge-${variant}`, sizeClass, className].filter(Boolean).join(" ")}>{children}</span>;
 }
 
 export type PageLayout = "padded" | "full";
