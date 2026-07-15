@@ -498,20 +498,8 @@ function NotesTodoApp() {
     if (route.view === "notes") {
       return [{ id: "new-note", label: "New note", onAction: () => navigateTo({ view: "new-note", sectionId: sections[0]?.id }) }];
     }
-    if (route.view === "section") {
-      const section = sections.find((item) => item.id === route["sectionId"]);
-      return section ? sectionActions(section) : [];
-    }
-    if (route.view === "note") {
-      const note = notes.find((item) => item.id === route["noteId"]);
-      return note ? noteActions(note) : [];
-    }
-    if (route.view === "todo") {
-      const todo = todos.find((item) => item.id === route["todoId"]);
-      return todo ? todoActions(todo) : [];
-    }
     return [];
-  }, [noteActions, notes, sectionActions, sections, todoActions, todos]);
+  }, [sections]);
 
   const renderTitle = useCallback(({ route, defaultTitle }: { route: WebAppRoute; defaultTitle: string }) => {
     if (route.view === "section") return sections.find((item) => item.id === route["sectionId"])?.title ?? "List";
