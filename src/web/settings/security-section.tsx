@@ -84,25 +84,29 @@ export function SecuritySection({ config, refresh, setError }: SecuritySectionPr
         </div>
       </div>
       {config.apiKeys.enabled ? (
-        <div className="wapp-settings-row stacked">
-          <div>
-            <strong>API keys</strong>
-            <p>Create bearer tokens for scripts and agents.</p>
-          </div>
-          <div className="wapp-row-actions"><Button type="button" onClick={() => void createKey().catch((err) => setError(String(err)))}>Create API key</Button></div>
-          {createdToken ? <code className="wapp-token">{createdToken}</code> : null}
-          <ResourceState loading={apiKeysLoading} error={apiKeysLoadError} hasData={apiKeys !== undefined} refresh={refreshApiKeys} />
-          {apiKeys?.length ? (
-            <div className="wapp-list">
-              {apiKeys.map((key) => (
-                <div className="wapp-list-row" key={key.id}>
-                  <span><strong>{key.name}</strong><small>{key.scopes.join(", ")} · {key.createdAt}</small></span>
-                  <Button type="button" variant="danger" onClick={() => setApiKeyToDelete(key)}>Delete</Button>
-                </div>
-              ))}
+        <>
+          <div className="wapp-settings-row">
+            <div className="wapp-settings-row-main">
+              <strong>API keys</strong>
+              <p>Create bearer tokens for scripts and agents.</p>
             </div>
-          ) : apiKeys !== undefined && !apiKeysLoadError ? <EmptyState title="No API keys" /> : null}
-        </div>
+            <div className="wapp-row-actions"><Button type="button" onClick={() => void createKey().catch((err) => setError(String(err)))}>Create API key</Button></div>
+          </div>
+          <div className="wapp-settings-row-content">
+            {createdToken ? <code className="wapp-token">{createdToken}</code> : null}
+            <ResourceState loading={apiKeysLoading} error={apiKeysLoadError} hasData={apiKeys !== undefined} refresh={refreshApiKeys} />
+            {apiKeys?.length ? (
+              <div className="wapp-list">
+                {apiKeys.map((key) => (
+                  <div className="wapp-list-row" key={key.id}>
+                    <span><strong>{key.name}</strong><small>{key.scopes.join(", ")} · {key.createdAt}</small></span>
+                    <Button type="button" variant="danger" onClick={() => setApiKeyToDelete(key)}>Delete</Button>
+                  </div>
+                ))}
+              </div>
+            ) : apiKeys !== undefined && !apiKeysLoadError ? <EmptyState title="No API keys" /> : null}
+          </div>
+        </>
       ) : null}
       <ConfirmDialog
         open={Boolean(apiKeyToDelete)}
