@@ -41,6 +41,8 @@ export function useMobileViewportHeight(isMobile: boolean): void {
 
     const root = document.documentElement;
     const viewport = window.visualViewport;
+    const usesDynamicViewportUnit = typeof window.CSS?.supports === "function"
+      && window.CSS.supports("height", "100dvh");
     const timers = new Set<number>();
     let frame = 0;
 
@@ -55,9 +57,13 @@ export function useMobileViewportHeight(isMobile: boolean): void {
         return;
       }
 
-      const height = Math.round(viewport?.height ?? window.innerHeight);
-      if (height > 0) {
-        root.style.setProperty("--wapp-viewport-height", `${height}px`);
+      if (usesDynamicViewportUnit) {
+        clearViewportHeight();
+      } else {
+        const height = Math.round(viewport?.height ?? window.innerHeight);
+        if (height > 0) {
+          root.style.setProperty("--wapp-viewport-height", `${height}px`);
+        }
       }
 
       const scrollingElement = document.scrollingElement;
@@ -83,7 +89,7 @@ export function useMobileViewportHeight(isMobile: boolean): void {
 
     const handleViewportTransition = () => {
       scheduleSync();
-      if (isMobile) {
+      if (isMobile && !usesDynamicViewportUnit) {
         scheduleViewportRetry(MOBILE_VIEWPORT_FIRST_SETTLE_DELAY_MS);
         scheduleViewportRetry(MOBILE_VIEWPORT_FINAL_SETTLE_DELAY_MS);
       }
