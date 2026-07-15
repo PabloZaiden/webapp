@@ -2,16 +2,20 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type 
 import { createPortal } from "react-dom";
 import type { ActionMenuItem, BadgeVariant } from "../sidebar/types";
 
+export type ButtonVariant = "default" | "primary" | "danger" | "ghost";
+export type ButtonSize = "xs" | "sm" | "md" | "lg";
+
 export function Button({
   variant = "default",
+  size = "sm",
   loading = false,
   className = "",
   disabled,
   children,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "default" | "primary" | "danger" | "ghost"; loading?: boolean }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: ButtonSize; loading?: boolean }) {
   return (
-    <button {...props} disabled={disabled || loading} className={`wapp-button wapp-button-${variant} ${className}`}>
+    <button {...props} disabled={disabled || loading} className={`wapp-button wapp-button-${variant} wapp-button-${size} ${className}`}>
       {loading ? <span className="wapp-button-spinner" aria-hidden="true" /> : null}
       {children}
     </button>
@@ -26,8 +30,16 @@ export function IconButton({
   return <button {...props} className={`wapp-icon-button ${active ? "active" : ""} ${className}`} />;
 }
 
-export function Badge({ variant = "default", className = "", children, ...props }: HTMLAttributes<HTMLSpanElement> & { variant?: BadgeVariant; children: ReactNode }) {
-  return <span {...props} className={`wapp-badge wapp-badge-${variant} ${className}`}>{children}</span>;
+export type BadgeSize = "sm" | "md";
+
+export function Badge({
+  variant = "default",
+  size = "sm",
+  className = "",
+  children,
+  ...props
+}: HTMLAttributes<HTMLSpanElement> & { variant?: BadgeVariant; size?: BadgeSize; children: ReactNode }) {
+  return <span {...props} className={`wapp-badge wapp-badge-${variant} wapp-badge-${size} ${className}`}>{children}</span>;
 }
 
 export type PageLayout = "padded" | "full";
@@ -41,9 +53,31 @@ export function Page({
   return <div {...props} className={`wapp-page ${layout === "full" ? "wapp-page-full" : ""} ${className}`.trim()}>{children}</div>;
 }
 
-export function Panel({ title, description, actions, children, className = "" }: { title?: string; description?: string; actions?: ReactNode; children?: ReactNode; className?: string }) {
+export type PanelVariant = "surface" | "muted" | "plain";
+export type PanelPadding = "default" | "compact" | "none";
+
+export interface PanelProps extends HTMLAttributes<HTMLElement> {
+  title?: string;
+  description?: string;
+  actions?: ReactNode;
+  variant?: PanelVariant;
+  padding?: PanelPadding;
+  children?: ReactNode;
+}
+
+export function Panel({
+  title,
+  description,
+  actions,
+  children,
+  variant = "surface",
+  padding = "default",
+  className = "",
+  ...props
+}: PanelProps) {
+  const paddingClass = padding === "default" ? "" : `wapp-panel-padding-${padding}`;
   return (
-    <section className={`wapp-panel ${className}`}>
+    <section {...props} className={`wapp-panel wapp-panel-${variant} ${paddingClass} ${className}`.trim()}>
       {title || description || actions ? (
         <div className="wapp-panel-header">
           <div>
@@ -111,40 +145,68 @@ export function EntityHeader({
   );
 }
 
-export function DataList({ children, empty }: { children?: ReactNode; empty?: ReactNode }) {
-  return <div className="wapp-data-list">{children ?? empty ?? null}</div>;
+export type DataListVariant = "divided" | "cards";
+
+export function DataList({
+  children,
+  empty,
+  variant = "divided",
+}: {
+  children?: ReactNode;
+  empty?: ReactNode;
+  variant?: DataListVariant;
+}) {
+  return <div className={`wapp-data-list wapp-data-list-${variant}`}>{children ?? empty ?? null}</div>;
 }
 
 export function DataListRow({
   title,
   description,
+  descriptionClassName = "",
   meta,
+  metaPlacement = "side",
   badge,
   actions,
   onClick,
+  disabled = false,
+  variant = "default",
+  className = "",
 }: {
   title: ReactNode;
   description?: ReactNode;
+  descriptionClassName?: string;
   meta?: ReactNode;
+  metaPlacement?: "side" | "below";
   badge?: ReactNode;
   actions?: ReactNode;
   onClick?: () => void;
+  disabled?: boolean;
+  variant?: "default" | "card";
+  className?: string;
 }) {
+  const rowClassName = [
+    "wapp-data-list-row",
+    variant === "card" ? "wapp-data-list-row-card" : "",
+    onClick && !disabled ? "interactive" : "",
+    disabled ? "disabled" : "",
+    className,
+  ].filter(Boolean).join(" ");
   const content = (
     <>
       <span className="wapp-data-list-row-main">
         <strong>{title}</strong>
-        {description ? <small>{description}</small> : null}
+        {description ? <small className={descriptionClassName}>{description}</small> : null}
+        {meta && metaPlacement === "below" ? <small className="wapp-data-list-row-meta-below">{meta}</small> : null}
       </span>
-      {meta ? <span className="wapp-data-list-row-meta">{meta}</span> : null}
+      {meta && metaPlacement === "side" ? <span className="wapp-data-list-row-meta">{meta}</span> : null}
       {badge ? <span className="wapp-data-list-row-badge">{badge}</span> : null}
       {actions ? <span className="wapp-data-list-row-actions">{actions}</span> : null}
     </>
   );
-  return onClick ? (
-    <button type="button" className="wapp-data-list-row interactive" onClick={onClick}>{content}</button>
+  return onClick && !disabled ? (
+    <button type="button" className={rowClassName} onClick={onClick}>{content}</button>
   ) : (
-    <div className="wapp-data-list-row">{content}</div>
+    <div className={rowClassName}>{content}</div>
   );
 }
 
