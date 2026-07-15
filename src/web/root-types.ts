@@ -11,12 +11,15 @@ export type SettingsAction = {
   onAction: () => void;
 };
 
+export type SettingsRowContentPlacement = "below" | "inline";
+
 export type SettingsRow = {
   id: string;
   title: string;
   description?: string;
   scope?: SettingsScope;
   content?: ReactNode;
+  contentPlacement?: SettingsRowContentPlacement;
   actions?: ReactNode | SettingsAction[];
   danger?: boolean;
 };
