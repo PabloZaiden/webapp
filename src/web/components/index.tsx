@@ -30,7 +30,7 @@ export function Badge({ variant = "default", className = "", children, ...props 
   return <span {...props} className={`wapp-badge wapp-badge-${variant} ${className}`}>{children}</span>;
 }
 
-export type PageLayout = "padded" | "full";
+export type PageLayout = "padded" | "full" | "stack";
 
 export function Page({
   layout = "padded",
@@ -38,12 +38,29 @@ export function Page({
   children,
   ...props
 }: HTMLAttributes<HTMLDivElement> & { children: ReactNode; layout?: PageLayout }) {
-  return <div {...props} className={`wapp-page ${layout === "full" ? "wapp-page-full" : ""} ${className}`.trim()}>{children}</div>;
+  const layoutClass = layout === "full" ? "wapp-page-full" : layout === "stack" ? "wapp-page-stack" : "";
+  return <div {...props} className={`wapp-page ${layoutClass} ${className}`.trim()}>{children}</div>;
 }
 
-export function Panel({ title, description, actions, children, className = "" }: { title?: string; description?: string; actions?: ReactNode; children?: ReactNode; className?: string }) {
+export type PanelVariant = "muted" | "surface" | "plain";
+
+export function Panel({
+  title,
+  description,
+  actions,
+  children,
+  className = "",
+  variant = "muted",
+}: {
+  title?: string;
+  description?: string;
+  actions?: ReactNode;
+  children?: ReactNode;
+  className?: string;
+  variant?: PanelVariant;
+}) {
   return (
-    <section className={`wapp-panel ${className}`}>
+    <section className={`wapp-panel wapp-panel-${variant} ${className}`}>
       {title || description || actions ? (
         <div className="wapp-panel-header">
           <div>
@@ -111,8 +128,18 @@ export function EntityHeader({
   );
 }
 
-export function DataList({ children, empty }: { children?: ReactNode; empty?: ReactNode }) {
-  return <div className="wapp-data-list">{children ?? empty ?? null}</div>;
+export type DataListVariant = "cards" | "rows";
+
+export function DataList({
+  children,
+  empty,
+  variant = "cards",
+}: {
+  children?: ReactNode;
+  empty?: ReactNode;
+  variant?: DataListVariant;
+}) {
+  return <div className={`wapp-data-list wapp-data-list-${variant}`}>{children ?? empty ?? null}</div>;
 }
 
 export function DataListRow({
@@ -122,6 +149,8 @@ export function DataListRow({
   badge,
   actions,
   onClick,
+  disabled = false,
+  className = "",
 }: {
   title: ReactNode;
   description?: ReactNode;
@@ -129,6 +158,8 @@ export function DataListRow({
   badge?: ReactNode;
   actions?: ReactNode;
   onClick?: () => void;
+  disabled?: boolean;
+  className?: string;
 }) {
   const content = (
     <>
@@ -142,9 +173,16 @@ export function DataListRow({
     </>
   );
   return onClick ? (
-    <button type="button" className="wapp-data-list-row interactive" onClick={onClick}>{content}</button>
+    <button
+      type="button"
+      className={`wapp-data-list-row interactive ${className}`}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      {content}
+    </button>
   ) : (
-    <div className="wapp-data-list-row">{content}</div>
+    <div className={`wapp-data-list-row ${className}`}>{content}</div>
   );
 }
 

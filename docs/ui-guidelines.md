@@ -39,14 +39,14 @@ Use these first:
 
 | Component | Use |
 | --- | --- |
-| `Page` | Required top-level wrapper for route content rendered by `WebAppRoot.routes`; uses standard margins/padding and mobile spacing by default, or `layout="full"` for viewport-sized content |
+| `Page` | Required top-level wrapper for route content rendered by `WebAppRoot.routes`; uses standard margins/padding and mobile spacing by default, `layout="stack"` for consistently spaced card/section stacks, or `layout="full"` for viewport-sized content |
 | `Toolbar` | Page title/actions inside main content |
-| `Panel` | Cards/sections; use `actions` for a top-right menu/action area |
+| `Panel` | Cards/sections; defaults to a muted grouped surface, with `variant="surface"` for a raised white surface and `variant="plain"` for an unboxed layout; use `actions` for a top-right menu/action area |
 | `ActionMenu` | Three-line action menu for secondary surfaces; entity-level shell menus should usually come from `SidebarNode.actions` so the framework renders them in the sidebar context menu and fixed title bar |
 | `Button` / `IconButton` | Form submission and true inline controls; prefer action menus for entity/app commands |
 | `Badge` | Status/count labels; sidebar badges render as compact colored dots to preserve sidebar width |
 | `EntityHeader` | Main-content entity title/description/actions |
-| `DataList` / `DataListRow` | Lists with title, description, metadata, badge and actions |
+| `DataList` / `DataListRow` | Card-style lists by default, with title, description, metadata, badge, actions, optional `className`, and disabled interactive rows; use `variant="rows"` for a compact separated list |
 | `TextField`, `TextAreaField`, `SelectField` | Forms |
 | `FormGroup`, `FormActions` | Grouped forms and aligned action rows |
 | `DangerZone` | Destructive settings or entity operations |
