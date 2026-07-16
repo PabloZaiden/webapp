@@ -44,7 +44,8 @@ Use these first:
 | `Panel` | Cards/sections; use `actions` for a top-right menu/action area |
 | `ActionMenu` | Three-line action menu for secondary surfaces; entity-level shell menus should usually come from `SidebarNode.actions` so the framework renders them in the sidebar context menu and fixed title bar |
 | `Button` / `IconButton` | Form submission and true inline controls; prefer action menus for entity/app commands |
-| `Badge` | Status/count labels; sidebar badges render as compact colored dots to preserve sidebar width |
+| `Badge` | Generic status/count labels; preserves the supplied text casing |
+| `StatusBadge` | Status labels with the shared uppercase and letter-spacing treatment |
 | `EntityHeader` | Main-content entity title/description/actions |
 | `DataList` / `DataListRow` | Lists with title, description, metadata, badge and actions |
 | `TextField`, `TextAreaField`, `SelectField` | Forms |
