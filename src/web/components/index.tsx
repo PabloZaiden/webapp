@@ -32,15 +32,25 @@ export function IconButton({
 
 export type BadgeSize = "sm" | "md";
 
+export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
+  variant?: BadgeVariant;
+  size?: BadgeSize;
+  children: ReactNode;
+}
+
 export function Badge({
   variant = "default",
   size = "sm",
   className = "",
   children,
   ...props
-}: HTMLAttributes<HTMLSpanElement> & { variant?: BadgeVariant; size?: BadgeSize; children: ReactNode }) {
+}: BadgeProps) {
   const sizeClass = size === "md" ? "wapp-badge-md" : "";
   return <span {...props} className={["wapp-badge", `wapp-badge-${variant}`, sizeClass, className].filter(Boolean).join(" ")}>{children}</span>;
+}
+
+export function StatusBadge({ className = "", ...props }: BadgeProps) {
+  return <Badge {...props} className={["wapp-status-badge", className].filter(Boolean).join(" ")} />;
 }
 
 export type PageLayout = "padded" | "full";

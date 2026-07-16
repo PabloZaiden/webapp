@@ -1284,6 +1284,11 @@ textarea::placeholder {
   padding: 0.25rem 0.625rem;
 }
 
+.wapp-status-badge {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .wapp-sidebar-badge {
   flex: 0 0 auto;
   width: 0.625rem;
