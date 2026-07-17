@@ -39,6 +39,10 @@ Run this checklist before releasing a framework app or cutting a checkpoint.
 3. Call a protected API route with `Authorization: Bearer <token>`.
 4. Delete the key from Settings and confirm the confirmation dialog appears.
 5. Confirm the deleted token no longer authenticates.
+6. Create a managed key through the server-only helper and confirm it authenticates through the same bearer path.
+7. Confirm managed keys and `managedBy` metadata are absent from the normal API-key list and Settings UI.
+8. Restart against the same data directory and confirm a non-expired managed key still authenticates.
+9. Revoke the managed key through the server-only helper and confirm it no longer authenticates.
 
 ## CLI API-key authentication
 

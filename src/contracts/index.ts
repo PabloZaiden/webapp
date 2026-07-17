@@ -58,6 +58,8 @@ export interface PasskeyAuthStatusResponse {
   ownerPasskeySetupRequired: boolean;
 }
 
+export type ApiKeyKind = "user" | "managed";
+
 export interface ApiKeySummary {
   id: string;
   name: string;

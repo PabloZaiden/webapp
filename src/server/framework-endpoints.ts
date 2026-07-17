@@ -386,6 +386,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         const target = store.getUserById(userId);
         if (!target) return notFound();
         if (target.role === "owner") return errorResponse(409, "owner_immutable", "Owner cannot be deleted");
+        store.deleteApiKeysForUser(userId);
         if (!store.deleteUser(userId)) return notFound();
         audit(store, { eventType: "user_deleted", actorUserId: actor.id, metadata: { deletedUserId: userId, username: target.username } });
         return successResponse();

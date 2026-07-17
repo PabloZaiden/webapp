@@ -148,7 +148,7 @@ Built-in endpoints include:
 | `/api/user-setup*` | One-time invite/reset setup links |
 | `/setup` | Browser setup screen for one-time invite/reset links |
 | `/api/users`, `/api/users/:id/*`, `/api/audit-events` | Admin user management and audit log |
-| `/api/api-keys` | Browser-managed API key create/list/delete |
+| `/api/api-keys` | Browser-managed user API-key create/list/delete |
 | `/api/auth/device`, `/api/auth/token`, `/api/auth/refresh`, `/api/auth/revoke` | Device auth and refresh-token flow |
 | `/device` | Browser device-code approval screen |
 | `/.well-known/jwks.json`, `/.well-known/openid-configuration` | Token verification metadata |
@@ -161,6 +161,12 @@ The effective log level in `GET /api/config` and `GET
 `{PREFIX}_LOG_LEVEL` wins over the persisted preference, and sets `fromEnv`
 to `true`. PUT remains an authenticated, same-origin admin mutation and
 returns a conflict when the environment controls the value.
+
+Server-side applications that need credentials for internal runtimes should use
+the server-only `createManagedApiKey`, `listManagedApiKeys`, and
+`revokeManagedApiKey` helpers. Managed keys are persisted in the same API-key
+store, authenticate through the normal bearer path, and are intentionally absent
+from the browser-managed endpoint and Settings summaries.
 
 ## Framework-owned web document and PWA metadata
 
