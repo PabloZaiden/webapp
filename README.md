@@ -1,6 +1,6 @@
 # @pablozaiden/webapp
 
-Opinionated Bun + React framework for single-server TypeScript webapps: one Bun process serves the React UI, API routes, multi-user passkey auth, user-owned API keys, device auth, stateless CLI API-key auth, realtime websocket state, scoped settings, binary builds and Docker images.
+Opinionated Bun + React framework for single-server TypeScript webapps: one Bun process serves the React UI, API routes, multi-user passkey auth, user-owned and server-managed API keys, device auth, stateless CLI API-key auth, realtime websocket state, scoped settings, binary builds and Docker images.
 
 ## Quick start
 

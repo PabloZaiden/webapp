@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { RealtimeBus, createWebAppPublicAsset, createWebAppServer, defineRoutes, getRequestBaseUrl, getRequestOriginInfo, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent, type RuntimeConfig } from "@pablozaiden/webapp/server";
-import { createApiKey } from "../src/server/auth/api-keys";
+import { authenticateApiKey, createApiKey, createManagedApiKey, listManagedApiKeys, revokeManagedApiKey } from "../src/server/auth/api-keys";
 import { sha256 } from "../src/server/auth/crypto";
 import { readRuntimeConfig, resolveEffectiveLogLevel, safeRuntimeConfig } from "../src/server/runtime-config";
 import type { UserRecord, WebAppStore } from "../src/server/auth/store";
@@ -846,11 +846,89 @@ describe("server security defaults", () => {
     expect(store.getThemePreference(owner!.id)).toBe("dark");
     expect(store.listPasskeys(owner!.id)).toHaveLength(1);
     expect(store.listApiKeys(owner!.id)).toHaveLength(1);
+    expect(store.listApiKeys(owner!.id)[0]).toMatchObject({ kind: "user" });
+    expect(store.listApiKeys(owner!.id)[0]?.managedBy).toBeUndefined();
     expect(store.getDeviceAuthByUserCode("ABCD-EFGH")?.approvedByUserId).toBe(owner!.id);
     expect(store.listRefreshSessions(owner!.id)).toHaveLength(1);
 
     store.initialize();
     expect(store.countUsers()).toBe(1);
+  });
+
+  test("sqlite store upgrades current multi-user API-key tables idempotently", () => {
+    const dataDir = `.cache/tests/api-key-schema-migration-${crypto.randomUUID()}`;
+    mkdirSync(dataDir, { recursive: true });
+    const db = new Database(`${dataDir}/webapp.sqlite`);
+    const now = new Date().toISOString();
+    const userId = crypto.randomUUID();
+    db.exec(`
+      CREATE TABLE webapp_users (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE,
+        role TEXT NOT NULL,
+        auth_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_login_at TEXT,
+        disabled_at TEXT
+      );
+      CREATE TABLE webapp_api_keys (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        prefix TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        scopes TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT,
+        expires_at TEXT
+      );
+    `);
+    db.query(`
+      INSERT INTO webapp_users
+      (id, username, role, auth_version, created_at, updated_at, last_login_at, disabled_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(userId, "owner", "owner", 1, now, now, null, null);
+    db.query(`
+      INSERT INTO webapp_api_keys
+      (id, user_id, name, prefix, token_hash, scopes, created_at, last_used_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("legacy-multi-user-key", userId, "Legacy key", "wapp", "legacy-hash", JSON.stringify(["*"]), now, null, null);
+    db.close();
+
+    const store = sqliteWebAppStore({ dataDir });
+    store.initialize();
+    const migrated = store.listApiKeys(userId);
+    expect(migrated).toHaveLength(1);
+    expect(migrated[0]).toMatchObject({ id: "legacy-multi-user-key", kind: "user" });
+    expect(migrated[0]?.managedBy).toBeUndefined();
+
+    const migratedDb = new Database(`${dataDir}/webapp.sqlite`);
+    const columns = (migratedDb.query("PRAGMA table_info(webapp_api_keys)").all() as Array<{ name: string }>).map((column) => column.name);
+    expect(columns).toEqual(expect.arrayContaining(["kind", "managed_by"]));
+    migratedDb.close();
+
+    store.initialize();
+    expect(store.listApiKeys(userId)).toHaveLength(1);
+  });
+
+  test("managed API-key metadata persists without token plaintext", () => {
+    const dataDir = `.cache/tests/api-key-managed-storage-${crypto.randomUUID()}`;
+    const store = sqliteWebAppStore({ dataDir });
+    store.initialize();
+    const user = configuredUser(store);
+    const created = createManagedApiKey(store, currentUser(user), { managedBy: "test-runtime", scopes: ["*"] });
+    const stored = store.listApiKeys(user.id)[0];
+
+    expect(stored).toMatchObject({ kind: "managed", managedBy: "test-runtime", tokenHash: expect.any(String) });
+    expect(JSON.stringify(stored)).not.toContain(created.token);
+
+    const db = new Database(`${dataDir}/webapp.sqlite`);
+    const row = db.query("SELECT * FROM webapp_api_keys WHERE id = ?").get(created.key.id) as Record<string, unknown> | null;
+    expect(row).toMatchObject({ kind: "managed", managed_by: "test-runtime" });
+    expect(row?.["token_hash"]).not.toBe(created.token);
+    expect(JSON.stringify(row)).not.toContain(created.token);
+    db.close();
   });
 
   test("runtime config names invalid prefixed log level variables", () => {
@@ -1540,6 +1618,206 @@ describe("server security defaults", () => {
     }
   });
 
+  test("managed API keys reconcile by owner and managedBy and revoke idempotently", () => {
+    const store = testStore("managed-api-key-reconciliation");
+    store.initialize();
+    const owner = configuredUser(store);
+    const alice = configuredUser(store, "alice", "user");
+    const ownerGeneration = createManagedApiKey(store, currentUser(owner), { managedBy: "context-1", name: "First generation" });
+    const ownerOtherContext = createManagedApiKey(store, currentUser(owner), { managedBy: "context-2", name: "Other context" });
+    const aliceGeneration = createManagedApiKey(store, currentUser(alice), { managedBy: "context-1", name: "Alice generation" });
+    const userKey = createApiKey(store, currentUser(owner), { name: "User key" });
+
+    expect(listManagedApiKeys(store, owner.id).map((key) => key.id))
+      .toEqual([ownerOtherContext.key.id, ownerGeneration.key.id]);
+    expect(listManagedApiKeys(store, owner.id, "context-1").map((key) => key.id)).toEqual([ownerGeneration.key.id]);
+    expect(listManagedApiKeys(store, alice.id, "context-1").map((key) => key.id)).toEqual([aliceGeneration.key.id]);
+    expect(listManagedApiKeys(store, owner.id, "missing")).toEqual([]);
+
+    expect(revokeManagedApiKey(store, ownerGeneration.key.id, alice.id)).toBe(false);
+    expect(revokeManagedApiKey(store, userKey.key.id, owner.id)).toBe(false);
+    expect(revokeManagedApiKey(store, ownerGeneration.key.id, owner.id)).toBe(true);
+    expect(revokeManagedApiKey(store, ownerGeneration.key.id, owner.id)).toBe(false);
+    expect(listManagedApiKeys(store, owner.id, "context-1")).toEqual([]);
+  });
+
+  test("managed keys use bearer scopes and public CRUD cannot create or delete them", async () => {
+    const store = testStore("managed-api-key-bearer");
+    store.initialize();
+    const owner = configuredUser(store);
+    const managed = createManagedApiKey(store, currentUser(owner), { managedBy: "runtime", scopes: ["write"] });
+    const expired = createManagedApiKey(store, currentUser(owner), { managedBy: "runtime", scopes: ["write"], expiresAt: isoOffset(-3600) });
+    const userKey = createApiKey(store, currentUser(owner), { name: "Browser key", scopes: ["*"] });
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_MANAGED_API_KEY_BEARER",
+      store,
+      auth: { passkeys: false, apiKeys: true },
+      routes: defineRoutes({
+        "/api/write": {
+          auth: "user",
+          scopes: ["write"],
+          GET: () => jsonResponse({ ok: true }),
+        },
+        "/api/read": {
+          auth: "user",
+          scopes: ["read"],
+          GET: () => jsonResponse({ ok: true }),
+        },
+      }),
+    });
+
+    const write = await app.handleRequest(new Request("http://localhost/api/write", {
+      headers: { authorization: ["Bearer", managed.token].join(" ") },
+    }));
+    expect(write?.status).toBe(200);
+
+    const missingScope = await app.handleRequest(new Request("http://localhost/api/read", {
+      headers: { authorization: ["Bearer", managed.token].join(" ") },
+    }));
+    expect(missingScope?.status).toBe(403);
+
+    const expiredResponse = await app.handleRequest(new Request("http://localhost/api/write", {
+      headers: { authorization: ["Bearer", expired.token].join(" ") },
+    }));
+    expect(expiredResponse?.status).toBe(401);
+    expect(store.listApiKeys(owner.id).map((key) => key.id)).not.toContain(expired.key.id);
+
+    const attemptedManaged = await responseJson<{ key: { id: string; kind?: string; managedBy?: string } }>(await app.handleRequest(new Request("http://localhost/api/api-keys", {
+      method: "POST",
+      headers: { authorization: ["Bearer", userKey.token].join(" "), origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ name: "Attempted managed key", kind: "managed", managedBy: "attacker" }),
+    })));
+    expect(attemptedManaged.key.kind).toBeUndefined();
+    expect(attemptedManaged.key.managedBy).toBeUndefined();
+    expect(store.listApiKeys(owner.id).find((key) => key.id === attemptedManaged.key.id)).toMatchObject({ kind: "user" });
+    expect(listManagedApiKeys(store, owner.id, "attacker")).toEqual([]);
+
+    const listedForSettings = await responseJson<Array<{ id: string; kind?: string; managedBy?: string }>>(await app.handleRequest(new Request("http://localhost/api/api-keys", {
+      headers: { authorization: ["Bearer", userKey.token].join(" ") },
+    })));
+    expect(listedForSettings.map((key) => key.id)).not.toContain(managed.key.id);
+    expect(JSON.stringify(listedForSettings)).not.toContain("runtime");
+
+    const deleteManaged = await app.handleRequest(new Request(`http://localhost/api/api-keys/${encodeURIComponent(managed.key.id)}`, {
+      method: "DELETE",
+      headers: { authorization: ["Bearer", userKey.token].join(" "), origin: "http://localhost" },
+    }));
+    expect(deleteManaged?.status).toBe(200);
+    expect(store.listApiKeys(owner.id).map((key) => key.id)).toContain(managed.key.id);
+    expect(store.listApiKeys(owner.id).map((key) => key.id)).toContain(userKey.key.id);
+  });
+
+  test("managed-key authentication rejects disabled users", () => {
+    const store = testStore("managed-api-key-disabled-user");
+    store.initialize();
+    const now = new Date().toISOString();
+    const user: UserRecord = {
+      id: crypto.randomUUID(),
+      username: "disabled-owner",
+      role: "owner",
+      authVersion: 1,
+      passkeyConfigured: false,
+      createdAt: now,
+      updatedAt: now,
+      disabledAt: now,
+    };
+    store.createUser(user);
+    const managed = createManagedApiKey(store, currentUser(user), { managedBy: "runtime" });
+
+    expect(authenticateApiKey(store, managed.token)).toBeUndefined();
+  });
+
+  test("managed keys survive restart and lifecycle cleanup", async () => {
+    const dataDir = `.cache/tests/managed-api-key-lifecycle-${crypto.randomUUID()}`;
+    const initialStore = sqliteWebAppStore({ dataDir });
+    initialStore.initialize();
+    const owner = configuredUser(initialStore);
+    const alice = configuredUser(initialStore, "alice", "user");
+    const managed = createManagedApiKey(initialStore, currentUser(owner), { managedBy: "restart-test" });
+    const expired = createManagedApiKey(initialStore, currentUser(owner), { managedBy: "restart-test", expiresAt: isoOffset(-3600) });
+    const initialApp = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_MANAGED_RESTART_INITIAL",
+      store: initialStore,
+      auth: { passkeys: false, apiKeys: true },
+      routes: defineRoutes({
+        "/api/protected": {
+          auth: "user",
+          GET: () => jsonResponse({ ok: true }),
+        },
+      }),
+    });
+
+    const beforeRestart = await initialApp.handleRequest(new Request("http://localhost/api/protected", {
+      headers: { authorization: ["Bearer", managed.token].join(" ") },
+    }));
+    expect(beforeRestart?.status).toBe(200);
+
+    const restartedStore = sqliteWebAppStore({ dataDir });
+    restartedStore.initialize();
+    const restartedApp = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_MANAGED_RESTARTED",
+      store: restartedStore,
+      auth: { passkeys: false, apiKeys: true },
+      routes: defineRoutes({
+        "/api/protected": {
+          auth: "user",
+          GET: () => jsonResponse({ ok: true }),
+        },
+      }),
+    });
+    const afterRestart = await restartedApp.handleRequest(new Request("http://localhost/api/protected", {
+      headers: { authorization: ["Bearer", managed.token].join(" ") },
+    }));
+    expect(afterRestart?.status).toBe(200);
+    expect(listManagedApiKeys(restartedStore, owner.id, "restart-test").map((key) => key.id)).toEqual([managed.key.id]);
+    expect(restartedStore.listApiKeys(owner.id).map((key) => key.id)).not.toContain(expired.key.id);
+
+    const aliceManaged = createManagedApiKey(restartedStore, currentUser(alice), { managedBy: "delete-test" });
+    await withEnv({ TEST_MANAGED_DELETE_DISABLE_PASSKEY: "true" }, async () => {
+      const deleteApp = createWebAppServer({
+        appName: "Test",
+        envPrefix: "TEST_MANAGED_DELETE",
+        store: restartedStore,
+        auth: { apiKeys: true },
+        routes: defineRoutes({}),
+      });
+      const deleted = await deleteApp.handleRequest(new Request(`http://localhost/api/users/${alice.id}`, {
+        method: "DELETE",
+        headers: { origin: "http://localhost" },
+      }));
+      expect(deleted?.status).toBe(200);
+    });
+    expect(restartedStore.listApiKeys(alice.id)).toEqual([]);
+    expect(authenticateApiKey(restartedStore, aliceManaged.token)).toBeUndefined();
+  });
+
+  test("deleting a passkey clears managed keys", async () => {
+    await withEnv({ TEST_MANAGED_PASSKEY_DELETE_DISABLE_PASSKEY: "true" }, async () => {
+      const store = testStore("managed-api-key-passkey-delete");
+      store.initialize();
+      const owner = configuredUser(store);
+      const managed = createManagedApiKey(store, currentUser(owner), { managedBy: "passkey-delete-test" });
+      const app = createWebAppServer({
+        appName: "Test",
+        envPrefix: "TEST_MANAGED_PASSKEY_DELETE",
+        store,
+        auth: { apiKeys: true },
+        routes: defineRoutes({}),
+      });
+
+      const deleted = await app.handleRequest(new Request("http://localhost/api/passkey-auth/passkey", {
+        method: "DELETE",
+        headers: { origin: "http://localhost" },
+      }));
+      expect(deleted?.status).toBe(200);
+      expect(authenticateApiKey(store, managed.token)).toBeUndefined();
+      expect(listManagedApiKeys(store, owner.id, "passkey-delete-test")).toEqual([]);
+    });
+  });
+
   test("expired API keys are not listed and are purged", async () => {
     const store = testStore("api-key-expired-hidden");
     store.initialize();
@@ -1670,6 +1948,9 @@ describe("server security defaults", () => {
       })));
       expect(created.user).toMatchObject({ username: "alice", role: "user" });
       expect(created.setupLink.url).toContain("/setup?token=");
+      const createdUser = store.getUserById(created.user.id)!;
+      const managedKey = createManagedApiKey(store, currentUser(createdUser), { managedBy: "user-reset-test" });
+      expect(authenticateApiKey(store, managedKey.token)).toBeDefined();
 
       const promoted = await responseJson<{ role: string }>(await app.handleRequest(new Request(`http://localhost/api/users/${created.user.id}/role`, {
         method: "PATCH",
@@ -1684,6 +1965,8 @@ describe("server security defaults", () => {
         body: "{}",
       })));
       expect(reset.setupLink.url).toContain("/setup?token=");
+      expect(authenticateApiKey(store, managedKey.token)).toBeUndefined();
+      expect(listManagedApiKeys(store, created.user.id, "user-reset-test")).toEqual([]);
 
       const resetOwner = await app.handleRequest(new Request(`http://localhost/api/users/${owner.id}/reset`, {
         method: "POST",

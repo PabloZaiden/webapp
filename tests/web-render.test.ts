@@ -940,6 +940,26 @@ test("API-key failures can be retried without hiding an independent empty sessio
   }
 });
 
+test("Settings renders the sanitized user API-key list", async () => {
+  const key: ApiKeySummary = {
+    id: "user-key-1",
+    name: "Browser key",
+    prefix: "wapp_user",
+    scopes: ["*"],
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  const mock = mockBuiltInFetch({ apiKeysEnabled: true, apiKeys: [key] });
+  try {
+    const view = await renderBuiltInSettingsWebApp();
+
+    await waitFor(() => expect(view.getByText("Browser key")).toBeTruthy());
+    expect(view.queryByText("runtime-context")).toBeNull();
+    expect(view.queryByText("managed")).toBeNull();
+  } finally {
+    mock.restoreFetch();
+  }
+});
+
 test("device-session failures can be retried without treating them as empty", async () => {
   const session: AuthSessionSummary = {
     id: "session-1",

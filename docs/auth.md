@@ -42,6 +42,38 @@ API keys are user-owned bearer tokens for scripts and agents. They are stored ha
 
 Expired API keys do not authenticate, are omitted from user-facing lists, and are purged when key lists or expired keys are encountered.
 
+Server-side applications can create managed keys through the server-only helpers exported from
+`@pablozaiden/webapp/server`:
+
+```ts
+import { createManagedApiKey, listManagedApiKeys, revokeManagedApiKey } from "@pablozaiden/webapp/server";
+
+const created = createManagedApiKey(app.store, user, {
+  name: "Runtime credential",
+  managedBy: "my-application",
+  scopes: ["*"],
+});
+const keys = listManagedApiKeys(app.store, user.id, "my-application");
+revokeManagedApiKey(app.store, created.key.id, user.id);
+```
+
+Managed keys have an explicit `kind: "managed"` classification and optional opaque
+`managedBy` metadata. The plaintext token is returned only by creation and is never
+stored; applications must retain it securely. Managed keys use the same bearer
+authentication, ownership, scope, expiration, disabled-user, and lifecycle invalidation
+rules as user keys. They survive an ordinary restart, and applications should explicitly
+revoke each generation during their own resource cleanup.
+
+Managed keys have no browser/API CRUD endpoint. The normal `/api/api-keys` routes and
+Settings UI expose only `kind: "user"` keys, and request input cannot create or convert a
+managed key. User reset, passkey deletion, user deletion, and expiration cleanup cover
+both kinds.
+
+Custom `WebAppStore` implementations must persist `kind` and `managedBy`, migrate
+pre-managed records as `kind: "user"`, include both kinds in expiration cleanup and
+user deletion/reset cleanup, and preserve the owner filter used by the management
+helpers. The built-in SQLite store performs this migration automatically.
+
 Same-origin checks are skipped for API-key and device bearer requests unless a route sets `sameOrigin: "always"`, because non-browser clients usually do not send `Origin`.
 
 ## Device auth

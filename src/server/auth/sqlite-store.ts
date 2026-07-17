@@ -11,7 +11,7 @@ import type {
   UserSetupLinkRecord,
   WebAppStore,
 } from "./store";
-import type { LogLevelName, ThemePreference, WebAppUserRole } from "../../contracts";
+import type { ApiKeyKind, LogLevelName, ThemePreference, WebAppUserRole } from "../../contracts";
 import { createUserRecord } from "./users";
 
 type Row = Record<string, unknown>;
@@ -132,6 +132,8 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
         created_at TEXT NOT NULL,
         last_used_at TEXT,
         expires_at TEXT,
+        kind TEXT NOT NULL DEFAULT 'user',
+        managed_by TEXT,
         FOREIGN KEY (user_id) REFERENCES webapp_users(id) ON DELETE CASCADE
       );
       CREATE TABLE IF NOT EXISTS webapp_device_auth_requests (
@@ -173,6 +175,19 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
       CREATE INDEX IF NOT EXISTS idx_webapp_refresh_user ON webapp_refresh_sessions(user_id);
       CREATE INDEX IF NOT EXISTS idx_webapp_audit_created ON webapp_audit_events(created_at);
     `);
+  }
+
+  function migrateApiKeySchema(): void {
+    if (!tableExists("webapp_api_keys")) {
+      return;
+    }
+    if (!hasColumn("webapp_api_keys", "kind")) {
+      db.exec("ALTER TABLE webapp_api_keys ADD COLUMN kind TEXT NOT NULL DEFAULT 'user';");
+    }
+    if (!hasColumn("webapp_api_keys", "managed_by")) {
+      db.exec("ALTER TABLE webapp_api_keys ADD COLUMN managed_by TEXT;");
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS idx_webapp_api_keys_managed ON webapp_api_keys(user_id, kind, managed_by);");
   }
 
   function migrateSingleUserSchema(): void {
@@ -277,6 +292,7 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
   function initialize(): void {
     migrateSingleUserSchema();
     createSchema();
+    migrateApiKeySchema();
     db.exec("PRAGMA foreign_keys = ON;");
   }
 
@@ -356,6 +372,7 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
   }
 
   function mapApiKey(row: Row): ApiKeyRecord {
+    const kind: ApiKeyKind = row["kind"] === "managed" ? "managed" : "user";
     return {
       id: text(row["id"]),
       userId: text(row["user_id"]),
@@ -366,6 +383,8 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
       createdAt: text(row["created_at"]),
       lastUsedAt: optionalText(row["last_used_at"]),
       expiresAt: optionalText(row["expires_at"]),
+      kind,
+      managedBy: optionalText(row["managed_by"]),
     };
   }
 
@@ -544,9 +563,22 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
     },
     saveApiKey: (record) => {
       db.query(`
-        INSERT INTO webapp_api_keys (id, user_id, name, prefix, token_hash, scopes, created_at, last_used_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(record.id, record.userId, record.name, record.prefix, record.tokenHash, JSON.stringify(record.scopes), record.createdAt, record.lastUsedAt ?? null, record.expiresAt ?? null);
+        INSERT INTO webapp_api_keys
+        (id, user_id, name, prefix, token_hash, scopes, created_at, last_used_at, expires_at, kind, managed_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        record.id,
+        record.userId,
+        record.name,
+        record.prefix,
+        record.tokenHash,
+        JSON.stringify(record.scopes),
+        record.createdAt,
+        record.lastUsedAt ?? null,
+        record.expiresAt ?? null,
+        record.kind,
+        record.managedBy ?? null,
+      );
     },
     touchApiKey: (id, lastUsedAt) => {
       db.query("UPDATE webapp_api_keys SET last_used_at = ? WHERE id = ?").run(lastUsedAt, id);

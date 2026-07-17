@@ -3,7 +3,7 @@
 Settings is framework-owned so apps stay consistent. It includes:
 
 - Account summary and passkey logout/delete
-- API key create/list/delete for the current user when enabled
+- User API key create/list/delete for the current user when enabled
 - Device-auth sessions for the current user when enabled
 - Theme preference: system/light/dark, stored per user
 - Admin user management
@@ -33,7 +33,11 @@ the shared hook state after a successful save, and `fromEnv` is true when
 `{PREFIX}_LOG_LEVEL` locks the value. Applications should not add a separate
 configuration fetch or initializer component.
 
-Security lists only show useful active credentials. Expired API keys are purged before listing, and revoked or expired device-auth refresh sessions are not shown. Revoked refresh sessions may remain in storage when needed for token-reuse protection, but they are hidden from Settings.
+Security lists only show useful active user credentials. Managed API keys created by
+server-side applications, and their metadata, are not returned by the browser API-key
+list or rendered in Settings. Expired API keys are purged before listing, and revoked
+or expired device-auth refresh sessions are not shown. Revoked refresh sessions may
+remain in storage when needed for token-reuse protection, but they are hidden from Settings.
 
 Destructive actions in Settings use the framework `ConfirmDialog` before mutating. This includes deleting users, deleting API keys, deleting passkeys, revoking device-auth sessions, and killing the server.
 

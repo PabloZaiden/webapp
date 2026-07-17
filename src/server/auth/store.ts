@@ -1,4 +1,4 @@
-import type { ApiKeySummary, AuditEventSummary, LogLevelName, ThemePreference, WebAppUserRole, WebAppUserSummary } from "../../contracts";
+import type { ApiKeyKind, ApiKeySummary, AuditEventSummary, LogLevelName, ThemePreference, WebAppUserRole, WebAppUserSummary } from "../../contracts";
 
 export interface UserRecord extends WebAppUserSummary {
   authVersion: number;
@@ -36,6 +36,8 @@ export interface StoredPasskey {
 export interface ApiKeyRecord extends ApiKeySummary {
   userId: string;
   tokenHash: string;
+  kind: ApiKeyKind;
+  managedBy?: string;
 }
 
 export interface DeviceAuthRequestRecord {
