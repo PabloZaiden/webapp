@@ -153,6 +153,8 @@ Built-in endpoints include:
 | `/device` | Browser device-code approval screen |
 | `/.well-known/jwks.json`, `/.well-known/openid-configuration` | Token verification metadata |
 | `/api/preferences/theme`, `/api/preferences/log-level` | Settings persistence |
+| `GET /api/server/logs` | Admin-only snapshot of the in-memory server logs |
+| `PUT /api/server/logs/settings` | Admin-only runtime toggle for in-memory server logs |
 | `/api/server/kill` | Authenticated server shutdown |
 | `/api/ws` | Realtime websocket by default |
 
@@ -161,6 +163,18 @@ The effective log level in `GET /api/config` and `GET
 `{PREFIX}_LOG_LEVEL` wins over the persisted preference, and sets `fromEnv`
 to `true`. PUT remains an authenticated, same-origin admin mutation and
 returns a conflict when the environment controls the value.
+
+`GET /api/server/logs` is restricted to admin users and returns
+`{ enabled: boolean, logs: ServerLogEntry[] }`. Entries are returned in
+chronological order and contain the timestamp, level, logger scope, message,
+and rendered log line. When capture is disabled, the endpoint returns `200`
+with `enabled: false` and an empty list. `PUT /api/server/logs/settings`
+accepts `{ "enabled": boolean }`, is restricted to admins, and uses the normal
+same-origin policy for browser mutations. API-key and bearer callers continue
+to use the existing token-auth behavior. The in-memory buffer is limited to
+the newest 1,000 entries and 512 KiB of rendered UTF-8 lines; disabling capture
+clears it. These endpoints only expose messages emitted through the framework
+logger and never make the logs durable.
 
 Server-side applications that need credentials for internal runtimes should use
 the server-only `createManagedApiKey`, `listManagedApiKeys`, and

@@ -142,3 +142,7 @@ export const themePreferenceRequestSchema = z.object({
 export const logLevelPreferenceRequestSchema = z.object({
   level: z.enum(["trace", "debug", "info", "warn", "error"]),
 });
+
+export const inMemoryLogSettingsRequestSchema = z.object({
+  enabled: z.boolean(),
+});

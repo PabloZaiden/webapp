@@ -48,6 +48,7 @@ import {
   createUserRequestSchema,
   deviceAuthorizationRequestSchema,
   deviceCodeActionRequestSchema,
+  inMemoryLogSettingsRequestSchema,
   logLevelPreferenceRequestSchema,
   passkeyBootstrapOptionsSchema,
   refreshTokenRequestSchema,
@@ -61,7 +62,8 @@ import {
 } from "./request-schemas";
 import { resolveEffectiveLogLevel, type RuntimeConfig } from "./runtime-config";
 import { setLogLevel } from "./logger";
-import { errorResponse, jsonResponse, notFound, parseJson, successResponse } from "./responses";
+import type { InMemoryLogStorage } from "./logger";
+import { errorResponse, jsonResponse, methodNotAllowed, notFound, parseJson, successResponse } from "./responses";
 import type { WebSocketData } from "./realtime/bus";
 
 export interface FrameworkEndpointDependencies {
@@ -75,6 +77,7 @@ export interface FrameworkEndpointDependencies {
   deviceAuthEnabled: boolean;
   configResponse?: WebAppServerConfig["configResponse"];
   onLogLevelChange?: (level: LogLevelName) => void;
+  inMemoryLogs: InMemoryLogStorage;
   ensureWebDocument: () => Promise<WebDocument>;
 }
 
@@ -97,6 +100,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
     deviceAuthEnabled,
     configResponse: extendConfigResponse,
     onLogLevelChange,
+    inMemoryLogs,
     ensureWebDocument,
   } = dependencies;
 
@@ -114,6 +118,9 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
       logLevel: {
         level: resolveEffectiveLogLevel(config, store.getLogLevelPreference()),
         fromEnv: config.logLevelFromEnv,
+      },
+      inMemoryLogs: {
+        enabled: inMemoryLogs.isEnabled(),
       },
       apiKeys: { enabled: Boolean(apiKeysEnabled) },
       deviceAuth: { enabled: Boolean(deviceAuthEnabled) },
@@ -432,6 +439,32 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
           onLogLevelChange?.(body.level);
           return successResponse({ level: body.level });
         }
+      }
+      if (path === "/api/server/logs") {
+        const auth = await authentication.authorize(req, true);
+        if (auth instanceof Response) return auth;
+        ensureAdmin(auth);
+        if (req.method !== "GET") {
+          return methodNotAllowed();
+        }
+        const enabled = inMemoryLogs.isEnabled();
+        return jsonResponse({
+          enabled,
+          logs: enabled ? inMemoryLogs.getEntries() : [],
+        });
+      }
+      if (path === "/api/server/logs/settings") {
+        const auth = await authentication.authorize(req, true);
+        if (auth instanceof Response) return auth;
+        ensureAdmin(auth);
+        if (req.method !== "PUT") {
+          return methodNotAllowed();
+        }
+        const originFailure = checkSameOrigin(req, config, auth, "mutations");
+        if (originFailure) return originFailure;
+        const body = await parseJson(req, inMemoryLogSettingsRequestSchema);
+        inMemoryLogs.setEnabled(body.enabled);
+        return successResponse({ enabled: inMemoryLogs.isEnabled() });
       }
       if (path === "/api/server/kill" && req.method === "POST") {
         const auth = await authentication.authorize(req, true);

@@ -50,6 +50,7 @@ function isWebAppConfigResponse(value: unknown): value is WebAppConfigResponse {
     && isRecord(value["logLevel"])
     && isLogLevelName(value["logLevel"]["level"])
     && typeof value["logLevel"]["fromEnv"] === "boolean"
+    && hasBooleanFields(value["inMemoryLogs"], ["enabled"])
     && hasBooleanFields(value["deviceAuth"], ["enabled"])
     && hasBooleanFields(value["apiKeys"], ["enabled"]);
 }

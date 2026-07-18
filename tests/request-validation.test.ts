@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { createWebAppServer, defineRoutes, jsonResponse, parseJson, parseOptionalJson, sqliteWebAppStore } from "@pablozaiden/webapp/server";
+import { resetInMemoryLogStorage } from "../src/server/logger";
 
 function testStore(name: string) {
   return sqliteWebAppStore({ dataDir: `.cache/tests/${name}-${crypto.randomUUID()}` });
@@ -264,7 +265,24 @@ describe("request body validation", () => {
       }));
       expect(invalidLogLevel?.status).toBe(400);
       expect(await responseJson<{ error: string }>(invalidLogLevel)).toMatchObject({ error: "invalid_request_body" });
+
+      const validInMemoryLogs = await app.handleRequest(new Request("http://localhost/api/server/logs/settings", {
+        method: "PUT",
+        headers: { origin: "http://localhost" },
+        body: JSON.stringify({ enabled: true }),
+      }));
+      expect(validInMemoryLogs?.status).toBe(200);
+      expect(await responseJson<{ enabled: boolean }>(validInMemoryLogs)).toEqual({ enabled: true });
+
+      const invalidInMemoryLogs = await app.handleRequest(new Request("http://localhost/api/server/logs/settings", {
+        method: "PUT",
+        headers: { origin: "http://localhost" },
+        body: JSON.stringify({ enabled: "yes" }),
+      }));
+      expect(invalidInMemoryLogs?.status).toBe(400);
+      expect(await responseJson<{ error: string }>(invalidInMemoryLogs)).toMatchObject({ error: "invalid_request_body" });
     } finally {
+      resetInMemoryLogStorage();
       if (previous === undefined) {
         delete process.env[envKey];
       } else {

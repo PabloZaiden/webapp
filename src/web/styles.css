@@ -1618,6 +1618,32 @@ textarea::placeholder {
   resize: vertical;
 }
 
+.wapp-checkbox-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.wapp-checkbox-field input {
+  width: 1rem;
+  min-height: 1rem;
+  margin-top: 0.125rem;
+  flex: 0 0 auto;
+}
+
+.wapp-checkbox-field span {
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.wapp-checkbox-field small {
+  display: block;
+  color: var(--wapp-muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  margin-top: 0.25rem;
+}
+
 .wapp-field small {
   display: block;
   color: var(--wapp-muted);

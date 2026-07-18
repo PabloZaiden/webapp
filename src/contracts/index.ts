@@ -114,6 +114,14 @@ export interface AuthSessionSummary {
   active: boolean;
 }
 
+export interface ServerLogEntry {
+  timestamp: string;
+  level: LogLevelName;
+  scope: string;
+  message: string;
+  line: string;
+}
+
 export interface WebAppConfigResponse {
   appName: string;
   version: string;
@@ -126,6 +134,9 @@ export interface WebAppConfigResponse {
   logLevel: {
     level: LogLevelName;
     fromEnv: boolean;
+  };
+  inMemoryLogs: {
+    enabled: boolean;
   };
   deviceAuth: {
     enabled: boolean;

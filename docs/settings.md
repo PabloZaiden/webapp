@@ -8,6 +8,8 @@ Settings is framework-owned so apps stay consistent. It includes:
 - Theme preference: system/light/dark, stored per user
 - Admin user management
 - Admin log-level preference unless `{PREFIX}_LOG_LEVEL` is set
+- Admin in-memory server-log capture toggle; disabled and cleared on process
+  start or when turned off
 - Admin server kill
 - Version/about
 
@@ -32,6 +34,12 @@ falling back to a fabricated level. The framework Settings selector updates
 the shared hook state after a successful save, and `fromEnv` is true when
 `{PREFIX}_LOG_LEVEL` locks the value. Applications should not add a separate
 configuration fetch or initializer component.
+
+Developer Settings also includes **Store server logs in memory**. It is an
+admin-only, process-local setting and is disabled when the server starts. When
+enabled, the framework logger retains only the newest 1,000 eligible entries
+within a 512 KiB rendered-line limit; disabling it immediately clears the
+buffer. The setting and captured logs are never stored in SQLite.
 
 Security lists only show useful active user credentials. Managed API keys created by
 server-side applications, and their metadata, are not returned by the browser API-key
