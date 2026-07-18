@@ -252,10 +252,10 @@ export function SelectField({ label, children, ...props }: SelectHTMLAttributes<
   );
 }
 
-export function CheckboxField({ label, hint, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string }) {
+export function CheckboxField({ label, hint, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & { label: string; hint?: string }) {
   return (
     <label className="wapp-checkbox-field">
-      <input type="checkbox" {...props} />
+      <input {...props} type="checkbox" />
       <span>
         {label}
         {hint ? <small>{hint}</small> : null}
