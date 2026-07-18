@@ -11,7 +11,7 @@ import {
 import { createAuthentication } from "./authentication";
 import { createFrameworkEndpointHandler } from "./framework-endpoints";
 import { createServerLifecycle } from "./server-lifecycle";
-import { setLogLevel } from "./logger";
+import { inMemoryLogStorage, resetInMemoryLogStorage, setLogLevel } from "./logger";
 import { createWebDocumentProvider, htmlResponse } from "./web-document";
 import { createPublicRouteDispatcher } from "./public-route-dispatch";
 import { createRouteDispatcher } from "./route-dispatch";
@@ -45,6 +45,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   if (config.appName !== input.appName || config.envPrefix !== input.envPrefix) {
     throw new Error("runtimeConfig appName and envPrefix must match the createWebAppServer inputs");
   }
+  resetInMemoryLogStorage();
   const store = input.store ?? sqliteWebAppStore({ dataDir: config.dataDir });
   store.initialize();
   const savedLogLevel = store.getLogLevelPreference();
@@ -80,6 +81,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     deviceAuthEnabled,
     configResponse: input.configResponse,
     onLogLevelChange: input.logLevel?.onChange,
+    inMemoryLogs: inMemoryLogStorage,
     ensureWebDocument,
   });
   const publicRouteDispatcher = createPublicRouteDispatcher({

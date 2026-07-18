@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { LogLevelName, WebAppConfigResponse } from "../../contracts";
 import { appJson } from "../api-client";
-import { Badge, Button, ErrorState, FormSection, LoadingState, SelectField } from "../components";
+import { Badge, Button, CheckboxField, ErrorState, FormSection, LoadingState, SelectField } from "../components";
 import { useLogLevel } from "../log-level";
 import { isThemePreference, useTheme } from "../theme";
 
@@ -21,6 +21,7 @@ export function AccountSection({ config, refresh, setError }: AccountSectionProp
   const { preference, setPreference, loading, error, retry } = useTheme();
   const logLevel = useLogLevel();
   const [logLevelSaving, setLogLevelSaving] = useState(false);
+  const [inMemoryLogsSaving, setInMemoryLogsSaving] = useState(false);
 
   async function updateLogLevel(value: string) {
     if (!isLogLevelName(value)) {
@@ -36,6 +37,22 @@ export function AccountSection({ config, refresh, setError }: AccountSectionProp
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLogLevelSaving(false);
+    }
+  }
+
+  async function updateInMemoryLogs(enabled: boolean) {
+    try {
+      setError(undefined);
+      setInMemoryLogsSaving(true);
+      await appJson<unknown>("/api/server/logs/settings", {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInMemoryLogsSaving(false);
     }
   }
 
@@ -88,6 +105,13 @@ export function AccountSection({ config, refresh, setError }: AccountSectionProp
               {LOG_LEVEL_NAMES.map((level) => <option key={level} value={level}>{level}</option>)}
             </SelectField>
           ) : null}
+          <CheckboxField
+            label="Store server logs in memory"
+            hint="Temporary; disabled and cleared when the server process starts or this setting is turned off."
+            checked={config.inMemoryLogs.enabled}
+            disabled={inMemoryLogsSaving}
+            onChange={(event) => void updateInMemoryLogs(event.currentTarget.checked)}
+          />
         </FormSection>
       ) : null}
     </>

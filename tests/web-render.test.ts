@@ -74,6 +74,9 @@ function mockConfigFetch(onRequest?: (input: RequestInfo | URL, init?: RequestIn
       level: "info",
       fromEnv: false,
     },
+    inMemoryLogs: {
+      enabled: false,
+    },
     deviceAuth: {
       enabled: false,
     },
@@ -122,6 +125,9 @@ function mockSettingsFetch(sessions: Array<{ id: string; clientId: string; scope
     logLevel: {
       level: "info",
       fromEnv: false,
+    },
+    inMemoryLogs: {
+      enabled: false,
     },
     deviceAuth: {
       enabled: true,
@@ -190,6 +196,9 @@ function mockBuiltInFetch(options: BuiltInFetchOptions = {}) {
     logLevel: {
       level: "info",
       fromEnv: false,
+    },
+    inMemoryLogs: {
+      enabled: false,
     },
     deviceAuth: {
       enabled: Boolean(options.deviceAuthEnabled),

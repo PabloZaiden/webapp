@@ -252,6 +252,18 @@ export function SelectField({ label, children, ...props }: SelectHTMLAttributes<
   );
 }
 
+export function CheckboxField({ label, hint, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string }) {
+  return (
+    <label className="wapp-checkbox-field">
+      <input type="checkbox" {...props} />
+      <span>
+        {label}
+        {hint ? <small>{hint}</small> : null}
+      </span>
+    </label>
+  );
+}
+
 export function SegmentedControl<T extends string>({ value, options, onChange, label }: { value: T; options: Array<{ value: T; label: string }>; onChange: (value: T) => void; label: string }) {
   return (
     <div className="wapp-segmented" role="group" aria-label={label}>

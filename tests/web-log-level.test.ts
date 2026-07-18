@@ -36,11 +36,17 @@ afterAll(async () => {
   }
 });
 
-function makeConfig(level: LogLevelName = "info", fromEnv = false): WebAppConfigResponse {
+function makeConfig(level: LogLevelName = "info", fromEnv = false, inMemoryLogsEnabled = false, isAdmin = true): WebAppConfigResponse {
   return {
     appName: "Test App",
     version: "1.0.0",
-    currentUser: { id: "owner", username: "owner", role: "owner", isOwner: true, isAdmin: true },
+    currentUser: {
+      id: isAdmin ? "owner" : "user",
+      username: isAdmin ? "owner" : "user",
+      role: isAdmin ? "owner" : "user",
+      isOwner: isAdmin,
+      isAdmin,
+    },
     passkeyAuth: {
       enabled: false,
       passkeyConfigured: false,
@@ -55,6 +61,7 @@ function makeConfig(level: LogLevelName = "info", fromEnv = false): WebAppConfig
       canManageUsers: false,
     },
     logLevel: { level, fromEnv },
+    inMemoryLogs: { enabled: inMemoryLogsEnabled },
     deviceAuth: { enabled: false },
     apiKeys: { enabled: false },
   };
@@ -164,6 +171,39 @@ describe("web log-level state", () => {
     }
   });
 
+  test("updates in-memory log storage from the Developer Settings control", async () => {
+    let configCalls = 0;
+    let putCalls = 0;
+    const restoreFetch = installFetch((path, init) => {
+      if (path === "/api/config") {
+        configCalls += 1;
+        return Response.json(makeConfig("info", false, configCalls > 1));
+      }
+      if (path === "/api/preferences/theme") return Response.json({ theme: "system" });
+      if (path === "/api/server/logs/settings" && init?.method === "PUT") {
+        putCalls += 1;
+        return Response.json({ enabled: true });
+      }
+      return Response.json({ error: "not_found", message: "Not found" }, { status: 404 });
+    });
+
+    try {
+      const view = renderApp();
+      await waitFor(() => expect(view.getByLabelText("log level state").textContent).toBe("info:open"));
+      fireEvent.click(view.getByLabelText("Open settings"));
+      const checkbox = await waitFor(() => view.getByLabelText(/Store server logs in memory/) as HTMLInputElement);
+      expect(checkbox.checked).toBe(false);
+
+      fireEvent.click(checkbox);
+
+      await waitFor(() => expect((view.getByLabelText(/Store server logs in memory/) as HTMLInputElement).checked).toBe(true));
+      expect(putCalls).toBe(1);
+      expect(configCalls).toBe(2);
+    } finally {
+      restoreFetch();
+    }
+  });
+
   test("keeps environment-controlled levels read-only in Settings", async () => {
     let putCalls = 0;
     const restoreFetch = installFetch((path, init) => {
@@ -207,6 +247,41 @@ describe("web log-level state", () => {
       await waitFor(() => expect(view.getByText("Unable to load app")).toBeTruthy());
       expect(view.getByText("Web app configuration response was invalid.")).toBeTruthy();
       expect(view.queryByLabelText("log level state")).toBeNull();
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("rejects malformed in-memory log configuration", async () => {
+    const restoreFetch = installFetch((path) => {
+      if (path === "/api/config") {
+        return Response.json({ ...makeConfig(), inMemoryLogs: { enabled: "yes" } });
+      }
+      return Response.json({ error: "not_found", message: "Not found" }, { status: 404 });
+    });
+
+    try {
+      const view = renderApp();
+      await waitFor(() => expect(view.getByText("Unable to load app")).toBeTruthy());
+      expect(view.getByText("Web app configuration response was invalid.")).toBeTruthy();
+      expect(view.queryByLabelText(/Store server logs in memory/)).toBeNull();
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("hides in-memory log controls from non-admin users", async () => {
+    const restoreFetch = installFetch((path) => {
+      if (path === "/api/config") return Response.json(makeConfig("info", false, false, false));
+      if (path === "/api/preferences/theme") return Response.json({ theme: "system" });
+      return Response.json({ error: "not_found", message: "Not found" }, { status: 404 });
+    });
+
+    try {
+      const view = renderApp();
+      await waitFor(() => expect(view.getByLabelText("log level state").textContent).toBe("info:open"));
+      fireEvent.click(view.getByLabelText("Open settings"));
+      expect(view.queryByLabelText(/Store server logs in memory/)).toBeNull();
     } finally {
       restoreFetch();
     }

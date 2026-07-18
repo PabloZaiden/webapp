@@ -7,6 +7,7 @@ import { RealtimeBus, createWebAppPublicAsset, createWebAppServer, defineRoutes,
 import { authenticateApiKey, createApiKey, createManagedApiKey, listManagedApiKeys, revokeManagedApiKey } from "../src/server/auth/api-keys";
 import { sha256 } from "../src/server/auth/crypto";
 import { readRuntimeConfig, resolveEffectiveLogLevel, safeRuntimeConfig } from "../src/server/runtime-config";
+import { createLogger } from "../src/server/logger";
 import type { UserRecord, WebAppStore } from "../src/server/auth/store";
 
 const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
@@ -226,6 +227,88 @@ describe("server security defaults", () => {
     });
     const unauthorized = await unauthorizedApp.handleRequest(new Request("http://localhost/api/preferences/log-level"));
     expect(unauthorized?.status).toBe(401);
+  });
+
+  test("in-memory log endpoints require admins and never persist the toggle", async () => {
+    const store = testStore("in-memory-logs-endpoints");
+    store.initialize();
+    const owner = configuredUser(store, "owner", "owner");
+    const alice = configuredUser(store, "alice", "user");
+    const ownerKey = createManagedApiKey(store, currentUser(owner), { managedBy: "logs-test" });
+    const aliceKey = createManagedApiKey(store, currentUser(alice), { managedBy: "logs-test" });
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_IN_MEMORY_LOGS",
+      store,
+      auth: { passkeys: false, apiKeys: true },
+      routes: defineRoutes({}),
+    });
+
+    const noAuth = await app.handleRequest(new Request("http://localhost/api/server/logs"));
+    expect(noAuth?.status).toBe(401);
+
+    const nonAdmin = await app.handleRequest(new Request("http://localhost/api/server/logs", {
+      headers: { authorization: `Bearer ${aliceKey.token}` },
+    }));
+    expect(nonAdmin?.status).toBe(403);
+
+    const ownerHeaders = { authorization: `Bearer ${ownerKey.token}` };
+    const disabled = await responseJson<{ enabled: boolean; logs: unknown[] }>(
+      await app.handleRequest(new Request("http://localhost/api/server/logs", { headers: ownerHeaders })),
+    );
+    expect(disabled).toEqual({ enabled: false, logs: [] });
+
+    const missingOrigin = await app.handleRequest(new Request("http://localhost/api/server/logs/settings", {
+      method: "PUT",
+      headers: { ...ownerHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    }));
+    expect(missingOrigin?.status).toBe(200);
+    expect(await responseJson<{ enabled: boolean }>(missingOrigin)).toEqual({ enabled: true });
+    expect(store.getPreference("inMemoryLogs")).toBeUndefined();
+
+    const enabled = await app.handleRequest(new Request("http://localhost/api/server/logs/settings", {
+      method: "PUT",
+      headers: { ...ownerHeaders, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    }));
+    expect(enabled?.status).toBe(200);
+    expect(await responseJson<{ enabled: boolean }>(enabled)).toEqual({ enabled: true });
+    expect(store.getPreference("inMemoryLogs")).toBeUndefined();
+
+    createLogger("test").warn("captured log", { issue: "live-debug" });
+    const captured = await responseJson<{ enabled: boolean; logs: Array<{ message: string; scope: string; level: string }> }>(
+      await app.handleRequest(new Request("http://localhost/api/server/logs", { headers: ownerHeaders })),
+    );
+    expect(captured.enabled).toBe(true);
+    expect(captured.logs).toContainEqual(expect.objectContaining({
+      level: "warn",
+      scope: "test",
+      message: "captured log",
+    }));
+
+    const turnedOff = await app.handleRequest(new Request("http://localhost/api/server/logs/settings", {
+      method: "PUT",
+      headers: { ...ownerHeaders, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ enabled: false }),
+    }));
+    expect(turnedOff?.status).toBe(200);
+    const cleared = await responseJson<{ enabled: boolean; logs: unknown[] }>(
+      await app.handleRequest(new Request("http://localhost/api/server/logs", { headers: ownerHeaders })),
+    );
+    expect(cleared).toEqual({ enabled: false, logs: [] });
+
+    const restartedApp = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_IN_MEMORY_LOGS_RESTARTED",
+      store,
+      auth: { passkeys: false, apiKeys: true },
+      routes: defineRoutes({}),
+    });
+    const afterConstruction = await responseJson<{ enabled: boolean; logs: unknown[] }>(
+      await restartedApp.handleRequest(new Request("http://localhost/api/server/logs", { headers: ownerHeaders })),
+    );
+    expect(afterConstruction).toEqual({ enabled: false, logs: [] });
   });
 
   test("uses supplied runtime config throughout construction", async () => {

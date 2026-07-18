@@ -190,6 +190,16 @@ reload; `fromEnv` indicates that the server environment locks the value.
 `LoggerAdapter` remains application-owned and can adapt the state to any
 logging library.
 
+### In-memory server logs
+
+Admins can enable temporary server-log capture from Developer Settings next to
+the log-level selector. The framework exposes the current state in
+`/api/config`; it starts disabled on every process start and is never stored in
+the database. Admin clients can retrieve a bounded chronological snapshot from
+`GET /api/server/logs` after enabling capture. The buffer is limited to the
+newest 1,000 framework logger entries or 512 KiB of rendered log lines, and
+turning the setting off clears it.
+
 ### Transient notifications
 
 The standard `renderWebApp` runtime provides the framework notification service
