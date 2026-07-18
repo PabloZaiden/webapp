@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { createWebAppServer, defineRoutes, jsonResponse, parseJson, parseOptionalJson, sqliteWebAppStore, type ResourceRealtimeEvent, type WebAppStore } from "@pablozaiden/webapp/server";
+import { createLogger, createWebAppServer, defineRoutes, jsonResponse, parseJson, parseOptionalJson, sqliteWebAppStore, type ResourceRealtimeEvent, type WebAppStore } from "@pablozaiden/webapp/server";
 import { createNotesTodoStore, type NotesTodoStore } from "./app-store";
 import favicon from "./favicon.svg";
 
 type NotesTodoEvent = ResourceRealtimeEvent;
+const log = createLogger("notes-todo");
 
 function nowIso() {
   return new Date().toISOString();
@@ -60,7 +61,9 @@ function createNotesTodoRoutes(store: WebAppStore, appStore: NotesTodoStore) {
       GET: (_req, ctx) => {
         const user = ctx.requireUser();
         ensureSeedData(store, appStore, user.id);
-        return jsonResponse(ctx.filterOwned(appStore.listSections(user.id)));
+        const sections = ctx.filterOwned(appStore.listSections(user.id));
+        log.info("Listed sections", { userId: user.id, count: sections.length });
+        return jsonResponse(sections);
       },
       async POST(req, ctx) {
         const user = ctx.requireUser();
@@ -77,7 +80,9 @@ function createNotesTodoRoutes(store: WebAppStore, appStore: NotesTodoStore) {
       GET: (_req, ctx) => {
         const user = ctx.requireUser();
         ensureSeedData(store, appStore, user.id);
-        return jsonResponse(ctx.filterOwned(appStore.listNotes(user.id)));
+        const notes = ctx.filterOwned(appStore.listNotes(user.id));
+        log.info("Listed notes", { userId: user.id, count: notes.length });
+        return jsonResponse(notes);
       },
       async POST(req, ctx) {
         const user = ctx.requireUser();

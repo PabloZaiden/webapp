@@ -1,14 +1,12 @@
 import { useState } from "react";
-import type { LogLevelName, WebAppConfigResponse } from "../../contracts";
+import { VALID_LOG_LEVELS, type LogLevelName, type WebAppConfigResponse } from "../../contracts";
 import { appJson } from "../api-client";
 import { Badge, Button, CheckboxField, ErrorState, FormSection, LoadingState, SelectField } from "../components";
 import { useLogLevel } from "../log-level";
 import { isThemePreference, useTheme } from "../theme";
 
-const LOG_LEVEL_NAMES = ["trace", "debug", "info", "warn", "error"] as const satisfies readonly LogLevelName[];
-
 function isLogLevelName(value: string): value is LogLevelName {
-  return LOG_LEVEL_NAMES.some((level) => level === value);
+  return VALID_LOG_LEVELS.some((level) => level === value);
 }
 
 export interface AccountSectionProps {
@@ -102,7 +100,7 @@ export function AccountSection({ config, refresh, setError }: AccountSectionProp
               disabled={logLevel.fromEnv === true || logLevel.loading || logLevelSaving}
               onChange={(event) => void updateLogLevel(event.currentTarget.value)}
             >
-              {LOG_LEVEL_NAMES.map((level) => <option key={level} value={level}>{level}</option>)}
+              {VALID_LOG_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}
             </SelectField>
           ) : null}
           <CheckboxField

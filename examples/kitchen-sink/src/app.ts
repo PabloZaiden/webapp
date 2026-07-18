@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { createWebAppServer, defineRoutes, jsonResponse, parseJson, sqliteWebAppStore, type ResourceRealtimeEvent, type WebAppStore } from "@pablozaiden/webapp/server";
+import { createLogger, createWebAppServer, defineRoutes, jsonResponse, parseJson, sqliteWebAppStore, type ResourceRealtimeEvent, type WebAppStore } from "@pablozaiden/webapp/server";
 import { createKitchenSinkStore, type KitchenSinkStore } from "./app-store";
 import favicon from "./favicon.svg";
 
 type Event = ResourceRealtimeEvent;
+const log = createLogger("kitchen-sink");
 
 function ensureSeedProjects(store: WebAppStore, appStore: KitchenSinkStore, userId: string) {
   if (store.getOwnerUser()?.id !== userId) return;
@@ -27,12 +28,15 @@ function createKitchenSinkRoutes(store: WebAppStore, appStore: KitchenSinkStore)
       GET: (_req, ctx) => {
         const user = ctx.requireUser();
         ensureSeedProjects(store, appStore, user.id);
-        return jsonResponse(ctx.filterOwned(appStore.listProjects(user.id)));
+        const projects = ctx.filterOwned(appStore.listProjects(user.id));
+        log.info("Listed projects", { userId: user.id, count: projects.length });
+        return jsonResponse(projects);
       },
       async POST(req, ctx) {
         const user = ctx.requireUser();
         const body = await parseJson(req, projectCreateSchema);
         const project = appStore.createProject({ id: crypto.randomUUID(), userId: user.id, name: body.name, status: "idle", updatedAt: new Date().toISOString() });
+        log.info("Created project", { userId: user.id, projectId: project.id });
         ctx.userRealtime.publishEntityChanged("projects", project.id);
         return jsonResponse(project);
       },

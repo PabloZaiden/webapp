@@ -1,21 +1,22 @@
-import type { LogLevelName, ServerLogEntry } from "../contracts";
-
-const ORDER: Record<LogLevelName, number> = {
-  trace: 10,
-  debug: 20,
-  info: 30,
-  warn: 40,
-  error: 50,
-};
+import { inspect } from "node:util";
+import { Logger, type ILogObj, type IMeta } from "tslog";
+import {
+  DEFAULT_LOG_LEVEL,
+  LOG_LEVEL_NAMES,
+  LOG_LEVELS,
+  VALID_LOG_LEVELS,
+  type LogLevelName,
+  type ServerLogEntry,
+} from "../contracts";
 
 export const MAX_IN_MEMORY_LOG_ENTRIES = 1_000;
 export const MAX_IN_MEMORY_LOG_BYTES = 512 * 1024;
 
-let currentLevel: LogLevelName = "info";
 let inMemoryLogStorageEnabled = false;
 let inMemoryLogEntries: ServerLogEntry[] = [];
 let inMemoryLogBytes = 0;
 const textEncoder = new TextEncoder();
+const subLoggers = new Map<string, Logger<ILogObj>>();
 
 export interface InMemoryLogStorage {
   isEnabled(): boolean;
@@ -24,12 +25,8 @@ export interface InMemoryLogStorage {
   reset(): void;
 }
 
-export function setLogLevel(level: LogLevelName): void {
-  currentLevel = level;
-}
-
-export function getLogLevel(): LogLevelName {
-  return currentLevel;
+function isLogLevelName(value: unknown): value is LogLevelName {
+  return typeof value === "string" && VALID_LOG_LEVELS.includes(value as LogLevelName);
 }
 
 function lineByteLength(line: string): number {
@@ -53,6 +50,100 @@ function appendInMemoryLogEntry(entry: ServerLogEntry): void {
     }
     inMemoryLogBytes -= lineByteLength(removed.line);
   }
+}
+
+function formatValue(value: unknown): string {
+  if (value === undefined) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value instanceof Error) {
+    return `${value.name}: ${value.message}`;
+  }
+  if (typeof value === "object" && value !== null && "message" in value) {
+    const record = value as { message?: unknown; name?: unknown };
+    if (typeof record.message === "string") {
+      return typeof record.name === "string" ? `${record.name}: ${record.message}` : record.message;
+    }
+  }
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function appendTslogEntry(metadata: IMeta, line: string, logArgs: unknown[], logErrors: string[]): void {
+  const level = LOG_LEVEL_NAMES[metadata.logLevelId] ?? (metadata.logLevelName.toLowerCase() as LogLevelName);
+  if (!isLogLevelName(level)) {
+    return;
+  }
+  const timestamp = metadata.date.toISOString();
+  const scope = typeof metadata.name === "string" && metadata.name ? metadata.name : "webapp";
+  const message = formatValue(logArgs[0] ?? logErrors[0] ?? "");
+  appendInMemoryLogEntry({
+    timestamp,
+    level,
+    scope,
+    message,
+    line,
+  });
+}
+
+function renderConsoleValue(value: unknown): string {
+  return typeof value === "string" ? value : inspect(value, { colors: false, compact: true, depth: Infinity });
+}
+
+function transportFormatted(logMetaMarkup: string, logArgs: unknown[], logErrors: string[], logMeta?: IMeta): void {
+  const errors = (logErrors.length > 0 && logArgs.length > 0 ? "\n" : "") + logErrors.join("\n");
+  const line = `${logMetaMarkup}${logArgs.map(renderConsoleValue).join(" ")}${errors}`;
+  const level = LOG_LEVEL_NAMES[logMeta?.logLevelId ?? LOG_LEVELS.info] ?? DEFAULT_LOG_LEVEL;
+  if (level === "fatal" || level === "error") {
+    console.error(line);
+  } else if (level === "warn") {
+    console.warn(line);
+  } else {
+    console.log(line);
+  }
+  if (logMeta) {
+    appendTslogEntry(logMeta, line, logArgs, logErrors);
+  }
+}
+
+export const log = new Logger<ILogObj>({
+  name: "webapp",
+  minLevel: LOG_LEVELS[DEFAULT_LOG_LEVEL],
+  prettyLogTimeZone: "UTC",
+  stylePrettyLogs: false,
+  prettyInspectOptions: { colors: false, compact: true, depth: Infinity },
+  overwrite: { transportFormatted },
+});
+
+export function createLogger(scope: string): Logger<ILogObj> {
+  const existing = subLoggers.get(scope);
+  if (existing) {
+    return existing;
+  }
+  const logger = log.getSubLogger({ name: scope });
+  subLoggers.set(scope, logger);
+  return logger;
+}
+
+export function setLogLevel(level: LogLevelName): void {
+  if (!isLogLevelName(level)) {
+    throw new Error(`Invalid log level: ${String(level)}`);
+  }
+  const numericLevel = LOG_LEVELS[level];
+  log.settings.minLevel = numericLevel;
+  for (const subLogger of subLoggers.values()) {
+    subLogger.settings.minLevel = numericLevel;
+  }
+}
+
+export function getLogLevel(): LogLevelName {
+  return LOG_LEVEL_NAMES[log.settings.minLevel] ?? DEFAULT_LOG_LEVEL;
 }
 
 export function setInMemoryLogStorageEnabled(enabled: boolean): void {
@@ -83,29 +174,3 @@ export const inMemoryLogStorage: InMemoryLogStorage = {
   getEntries: getInMemoryLogEntries,
   reset: resetInMemoryLogStorage,
 };
-
-export function createLogger(scope: string) {
-  function log(level: LogLevelName, message: string, fields?: Record<string, unknown>): void {
-    if (ORDER[level] < ORDER[currentLevel]) {
-      return;
-    }
-    const timestamp = new Date().toISOString();
-    const suffix = fields ? ` ${JSON.stringify(fields)}` : "";
-    const line = `${timestamp}\t${level.toUpperCase()}\t${scope}\t${message}${suffix}`;
-    appendInMemoryLogEntry({ timestamp, level, scope, message, line });
-    if (level === "error") {
-      console.error(line);
-    } else if (level === "warn") {
-      console.warn(line);
-    } else {
-      console.log(line);
-    }
-  }
-  return {
-    trace: (message: string, fields?: Record<string, unknown>) => log("trace", message, fields),
-    debug: (message: string, fields?: Record<string, unknown>) => log("debug", message, fields),
-    info: (message: string, fields?: Record<string, unknown>) => log("info", message, fields),
-    warn: (message: string, fields?: Record<string, unknown>) => log("warn", message, fields),
-    error: (message: string, fields?: Record<string, unknown>) => log("error", message, fields),
-  };
-}
