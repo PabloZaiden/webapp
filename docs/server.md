@@ -206,6 +206,27 @@ the newest 1,000 entries and 512 KiB of rendered UTF-8 lines; disabling capture
 clears it. These endpoints expose entries emitted through the shared WebApp
 logger and never make the logs durable.
 
+## Client logging
+
+WebApp also exposes a browser-side `tslog` service through
+`@pablozaiden/webapp/web`. Use it for application code instead of adding a
+second logger or writing application logs directly with `console.*`:
+
+```tsx
+import { createLogger, log } from "@pablozaiden/webapp/web";
+
+const projectsLog = createLogger("projects");
+
+log.info("Application UI initialized");
+projectsLog.debug("Loaded projects", { count: 12 });
+```
+
+The client service provides the same seven levels as the server service and
+writes to the browser console. `WebAppRoot` automatically synchronizes its
+effective level with the shared framework configuration, including changes
+made from Developer Settings. Client logs are browser-local and are not
+included in the server's `/api/server/logs` snapshot.
+
 Server-side applications that need credentials for internal runtimes should use
 the server-only `createManagedApiKey`, `listManagedApiKeys`, and
 `revokeManagedApiKey` helpers. Managed keys are persisted in the same API-key
