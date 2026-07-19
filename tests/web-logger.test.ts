@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { LOG_LEVELS } from "../src/contracts";
 import { createLogger, getLogLevel, setLogLevel } from "../src/web/logger";
 
 afterEach(() => {
@@ -13,11 +14,11 @@ describe("web logger", () => {
 
     setLogLevel("debug");
     expect(getLogLevel()).toBe("debug");
-    expect(logger.settings.minLevel).toBe(2);
+    expect(logger.settings.minLevel).toBe(LOG_LEVELS.debug);
 
     setLogLevel("fatal");
     expect(getLogLevel()).toBe("fatal");
-    expect(logger.settings.minLevel).toBe(6);
+    expect(logger.settings.minLevel).toBe(LOG_LEVELS.fatal);
   });
 
   test("rejects invalid log levels", () => {

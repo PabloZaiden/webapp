@@ -165,8 +165,8 @@ create an application-owned logger or write application logs directly with
 ```tsx
 import { createLogger } from "@pablozaiden/webapp/web";
 
-const log = createLogger("projects");
-log.debug("Loaded projects", { count: 12 });
+const projectsLog = createLogger("projects");
+projectsLog.debug("Loaded projects", { count: 12 });
 ```
 
 `WebAppRoot` synchronizes the client logger with the effective level from its
