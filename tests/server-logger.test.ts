@@ -100,7 +100,9 @@ describe("in-memory server logs", () => {
       expect(getLogLevel()).toBe("fatal");
       logger.error("filtered after level change");
       logger.fatal("retained after level change");
-      expect(getInMemoryLogEntries().at(-1)?.message).toBe("retained after level change");
+      const entriesAfterLevelChange = getInMemoryLogEntries();
+      expect(entriesAfterLevelChange.some((entry) => entry.message === "filtered after level change")).toBe(false);
+      expect(entriesAfterLevelChange.at(-1)?.message).toBe("retained after level change");
     } finally {
       restoreConsole();
     }

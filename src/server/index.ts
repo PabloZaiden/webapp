@@ -6,8 +6,6 @@ export * from "./public-assets";
 export * from "./create-web-app-server";
 export {
   DEFAULT_LOG_LEVEL,
-  LOG_LEVEL_NAMES,
-  LOG_LEVELS,
   VALID_LOG_LEVELS,
   type LogLevelName,
 } from "../contracts";
