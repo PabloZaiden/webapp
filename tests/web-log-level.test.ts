@@ -8,6 +8,7 @@ import { configureWebAppClient } from "../src/web/api-client";
 import { useLogLevel } from "../src/web";
 import { WebAppRoot } from "../src/web/WebAppRoot";
 import { configureWebAppRenderer } from "../src/web/render";
+import { getLogLevel, setLogLevel } from "../src/web/logger";
 import type { WebAppRootProps } from "../src/web/root-types";
 
 if (!GlobalRegistrator.isRegistered) {
@@ -26,6 +27,7 @@ afterEach(() => {
   document.body.innerHTML = "";
   localStorage.clear();
   configureWebAppClient();
+  setLogLevel("info");
   window.history.replaceState(null, "", "http://localhost/");
 });
 
@@ -126,6 +128,7 @@ describe("web log-level state", () => {
     try {
       const view = renderApp();
       await waitFor(() => expect(view.getByLabelText("log level state").textContent).toBe("debug:locked"));
+      expect(getLogLevel()).toBe("debug");
       expect(requests.filter((path) => path === "/api/config")).toHaveLength(1);
       expect(requests.includes("/api/preferences/log-level")).toBe(false);
     } finally {
@@ -163,6 +166,7 @@ describe("web log-level state", () => {
       fireEvent.change(selector, { target: { value: "warn" } });
 
       await waitFor(() => expect(view.getByLabelText("log level state").textContent).toBe("warn:open"));
+      expect(getLogLevel()).toBe("warn");
       expect((selector as HTMLSelectElement).value).toBe("warn");
       expect(putCalls).toBe(1);
       expect(configCalls).toBe(2);

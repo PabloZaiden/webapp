@@ -156,44 +156,31 @@ function ThemeAwareRoute() {
 resolved value. Do not inspect or mutate framework-owned root classes or
 attributes to infer theme state.
 
-### Client log-level state
+### Client logging and log-level state
 
-The framework loads the effective client log level as part of the shared
-`WebAppRoot` configuration request. Components rendered inside `WebAppRoot`
-can subscribe with `useLogLevel()`; they should not fetch framework
-configuration or `/api/preferences/log-level` in an app-local initializer:
+Use the shared browser `tslog` service from `@pablozaiden/webapp/web`; do not
+create an application-owned logger or write application logs directly with
+`console.*`:
 
 ```tsx
-import { useEffect } from "react";
-import { useLogLevel } from "@pablozaiden/webapp/web";
-import type { LogLevelName } from "@pablozaiden/webapp/contracts";
+import { createLogger } from "@pablozaiden/webapp/web";
 
-function LoggerAdapter({ setLevel }: { setLevel: (level: LogLevelName) => void }) {
-  const { level, fromEnv, loading, error, retry } = useLogLevel();
-
-  useEffect(() => {
-    if (level !== undefined) {
-      setLevel(level);
-    }
-  }, [level, setLevel]);
-
-  if (error) {
-    return <button type="button" onClick={() => void retry()}>Retry log-level configuration</button>;
-  }
-  if (loading || level === undefined) {
-    return null;
-  }
-
-  return <span aria-hidden="true">{fromEnv ? "Log level is environment-controlled." : null}</span>;
-}
+const log = createLogger("projects");
+log.debug("Loaded projects", { count: 12 });
 ```
+
+`WebAppRoot` synchronizes the client logger with the effective level from its
+shared configuration request. The seven levels are `silly`, `trace`, `debug`,
+`info`, `warn`, `error`, and `fatal`; the setting is shared with server
+logging. Use `useLogLevel()` only when UI code needs to display the current
+level or its environment-controlled state. Applications should not fetch
+framework configuration or `/api/preferences/log-level` to configure logging.
 
 `level` and `fromEnv` are unavailable until valid framework configuration has
 loaded. Do not substitute a default level when `error` is set. The framework
-Settings control owns persistence and updates the shared state without a page
-reload; `fromEnv` indicates that the server environment locks the value.
-`LoggerAdapter` remains application-owned and can adapt the state to any
-logging library.
+Settings control owns persistence and updates the shared client and server
+logger levels without a page reload; `fromEnv` indicates that the server
+environment locks the value.
 
 ### In-memory server logs
 

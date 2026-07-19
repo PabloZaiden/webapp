@@ -11,6 +11,7 @@ import type { HeaderContext, WebAppRootProps } from "./root-types";
 import type { ActionMenuItem, SidebarNode, WebAppRoute } from "./sidebar/types";
 import { ThemeProvider } from "./theme";
 import { WebAppConfigProvider, useWebAppConfig } from "./webapp-config";
+import { setLogLevel } from "./logger";
 
 export { replaceHashRoute, replaceWebAppRoute, routeToHash } from "./routing";
 export type {
@@ -195,6 +196,13 @@ function WebAppRootContent({
 
 function WebAppRootWithConfig(props: WebAppRootProps) {
   const { config, error, refresh } = useWebAppConfig();
+
+  useEffect(() => {
+    if (config) {
+      setLogLevel(config.logLevel.level);
+    }
+  }, [config?.logLevel.level]);
+
   return (
     <ThemeProvider userId={config?.currentUser?.id}>
       <WebAppRootContent {...props} config={config} error={error} refresh={refresh} />
