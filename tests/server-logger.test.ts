@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   createLogger,
+  getLogLevel,
   getInMemoryLogEntries,
   MAX_IN_MEMORY_LOG_BYTES,
   MAX_IN_MEMORY_LOG_ENTRIES,
@@ -63,6 +64,45 @@ describe("in-memory server logs", () => {
 
       setInMemoryLogStorageEnabled(false);
       expect(getInMemoryLogEntries()).toEqual([]);
+    } finally {
+      restoreConsole();
+    }
+  });
+
+  test("supports all tslog levels and synchronizes cached sub-loggers", () => {
+    const restoreConsole = silenceConsole();
+    try {
+      setInMemoryLogStorageEnabled(true);
+      setLogLevel("silly");
+      const logger = createLogger("levels");
+      expect(createLogger("levels")).toBe(logger);
+
+      logger.silly("silly");
+      logger.trace("trace");
+      logger.debug("debug");
+      logger.info("info");
+      logger.warn("warn");
+      logger.error("error");
+      logger.fatal("fatal");
+
+      expect(getInMemoryLogEntries().map((entry) => entry.level)).toEqual([
+        "silly",
+        "trace",
+        "debug",
+        "info",
+        "warn",
+        "error",
+        "fatal",
+      ]);
+      expect(getInMemoryLogEntries().every((entry) => entry.line.includes(entry.message))).toBe(true);
+
+      setLogLevel("fatal");
+      expect(getLogLevel()).toBe("fatal");
+      logger.error("filtered after level change");
+      logger.fatal("retained after level change");
+      const entriesAfterLevelChange = getInMemoryLogEntries();
+      expect(entriesAfterLevelChange.some((entry) => entry.message === "filtered after level change")).toBe(false);
+      expect(entriesAfterLevelChange.at(-1)?.message).toBe("retained after level change");
     } finally {
       restoreConsole();
     }

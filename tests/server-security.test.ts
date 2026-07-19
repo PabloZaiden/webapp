@@ -3,11 +3,10 @@ import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { RealtimeBus, createWebAppPublicAsset, createWebAppServer, defineRoutes, getRequestBaseUrl, getRequestOriginInfo, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent, type RuntimeConfig } from "@pablozaiden/webapp/server";
+import { RealtimeBus, createLogger, createWebAppPublicAsset, createWebAppServer, defineRoutes, getRequestBaseUrl, getRequestOriginInfo, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent, type RuntimeConfig } from "@pablozaiden/webapp/server";
 import { authenticateApiKey, createApiKey, createManagedApiKey, listManagedApiKeys, revokeManagedApiKey } from "../src/server/auth/api-keys";
 import { sha256 } from "../src/server/auth/crypto";
 import { readRuntimeConfig, resolveEffectiveLogLevel, safeRuntimeConfig } from "../src/server/runtime-config";
-import { createLogger } from "../src/server/logger";
 import type { UserRecord, WebAppStore } from "../src/server/auth/store";
 
 const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
@@ -311,6 +310,41 @@ describe("server security defaults", () => {
     expect(afterConstruction).toEqual({ enabled: false, logs: [] });
   });
 
+  test("initializes in-memory capture from the prefixed environment setting", async () => {
+    const envPrefix = "TEST_IN_MEMORY_LOGS_ENV";
+    await withEnv({
+      [`${envPrefix}_IN_MEMORY_LOGS`]: "true",
+      [`${envPrefix}_LOG_LEVEL`]: "silly",
+    }, async () => {
+      const store = testStore("in-memory-logs-env");
+      store.initialize();
+      const owner = configuredUser(store);
+      const ownerKey = createManagedApiKey(store, currentUser(owner), { managedBy: "logs-env-test" });
+      const app = createWebAppServer({
+        appName: "Test",
+        envPrefix,
+        store,
+        auth: { passkeys: false, apiKeys: true },
+        routes: defineRoutes({}),
+      });
+
+      const config = await responseJson<{ logLevel: { level: string; fromEnv: boolean }; inMemoryLogs: { enabled: boolean } }>(
+        await app.handleRequest(new Request("http://localhost/api/config")),
+      );
+      expect(config.logLevel).toEqual({ level: "silly", fromEnv: true });
+      expect(config.inMemoryLogs).toEqual({ enabled: true });
+
+      createLogger("env-test").debug("captured before toggle");
+      const logs = await responseJson<{ enabled: boolean; logs: Array<{ message: string; level: string }> }>(
+        await app.handleRequest(new Request("http://localhost/api/server/logs", {
+          headers: { authorization: `Bearer ${ownerKey.token}` },
+        })),
+      );
+      expect(logs.enabled).toBe(true);
+      expect(logs.logs).toContainEqual(expect.objectContaining({ level: "debug", message: "captured before toggle" }));
+    });
+  });
+
   test("uses supplied runtime config throughout construction", async () => {
     const envPrefix = "TEST_SUPPLIED_RUNTIME_CONFIG";
     const dataDir = join(tmpdir(), `webapp-supplied-runtime-config-${crypto.randomUUID()}`);
@@ -322,6 +356,7 @@ describe("server security defaults", () => {
       dataDir,
       logLevel: "debug",
       logLevelFromEnv: true,
+      inMemoryLogsEnabled: false,
       passkeyDisabled: true,
       sameOriginDisabled: true,
       publicBaseUrl: "https://public.example.test",
@@ -388,6 +423,7 @@ describe("server security defaults", () => {
       dataDir: join(tmpdir(), `webapp-mismatched-runtime-config-${crypto.randomUUID()}`),
       logLevel: "info",
       logLevelFromEnv: false,
+      inMemoryLogsEnabled: false,
       passkeyDisabled: true,
       sameOriginDisabled: true,
       trustProxy: { enabled: false, headers: [], chain: "first" },

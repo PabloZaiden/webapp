@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { VALID_LOG_LEVELS } from "../contracts";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 
 const nonEmptyString = z.string().min(1);
@@ -140,7 +141,7 @@ export const themePreferenceRequestSchema = z.object({
 });
 
 export const logLevelPreferenceRequestSchema = z.object({
-  level: z.enum(["trace", "debug", "info", "warn", "error"]),
+  level: z.enum(VALID_LOG_LEVELS),
 });
 
 export const inMemoryLogSettingsRequestSchema = z.object({

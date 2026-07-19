@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { WebAppConfigResponse } from "../contracts";
+import { VALID_LOG_LEVELS, type WebAppConfigResponse } from "../contracts";
 import { appJson } from "./api-client";
 
 export interface WebAppConfigState {
@@ -16,7 +16,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isLogLevelName(value: unknown): boolean {
-  return value === "trace" || value === "debug" || value === "info" || value === "warn" || value === "error";
+  return typeof value === "string" && VALID_LOG_LEVELS.includes(value as WebAppConfigResponse["logLevel"]["level"]);
 }
 
 function isCurrentUser(value: unknown): boolean {

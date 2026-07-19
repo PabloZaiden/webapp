@@ -4,10 +4,11 @@ Apps are one Bun application: backend routes, websocket, React UI and static ass
 
 ```ts
 import { z } from "zod";
-import { createWebAppServer, defineRoutes, jsonResponse, parseJson } from "@pablozaiden/webapp/server";
+import { createLogger, createWebAppServer, defineRoutes, jsonResponse, parseJson } from "@pablozaiden/webapp/server";
 
 const items: Array<{ id: string; userId: string; title: string }> = [];
 const itemCreateSchema = z.object({ title: z.string() });
+const log = createLogger("items");
 
 const routes = defineRoutes({
   "/api/items": {
@@ -16,7 +17,11 @@ const routes = defineRoutes({
     description: "List or create items.",
     cliPath: "items",
     tags: ["items"],
-    GET: (_req, ctx) => jsonResponse(ctx.filterOwned(items)),
+    GET: (_req, ctx) => {
+      const ownedItems = ctx.filterOwned(items);
+      log.info("Listed items", { count: ownedItems.length });
+      return jsonResponse(ownedItems);
+    },
     async POST(req, ctx) {
       const user = ctx.requireUser();
       const body = await parseJson(req, itemCreateSchema);
@@ -193,7 +198,7 @@ logging library.
 ### In-memory server logs
 
 Admins can enable temporary server-log capture from Developer Settings next to
-the log-level selector. The framework exposes the current state in
+the log-level selector. The shared WebApp server logger exposes the current state in
 `/api/config`; it starts disabled on every process start and is never stored in
 the database. Admin clients can retrieve a bounded chronological snapshot from
 `GET /api/server/logs` after enabling capture. The buffer is limited to the
@@ -293,7 +298,8 @@ The app configures an uppercase `envPrefix`; the framework reads only variables 
 | `{PREFIX}_HOST` | `localhost` | Bind host |
 | `{PREFIX}_PORT` | `3000` | Bind port |
 | `{PREFIX}_DATA_DIR` | `./data` | Durable SQLite persistence directory for framework auth and app data |
-| `{PREFIX}_LOG_LEVEL` | `info` | `trace`, `debug`, `info`, `warn`, `error`; locks settings log-level control when set |
+| `{PREFIX}_LOG_LEVEL` | `info` | `silly`, `trace`, `debug`, `info`, `warn`, `error`, `fatal`; locks settings log-level control when set |
+| `{PREFIX}_IN_MEMORY_LOGS` | `false` | Initial value for process-local server-log capture; `true`, `1`, or `yes` enables it |
 | `{PREFIX}_DISABLE_PASSKEY` | unset | Emergency bypass that logs in as the existing owner; it does not create users |
 | `{PREFIX}_DISABLE_SAME_ORIGIN_CHECK` | unset | Development/testing escape hatch |
 | `{PREFIX}_TRUST_PROXY` | `false` | Explicitly trust the documented `X-Forwarded-*` headers; keep disabled for direct deployments |

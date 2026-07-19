@@ -9,7 +9,7 @@ Settings is framework-owned so apps stay consistent. It includes:
 - Admin user management
 - Admin log-level preference unless `{PREFIX}_LOG_LEVEL` is set
 - Admin in-memory server-log capture toggle; disabled and cleared on process
-  start or when turned off
+  start or when turned off; `{PREFIX}_IN_MEMORY_LOGS` can enable it initially
 - Admin server kill
 - Version/about
 
@@ -36,10 +36,11 @@ the shared hook state after a successful save, and `fromEnv` is true when
 configuration fetch or initializer component.
 
 Developer Settings also includes **Store server logs in memory**. It is an
-admin-only, process-local setting and is disabled when the server starts. When
-enabled, the framework logger retains only the newest 1,000 eligible entries
-within a 512 KiB rendered-line limit; disabling it immediately clears the
-buffer. The setting and captured logs are never stored in SQLite.
+admin-only, process-local setting and is disabled when the server starts unless
+`{PREFIX}_IN_MEMORY_LOGS` is set to `true`, `1`, or `yes`. When enabled, the
+shared `tslog` service retains only the newest 1,000 eligible entries within a
+512 KiB rendered-line limit; disabling it immediately clears the buffer. The
+setting and captured logs are never stored in SQLite.
 
 Security lists only show useful active user credentials. Managed API keys created by
 server-side applications, and their metadata, are not returned by the browser API-key

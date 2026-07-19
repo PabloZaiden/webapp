@@ -138,6 +138,36 @@ the constructor inputs. Do not mutate `app.config` after construction to
 replace constructor options; omit `runtimeConfig` when the framework should read
 the environment itself.
 
+## Server logging
+
+WebApp exposes one server-side `tslog` service for the framework and
+application code. Use the root logger or a cached sub-logger from
+`@pablozaiden/webapp/server`; do not add a second server logger in the app:
+
+```ts
+import { createLogger, log } from "@pablozaiden/webapp/server";
+
+const projectsLog = createLogger("projects");
+
+log.info("Application initialized");
+projectsLog.debug("Loaded projects", { count: 12 });
+```
+
+The available levels, from most to least verbose, are `silly`, `trace`,
+`debug`, `info`, `warn`, `error`, and `fatal`. The effective level is shared by
+the root logger and all cached sub-loggers. It is selected from
+`{PREFIX}_LOG_LEVEL`, a persisted administrator preference, or `info` by
+default, in that order.
+
+Every emitted entry is written through `tslog` to the appropriate stdout or
+stderr stream. When in-memory capture is enabled, the same rendered entries
+from both framework and application loggers are also retained in the
+process-local buffer. Capture is disabled by default and can be initialized
+with `{PREFIX}_IN_MEMORY_LOGS=true`; an administrator can then change the
+runtime toggle from Developer Settings. The environment value is an initial
+value, not a lock, and capture is cleared when disabled or when the process
+starts.
+
 Built-in endpoints include:
 
 | Endpoint | Purpose |
@@ -167,13 +197,13 @@ returns a conflict when the environment controls the value.
 `GET /api/server/logs` is restricted to admin users and returns
 `{ enabled: boolean, logs: ServerLogEntry[] }`. Entries are returned in
 chronological order and contain the timestamp, level, logger scope, message,
-and rendered log line. When capture is disabled, the endpoint returns `200`
-with `enabled: false` and an empty list. `PUT /api/server/logs/settings`
+and the rendered `tslog` line. When capture is disabled, the endpoint returns
+`200` with `enabled: false` and an empty list. `PUT /api/server/logs/settings`
 accepts `{ "enabled": boolean }`, is restricted to admins, and uses the normal
 same-origin policy for browser mutations. API-key and bearer callers continue
 to use the existing token-auth behavior. The in-memory buffer is limited to
 the newest 1,000 entries and 512 KiB of rendered UTF-8 lines; disabling capture
-clears it. These endpoints only expose messages emitted through the framework
+clears it. These endpoints expose entries emitted through the shared WebApp
 logger and never make the logs durable.
 
 Server-side applications that need credentials for internal runtimes should use

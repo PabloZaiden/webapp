@@ -1,4 +1,4 @@
-import type { LogLevelName } from "../contracts";
+import { DEFAULT_LOG_LEVEL, VALID_LOG_LEVELS, type LogLevelName } from "../contracts";
 
 export const TRUST_PROXY_HEADERS = ["proto", "host", "prefix"] as const;
 export type TrustProxyHeader = typeof TRUST_PROXY_HEADERS[number];
@@ -18,6 +18,7 @@ export interface RuntimeConfig {
   dataDir: string;
   logLevel: LogLevelName;
   logLevelFromEnv: boolean;
+  inMemoryLogsEnabled: boolean;
   passkeyDisabled: boolean;
   sameOriginDisabled: boolean;
   publicBaseUrl?: string;
@@ -26,10 +27,8 @@ export interface RuntimeConfig {
   development: false | { hmr: true; console: true };
 }
 
-const LOG_LEVELS = new Set<LogLevelName>(["trace", "debug", "info", "warn", "error"]);
-
 function isSupportedLogLevel(value: unknown): value is LogLevelName {
-  return typeof value === "string" && LOG_LEVELS.has(value as LogLevelName);
+  return typeof value === "string" && VALID_LOG_LEVELS.includes(value as LogLevelName);
 }
 
 export function resolveEffectiveLogLevel(
@@ -80,7 +79,7 @@ function parseLogLevel(raw: string | undefined, fallback: LogLevelName, name: st
     return fallback;
   }
   if (!isSupportedLogLevel(raw)) {
-    throw new Error(`${name} must be one of trace, debug, info, warn, error; received "${raw}"`);
+    throw new Error(`${name} must be one of ${VALID_LOG_LEVELS.join(", ")}; received "${raw}"`);
   }
   return raw;
 }
@@ -160,7 +159,8 @@ export function readRuntimeConfig(input: {
 }): RuntimeConfig {
   const envPrefix = assertEnvPrefix(input.envPrefix);
   const logLevelRaw = readEnv(envPrefix, "LOG_LEVEL");
-  const logLevel = parseLogLevel(logLevelRaw, input.defaultLogLevel ?? "info", envName(envPrefix, "LOG_LEVEL"));
+  const logLevel = parseLogLevel(logLevelRaw, input.defaultLogLevel ?? DEFAULT_LOG_LEVEL, envName(envPrefix, "LOG_LEVEL"));
+  const inMemoryLogsEnabled = parseBoolean(readEnv(envPrefix, "IN_MEMORY_LOGS"), false, envName(envPrefix, "IN_MEMORY_LOGS"));
   const publicBaseUrl = parsePublicBaseUrl(readEnv(envPrefix, "PUBLIC_BASE_URL"), envName(envPrefix, "PUBLIC_BASE_URL"));
   const trustProxyEnabled = parseBoolean(readEnv(envPrefix, "TRUST_PROXY"), false, envName(envPrefix, "TRUST_PROXY"));
   const trustProxy = {
@@ -176,6 +176,7 @@ export function readRuntimeConfig(input: {
     dataDir: readEnv(envPrefix, "DATA_DIR") || "./data",
     logLevel,
     logLevelFromEnv: Boolean(logLevelRaw),
+    inMemoryLogsEnabled,
     passkeyDisabled: isTruthyEnv(readEnv(envPrefix, "DISABLE_PASSKEY")),
     sameOriginDisabled: isTruthyEnv(readEnv(envPrefix, "DISABLE_SAME_ORIGIN_CHECK")),
     publicBaseUrl,
@@ -194,6 +195,7 @@ export function safeRuntimeConfig(config: RuntimeConfig): Record<string, unknown
     dataDir: config.dataDir,
     logLevel: config.logLevel,
     logLevelFromEnv: config.logLevelFromEnv,
+    inMemoryLogsEnabled: config.inMemoryLogsEnabled,
     passkeyDisabled: config.passkeyDisabled,
     sameOriginDisabled: config.sameOriginDisabled,
     publicBaseUrl: config.publicBaseUrl,
