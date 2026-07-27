@@ -188,6 +188,146 @@ export function AsyncState({
   );
 }
 
+export interface StreamingTextProps {
+  content: string;
+  active?: boolean;
+  as?: "div" | "span";
+  className?: string;
+  chunkClassName?: string;
+  duration?: number;
+  maxPendingChars?: number;
+}
+
+/**
+ * Displays append-only text with one sequentially fading chunk at a time.
+ * Initial content is rendered immediately; only post-mount appends are queued.
+ */
+export function StreamingText({
+  content,
+  active = true,
+  as = "span",
+  className = "",
+  chunkClassName = "",
+  duration = MOTION_FAST_MS,
+  maxPendingChars = 16_384,
+}: StreamingTextProps) {
+  const reducedMotion = useReducedMotion();
+  const previousContentRef = useRef<string | null>(null);
+  const activeChunkRef = useRef<string | null>(null);
+  const pendingContentRef = useRef("");
+  const [committedContent, setCommittedContent] = useState(content);
+  const [activeChunk, setActiveChunk] = useState<string | null>(null);
+  const [pendingContent, setPendingContent] = useState("");
+
+  const resetToContent = useCallback((nextContent: string) => {
+    previousContentRef.current = nextContent;
+    activeChunkRef.current = null;
+    pendingContentRef.current = "";
+    setCommittedContent(nextContent);
+    setActiveChunk(null);
+    setPendingContent("");
+  }, []);
+
+  useEffect(() => {
+    if (!active || reducedMotion) {
+      resetToContent(content);
+      return;
+    }
+
+    const previousContent = previousContentRef.current;
+    previousContentRef.current = content;
+    if (previousContent === null) {
+      resetToContent(content);
+      return;
+    }
+    if (content === previousContent || !content.startsWith(previousContent)) {
+      if (content !== previousContent) {
+        resetToContent(content);
+      }
+      return;
+    }
+
+    const delta = content.slice(previousContent.length);
+    if (!delta) {
+      return;
+    }
+
+    const nextPendingLength = pendingContentRef.current.length + delta.length;
+    if (nextPendingLength > Math.max(1, maxPendingChars)) {
+      resetToContent(content);
+      return;
+    }
+
+    if (activeChunkRef.current !== null || pendingContentRef.current.length > 0) {
+      pendingContentRef.current += delta;
+      setPendingContent(pendingContentRef.current);
+      return;
+    }
+
+    activeChunkRef.current = delta;
+    setActiveChunk(delta);
+  }, [active, content, maxPendingChars, reducedMotion, resetToContent]);
+
+  useEffect(() => {
+    if (activeChunk === null) {
+      return;
+    }
+
+    if (duration <= 0 || reducedMotion) {
+      const completedChunk = activeChunkRef.current;
+      if (completedChunk !== null) {
+        activeChunkRef.current = null;
+        setCommittedContent((current) => current + completedChunk);
+        setActiveChunk(null);
+      }
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const completedChunk = activeChunkRef.current;
+      if (completedChunk === null) {
+        return;
+      }
+      activeChunkRef.current = null;
+      setCommittedContent((current) => current + completedChunk);
+      setActiveChunk(null);
+    }, duration);
+
+    return () => clearTimeout(timer);
+  }, [activeChunk, duration, reducedMotion]);
+
+  useEffect(() => {
+    if (activeChunk !== null || !pendingContent) {
+      return;
+    }
+
+    const nextChunk = pendingContentRef.current;
+    if (!nextChunk) {
+      return;
+    }
+    pendingContentRef.current = "";
+    setPendingContent("");
+    activeChunkRef.current = nextChunk;
+    setActiveChunk(nextChunk);
+  }, [activeChunk, pendingContent]);
+
+  const Element = as;
+  if (!active || reducedMotion) {
+    return <Element className={className}>{content}</Element>;
+  }
+
+  return (
+    <Element className={className} data-wapp-streaming-text="active">
+      {committedContent}
+      {activeChunk ? (
+        <span className={`wapp-streaming-text-chunk wapp-motion-enter ${chunkClassName}`.trim()}>
+          {activeChunk}
+        </span>
+      ) : null}
+    </Element>
+  );
+}
+
 /**
  * Animates keyed children entering and leaving a collection. Callers should
  * provide stable keys so a refresh does not turn an existing item into a new

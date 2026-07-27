@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { act, useState } from "react";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
-import { AnimatedList, Collapsible, TabPanel, TabPanels, Tabs } from "../src/web";
+import { AnimatedList, Collapsible, StreamingText, TabPanel, TabPanels, Tabs } from "../src/web";
 
 async function ensureHappyDom() {
   if (
@@ -47,6 +47,19 @@ async function waitForExit(query: () => Element | null): Promise<void> {
   throw new Error("Timed out waiting for motion exit.");
 }
 
+async function waitForText(query: () => string, expected: string): Promise<void> {
+  const deadline = Date.now() + 500;
+  while (Date.now() < deadline) {
+    if (query() === expected) {
+      return;
+    }
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+  }
+  throw new Error(`Timed out waiting for text: ${expected}`);
+}
+
 describe("framework motion primitives", () => {
   test("keeps collapsible content mounted during exit and removes it after the transition", async () => {
     function Harness() {
@@ -87,6 +100,31 @@ describe("framework motion primitives", () => {
     expect(view.getByText("alpha")).toBeTruthy();
     await waitForExit(() => view.queryByText("alpha"));
     expect(within(view.container).getByText("beta")).toBeTruthy();
+  });
+
+  test("queues streaming appends behind one active chunk and preserves the final text", async () => {
+    function Harness() {
+      const [content, setContent] = useState("Initial");
+      return (
+        <>
+          <button type="button" onClick={() => setContent((current) => `${current} first`)}>Append first</button>
+          <button type="button" onClick={() => setContent((current) => `${current} second`)}>Append second</button>
+          <StreamingText as="div" content={content} duration={20} />
+        </>
+      );
+    }
+
+    const view = render(<Harness />);
+    const appendFirst = view.getByRole("button", { name: "Append first" });
+    const appendSecond = view.getByRole("button", { name: "Append second" });
+    const getStream = () => view.container.querySelector("[data-wapp-streaming-text='active']");
+
+    fireEvent.click(appendFirst);
+    expect(getStream()?.querySelectorAll(".wapp-streaming-text-chunk").length).toBe(1);
+    fireEvent.click(appendSecond);
+    expect(getStream()?.querySelectorAll(".wapp-streaming-text-chunk").length).toBe(1);
+
+    await waitForText(() => getStream()?.textContent ?? "", "Initial first second");
   });
 
   test("provides accessible tab navigation and transitions tab panels", async () => {
