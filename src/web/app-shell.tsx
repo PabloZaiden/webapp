@@ -143,7 +143,17 @@ export function AppShell({
             tabIndex={0}
             aria-label="Close sidebar"
             aria-hidden={state === "exit" ? true : undefined}
-            onClick={closeSidebar}
+            onPointerDown={(event) => {
+              if (event.button === 0) {
+                event.preventDefault();
+                closeSidebar();
+              }
+            }}
+            onClick={(event) => {
+              if (event.detail === 0) {
+                closeSidebar();
+              }
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
