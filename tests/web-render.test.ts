@@ -1153,8 +1153,28 @@ test("mobile sidebar backdrop closes the open sidebar", async () => {
     fireEvent.click(showSidebar);
     await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
 
-    fireEvent.click(view.getByRole("button", { name: "Close sidebar" }));
+    fireEvent.pointerDown(view.getByRole("button", { name: "Close sidebar" }));
 
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("mobile sidebar opening is not consumed by a late backdrop click", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const view = await renderShortcutWebApp();
+    const showSidebar = view.getByRole("button", { name: "Show sidebar" });
+
+    fireEvent.click(showSidebar);
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
+
+    const backdrop = view.getByRole("button", { name: "Close sidebar" });
+    fireEvent.click(backdrop);
+    expect(showSidebar.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.pointerDown(backdrop);
     await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
   } finally {
     restoreFetch();
