@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Badge, ContextMenu, type ContextMenuPosition } from "./components";
+import { AnimatedList, Collapsible } from "./motion";
 import type { SidebarCollapsedState } from "./sidebar-state";
 import type { ActionMenuItem, SidebarNode, WebAppRoute } from "./sidebar/types";
 
@@ -29,7 +30,8 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
   const [contextMenu, setContextMenu] = useState<{ position: ContextMenuPosition; items: ActionMenuItem[]; title: string } | null>(null);
   return (
     <>
-      {nodes.map((node) => {
+      <AnimatedList className={`wapp-sidebar-tree-level wapp-sidebar-tree-level-${level}`}>
+        {nodes.map((node) => {
         const hasChildren = Boolean(node.children?.length);
         const storedIsCollapsed = collapsed[node.id] ?? node.defaultCollapsed ?? false;
         const isCollapsed = searchActive && hasChildren ? false : storedIsCollapsed;
@@ -52,7 +54,11 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
                 )}
                 {node.action ? <button type="button" className="wapp-sidebar-action" title={node.action.title} aria-label={node.action.title} onClick={node.action.onAction ?? (() => node.action?.route && navigate(node.action.route))}>{node.action.label ?? "New"}</button> : null}
               </div>
-              {!isCollapsed && hasChildren ? <SidebarTree nodes={node.children ?? []} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} level={level + 1} parentKind="section" /> : null}
+              {hasChildren ? (
+                <Collapsible open={!isCollapsed} className="wapp-sidebar-collapsible">
+                  <SidebarTree nodes={node.children ?? []} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} level={level + 1} parentKind="section" />
+                </Collapsible>
+              ) : null}
               {!isCollapsed && !hasChildren && level === 0 ? <div className="wapp-sidebar-empty">No items.</div> : null}
             </section>
           );
@@ -79,10 +85,15 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
               </span>
               {node.badge ? <Badge variant={node.badgeVariant} className="wapp-sidebar-badge" title={node.badge} aria-label={node.badge}> </Badge> : null}
             </button>
-            {!isCollapsed && node.children ? <div className="wapp-sidebar-children"><SidebarTree nodes={node.children} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} level={level + 1} parentKind="item" /></div> : null}
+            {node.children ? (
+              <Collapsible open={!isCollapsed} className="wapp-sidebar-children">
+                <SidebarTree nodes={node.children} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} level={level + 1} parentKind="item" />
+              </Collapsible>
+            ) : null}
           </div>
         );
-      })}
+        })}
+      </AnimatedList>
       <ContextMenu items={contextMenu?.items ?? []} position={contextMenu?.position ?? null} ariaLabel={contextMenu ? `Actions for ${contextMenu.title}` : "Actions"} onClose={() => setContextMenu(null)} />
     </>
   );

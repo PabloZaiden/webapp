@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode, type RefObject } from "react";
 import { ActionMenu, IconButton } from "./components";
+import { Presence } from "./motion";
 import { SidebarTree } from "./sidebar-tree";
 import type { SidebarCollapsedState } from "./sidebar-state";
 import type { ActionMenuItem, SidebarAction, SidebarNode, WebAppRoute } from "./sidebar/types";
@@ -61,6 +62,8 @@ export interface AppShellProps {
   headerActionLabel: string;
   primaryHeaderActions?: ReactNode;
   headerActions: ActionMenuItem[];
+  routeKey: string;
+  nativeRouteTransitions?: boolean;
   view: ReactNode;
 }
 
@@ -88,6 +91,8 @@ export function AppShell({
   headerActionLabel,
   primaryHeaderActions,
   headerActions,
+  routeKey,
+  nativeRouteTransitions = false,
   view,
 }: AppShellProps) {
   useEffect(() => {
@@ -129,20 +134,25 @@ export function AppShell({
   };
 
   return (
-    <main className={`wapp-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarOpen ? "sidebar-open" : ""}`}>
-      <div
-        className="wapp-mobile-backdrop"
-        role="button"
-        tabIndex={0}
-        aria-label="Close sidebar"
-        onClick={closeSidebar}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            closeSidebar();
-          }
-        }}
-      />
+    <main className={`wapp-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarOpen ? "sidebar-open" : ""} ${nativeRouteTransitions ? "wapp-native-route-transitions" : ""}`.trim()}>
+      <Presence present={sidebarOpen}>
+        {(state) => (
+          <div
+            className={`wapp-mobile-backdrop wapp-motion-${state}`}
+            role="button"
+            tabIndex={0}
+            aria-label="Close sidebar"
+            aria-hidden={state === "exit" ? true : undefined}
+            onClick={closeSidebar}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                closeSidebar();
+              }
+            }}
+          />
+        )}
+      </Presence>
       <aside id="wapp-sidebar" className="wapp-sidebar">
         <div className="wapp-sidebar-header">
           <button type="button" className="wapp-brand" onClick={() => navigateFromSidebarHeader(homeRoute)}>{appName}</button>
@@ -182,16 +192,20 @@ export function AppShell({
         <header className="wapp-main-header">
           <div className="wapp-main-header-title">
             {sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : <IconButton className="wapp-mobile-only wapp-sidebar-top-button" aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton>}
-            <h1>{headerTitle}</h1>
+            <h1 key={routeKey} className="wapp-route-fade">{headerTitle}</h1>
           </div>
           {primaryHeaderActions || headerActions.length ? (
-            <div className="wapp-main-header-actions">
+            <div key={routeKey} className="wapp-main-header-actions wapp-route-fade">
               {primaryHeaderActions}
               {headerActions.length ? <ActionMenu items={headerActions} ariaLabel={`Actions for ${headerActionLabel}`} /> : null}
             </div>
           ) : null}
         </header>
-        <div className="wapp-main-content">{view}</div>
+        <div className="wapp-main-content">
+          <div key={routeKey} className="wapp-route-view">
+            {view}
+          </div>
+        </div>
       </section>
     </main>
   );

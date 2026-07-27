@@ -28,6 +28,22 @@ Each application package must declare `react` and `react-dom`; they are peer dep
 | `@pablozaiden/webapp/cli` | One-binary command helpers, device/environment auth credentials and generic API CLI caller |
 | `@pablozaiden/webapp/build` | Bun single-binary compile helper |
 
+## Motion primitives
+
+The web export includes `Presence`, `Collapsible`, `AsyncState`, `AnimatedList`,
+`Tabs`, `TabPanels`, and `TabPanel`. Use stable React keys with `AnimatedList`;
+it preserves removed keyed children for the exit duration and marks them
+inaccessible while they leave. The primitives honor
+`prefers-reduced-motion` and skip visual movement when it is enabled.
+
+```tsx
+<AnimatedList>
+  {records.map((record) => (
+    <DataListRow key={record.id} title={record.title} />
+  ))}
+</AnimatedList>
+```
+
 See `docs/getting-started.md` for the minimum app shape and `examples/notes-todo` for a realistic app. Use `docs/github-actions.md` when adding CI, Docker and release workflows to an app built with the framework. Release/publishing details for this package are in `docs/release.md`.
 
 CLI API callers can use a stored device session or the stateless

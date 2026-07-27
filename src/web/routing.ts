@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import type { WebAppRoute } from "./sidebar/types";
 
 export function routeToHash(route: WebAppRoute): string {
@@ -35,6 +36,32 @@ export function replaceWebAppRoute(route: WebAppRoute): boolean {
   return replaceHashRoute(routeToHash(route));
 }
 
+export function supportsViewTransitions(): boolean {
+  return typeof document !== "undefined"
+    && typeof document.startViewTransition === "function";
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function updateRoute(
+  setRoute: (route: WebAppRoute) => void,
+  route: WebAppRoute,
+): void {
+  const startViewTransition = typeof document === "undefined" ? undefined : document.startViewTransition;
+  if (!startViewTransition || prefersReducedMotion()) {
+    setRoute(route);
+    return;
+  }
+
+  document.startViewTransition(() => {
+    flushSync(() => setRoute(route));
+  });
+}
+
 function parseRoute(defaultRoute: WebAppRoute): WebAppRoute {
   const hash = window.location.hash.replace(/^#\/?/, "");
   if (!hash) {
@@ -47,15 +74,19 @@ function parseRoute(defaultRoute: WebAppRoute): WebAppRoute {
 
 export function useRoute(defaultRoute: WebAppRoute) {
   const [route, setRoute] = useState(() => parseRoute(defaultRoute));
+  const commitRoute = useCallback((nextRoute: WebAppRoute) => {
+    updateRoute(setRoute, nextRoute);
+  }, []);
+
   useEffect(() => {
-    const listener = () => setRoute(parseRoute(defaultRoute));
+    const listener = () => commitRoute(parseRoute(defaultRoute));
     window.addEventListener("hashchange", listener);
     return () => window.removeEventListener("hashchange", listener);
-  }, [defaultRoute]);
+  }, [commitRoute, defaultRoute]);
+
   const navigate = useCallback((next: WebAppRoute) => {
-    if (replaceWebAppRoute(next)) {
-      setRoute(next);
-    }
+    replaceWebAppRoute(next);
   }, []);
+
   return { route, navigate };
 }
