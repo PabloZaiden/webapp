@@ -356,6 +356,7 @@ export function TabPanel({
   active,
   labelledBy,
   children,
+  keepMounted = false,
   duration = MOTION_FAST_MS,
   className = "",
 }: {
@@ -363,11 +364,31 @@ export function TabPanel({
   active: boolean;
   labelledBy?: string;
   children: ReactNode;
+  keepMounted?: boolean;
   duration?: number;
   className?: string;
 }) {
   const presence = usePresence(active, { duration });
-  if (!presence.mounted) {
+  const [keepMountedHidden, setKeepMountedHidden] = useState(!active);
+
+  useEffect(() => {
+    if (!keepMounted || active) {
+      if (active) {
+        setKeepMountedHidden(false);
+      }
+      return;
+    }
+
+    if (presence.reducedMotion || duration <= 0) {
+      setKeepMountedHidden(true);
+      return;
+    }
+
+    const timer = setTimeout(() => setKeepMountedHidden(true), duration);
+    return () => clearTimeout(timer);
+  }, [active, duration, keepMounted, presence.reducedMotion]);
+
+  if (!keepMounted && !presence.mounted) {
     return null;
   }
 
@@ -378,6 +399,7 @@ export function TabPanel({
       role="tabpanel"
       aria-labelledby={labelledBy}
       aria-hidden={active ? undefined : true}
+      hidden={keepMounted && keepMountedHidden && !active}
     >
       {children}
     </div>
