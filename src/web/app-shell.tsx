@@ -149,6 +149,11 @@ export function AppShell({
                 closeSidebar();
               }
             }}
+            onClick={(event) => {
+              if (event.detail === 0) {
+                closeSidebar();
+              }
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
