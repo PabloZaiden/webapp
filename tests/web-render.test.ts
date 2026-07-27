@@ -640,10 +640,14 @@ test("confirm dialog exposes long-content actions and closes through confirm, Es
 
   fireEvent.click(view.getByRole("button", { name: "Open confirmation" }));
   const reopenedDialog = await waitFor(() => view.getByRole("dialog", { name: "Delete item?" }));
+  expect(reopenedDialog.isConnected).toBe(true);
+  expect(reopenedDialog.closest('[aria-hidden="true"]')).toBeNull();
   fireEvent.keyDown(document, { key: "Escape" });
   expect(cancellations).toBe(1);
-  await waitFor(() => expect(view.queryByRole("dialog", { name: "Delete item?" })).toBeNull());
-  expect(reopenedDialog).toBeTruthy();
+  await waitFor(() => {
+    expect(reopenedDialog.isConnected).toBe(false);
+    expect(view.queryByRole("dialog", { name: "Delete item?" })).toBeNull();
+  });
 });
 
 test("sidebar toggle control changes the accessible action", async () => {
