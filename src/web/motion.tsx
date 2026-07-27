@@ -1,7 +1,7 @@
 import { Children, cloneElement, Fragment, isValidElement, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-export const MOTION_FAST_MS = 160;
-export const MOTION_NORMAL_MS = 220;
+export const MOTION_FAST_MS = 350;
+export const MOTION_NORMAL_MS = 350;
 
 export type MotionPresenceState = "enter" | "idle" | "exit";
 

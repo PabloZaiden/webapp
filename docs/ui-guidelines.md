@@ -43,6 +43,7 @@ Use these first:
 | `Toolbar` | Page title/actions inside main content |
 | `Panel` | Cards/sections; use `actions` for a top-right menu/action area |
 | `ActionMenu` | Three-line action menu for secondary surfaces; entity-level shell menus should usually come from `SidebarNode.actions` so the framework renders them in the sidebar context menu and fixed title bar |
+| `FloatingPanel` | Anchored arbitrary popup content; use it instead of app-owned portals when the content is not a simple `ActionMenu` |
 | `Button` / `IconButton` | Form submission and true inline controls; prefer action menus for entity/app commands |
 | `Badge` | Generic status/count labels; preserves the supplied text casing |
 | `StatusBadge` | Status labels with the shared uppercase and letter-spacing treatment |
