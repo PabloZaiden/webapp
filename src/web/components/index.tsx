@@ -857,12 +857,12 @@ export function ConfirmDialog({
   const presence = usePresence(open);
   if (!presence.mounted) return null;
   return createPortal(
-    <div className={`wapp-dialog-backdrop wapp-motion-${presence.state}`} role="presentation" aria-hidden={open ? undefined : true}>
+    <div className={`wapp-dialog-backdrop wapp-confirm-dialog-backdrop wapp-motion-${presence.state}`} role="presentation" aria-hidden={open ? undefined : true}>
       <Dialog
         title={title}
         onClose={onCancel}
         keyboardShortcutsEnabled={open && presence.mounted}
-        className={`wapp-motion-${presence.state}`}
+        className={`wapp-confirm-dialog wapp-motion-${presence.state}`}
         actions={(
           <>
           <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>

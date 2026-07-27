@@ -1,9 +1,9 @@
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
-import { ConfirmModal } from "../src/web/components";
+import { ConfirmDialog, ConfirmModal } from "../src/web/components";
 import type { ApiKeySummary, AuthSessionSummary, ThemePreference, WebAppConfigResponse, WebAppUserSummary } from "../src/contracts";
 import { configureWebAppClient, onAuthRequired } from "../src/web/api-client";
 import { MOBILE_MEDIA_QUERY } from "../src/web/mobile";
@@ -598,6 +598,56 @@ test("modal Enter shortcut does not confirm while an input is focused", () => {
   fireEvent.keyDown(input, { key: "Enter" });
 
   expect(confirmations).toBe(0);
+});
+
+test("confirm dialog exposes long-content actions and closes through confirm, Escape, and presence", async () => {
+  let confirmations = 0;
+  let cancellations = 0;
+
+  function Harness() {
+    const [open, setOpen] = useState(true);
+    return createElement(
+      "div",
+      null,
+      createElement("button", { type: "button", onClick: () => setOpen(true) }, "Open confirmation"),
+      createElement(ConfirmDialog, {
+        open,
+        title: "Delete item?",
+        message: "This permanently deletes the selected item and all of its associated transcript, metadata, and generated resources.",
+        confirmLabel: "Delete selected item",
+        danger: true,
+        onCancel: () => {
+          cancellations += 1;
+          setOpen(false);
+        },
+        onConfirm: () => {
+          confirmations += 1;
+          setOpen(false);
+        },
+      }),
+    );
+  }
+
+  const view = render(createElement(Harness));
+  const dialog = view.getByRole("dialog", { name: "Delete item?" });
+  expect(within(dialog).getByText(/associated transcript, metadata/)).toBeTruthy();
+  expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeTruthy();
+  expect(within(dialog).getByRole("button", { name: "Delete selected item" })).toBeTruthy();
+
+  fireEvent.click(within(dialog).getByRole("button", { name: "Delete selected item" }));
+  expect(confirmations).toBe(1);
+  await waitFor(() => expect(view.queryByRole("dialog", { name: "Delete item?" })).toBeNull());
+
+  fireEvent.click(view.getByRole("button", { name: "Open confirmation" }));
+  const reopenedDialog = await waitFor(() => view.getByRole("dialog", { name: "Delete item?" }));
+  expect(reopenedDialog.isConnected).toBe(true);
+  expect(reopenedDialog.closest('[aria-hidden="true"]')).toBeNull();
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(cancellations).toBe(1);
+  await waitFor(() => {
+    expect(reopenedDialog.isConnected).toBe(false);
+    expect(view.queryByRole("dialog", { name: "Delete item?" })).toBeNull();
+  });
 });
 
 test("sidebar toggle control changes the accessible action", async () => {
