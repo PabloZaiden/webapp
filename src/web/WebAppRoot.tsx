@@ -4,7 +4,7 @@ import { AppShell } from "./app-shell";
 import { DeviceVerificationScreen, PasskeyAuthScreen, UserSetupScreen } from "./auth-screens";
 import { EmptyState, Panel } from "./components";
 import { useMobileBreakpoint, useMobileSidebarSwipe, useMobileViewportHeight } from "./mobile-hooks";
-import { useRoute } from "./routing";
+import { routeToHash, supportsViewTransitions, useRoute } from "./routing";
 import { flattenSidebarItems, toStoredPin, useSidebarCollapsedState, useSidebarPins } from "./sidebar-state";
 import { SettingsView } from "./settings/settings-view";
 import type { HeaderContext, WebAppRootProps } from "./root-types";
@@ -12,6 +12,7 @@ import type { ActionMenuItem, SidebarNode, WebAppRoute } from "./sidebar/types";
 import { ThemeProvider } from "./theme";
 import { WebAppConfigProvider, useWebAppConfig } from "./webapp-config";
 import { setLogLevel } from "./logger";
+import { useReducedMotion } from "./motion";
 
 export { replaceHashRoute, replaceWebAppRoute, routeToHash } from "./routing";
 export type {
@@ -48,6 +49,7 @@ function WebAppRootContent({
   refresh: () => Promise<void>;
 }) {
   const isMobile = useMobileBreakpoint();
+  const reducedMotion = useReducedMotion();
   useMobileViewportHeight(isMobile);
   const { route, navigate } = useRoute(homeRoute);
   const [search, setSearch] = useState("");
@@ -189,6 +191,8 @@ function WebAppRootContent({
       headerActionLabel={headerActionLabel}
       primaryHeaderActions={primaryHeaderActions}
       headerActions={headerActions}
+      routeKey={routeToHash(route)}
+      nativeRouteTransitions={supportsViewTransitions() && !reducedMotion}
       view={view}
     />
   );

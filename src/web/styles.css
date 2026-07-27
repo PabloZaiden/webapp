@@ -38,6 +38,10 @@
   --wapp-safe-area-right: env(safe-area-inset-right, 0px);
   --wapp-mobile-bottom-clearance: max(var(--wapp-safe-area-bottom), 0.75rem);
   --wapp-viewport-height: 100vh;
+  --wapp-motion-fast: 160ms;
+  --wapp-motion-normal: 220ms;
+  --wapp-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --wapp-motion-distance: 0.25rem;
   font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
@@ -638,6 +642,7 @@ textarea::placeholder {
 }
 
 .wapp-main-content {
+  view-transition-name: wapp-main-content;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -646,6 +651,118 @@ textarea::placeholder {
   overflow-x: hidden;
   padding: 0;
   scroll-padding-bottom: var(--wapp-mobile-bottom-clearance);
+}
+
+.wapp-route-view,
+.wapp-route-fade {
+  min-width: 0;
+}
+
+.wapp-route-view {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.wapp-route-view,
+.wapp-route-fade {
+  animation: wapp-fade-in var(--wapp-motion-normal) var(--wapp-motion-ease) both;
+}
+
+.wapp-native-route-transitions .wapp-route-view {
+  animation: none;
+}
+
+::view-transition-old(wapp-main-content) {
+  animation: wapp-view-transition-old var(--wapp-motion-normal) var(--wapp-motion-ease) both;
+}
+
+::view-transition-new(wapp-main-content) {
+  animation: wapp-view-transition-new var(--wapp-motion-normal) var(--wapp-motion-ease) both;
+}
+
+@keyframes wapp-view-transition-old {
+  to {
+    opacity: 0;
+    transform: translateY(calc(var(--wapp-motion-distance) * -1));
+  }
+}
+
+@keyframes wapp-view-transition-new {
+  from {
+    opacity: 0;
+    transform: translateY(var(--wapp-motion-distance));
+  }
+}
+
+.wapp-motion-enter {
+  animation: wapp-fade-in var(--wapp-motion-fast) var(--wapp-motion-ease) both;
+}
+
+.wapp-motion-exit {
+  animation: wapp-fade-out var(--wapp-motion-fast) var(--wapp-motion-ease) both;
+  pointer-events: none;
+}
+
+@keyframes wapp-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--wapp-motion-distance));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wapp-fade-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(calc(var(--wapp-motion-distance) * -1));
+  }
+}
+
+.wapp-collapsible {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--wapp-motion-normal) var(--wapp-motion-ease), opacity var(--wapp-motion-normal) var(--wapp-motion-ease);
+}
+
+.wapp-collapsible-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.wapp-collapsible-enter {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.wapp-collapsible-idle {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.wapp-collapsible-exit {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.wapp-async-state {
+  animation: wapp-fade-in var(--wapp-motion-fast) var(--wapp-motion-ease) both;
+}
+
+.wapp-async-state-refreshing {
+  color: var(--wapp-muted);
+  font-size: 0.75rem;
 }
 
 .wapp-page {
@@ -1208,6 +1325,40 @@ textarea::placeholder {
   box-shadow: 0 16px 36px rgb(15 23 42 / 0.18);
 }
 
+.wapp-action-menu.wapp-motion-enter {
+  transform-origin: top right;
+  animation-name: wapp-menu-enter;
+}
+
+.wapp-action-menu.wapp-motion-exit {
+  transform-origin: top right;
+  animation-name: wapp-menu-exit;
+}
+
+@keyframes wapp-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-0.25rem) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes wapp-menu-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-0.25rem) scale(0.98);
+  }
+}
+
 :root.dark .wapp-action-menu {
   border-color: #334155;
   background: #262626;
@@ -1754,9 +1905,30 @@ textarea::placeholder {
   }
 }
 
+.wapp-toast.wapp-motion-enter {
+  animation-name: wapp-toast-enter;
+}
+
+.wapp-toast.wapp-motion-exit {
+  animation-name: wapp-toast-exit;
+  pointer-events: none;
+}
+
+@keyframes wapp-toast-exit {
+  to {
+    opacity: 0;
+    transform: translateY(0.25rem);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .wapp-toast {
-    animation: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
@@ -1839,6 +2011,72 @@ textarea::placeholder {
   background: #f3f4f6;
   color: var(--wapp-text);
   box-shadow: none;
+}
+
+.wapp-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--wapp-border-soft);
+}
+
+.wapp-tab {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: var(--wapp-muted);
+  cursor: pointer;
+  padding: 0.625rem 0.75rem;
+  transition: color 120ms ease;
+}
+
+.wapp-tab::after {
+  position: absolute;
+  right: 0.75rem;
+  bottom: -1px;
+  left: 0.75rem;
+  height: 2px;
+  background: var(--wapp-primary);
+  content: "";
+  opacity: 0;
+  transform: scaleX(0.35);
+  transition: opacity 120ms ease, transform 160ms var(--wapp-motion-ease);
+}
+
+.wapp-tab:hover,
+.wapp-tab.active {
+  color: var(--wapp-text);
+}
+
+.wapp-tab.active::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.wapp-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.wapp-tab:focus-visible {
+  outline: 2px solid var(--wapp-primary);
+  outline-offset: -2px;
+}
+
+.wapp-tab-panels {
+  position: relative;
+  min-width: 0;
+}
+
+.wapp-tab-panel {
+  min-width: 0;
+}
+
+.wapp-tab-panel.wapp-motion-exit {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  width: 100%;
 }
 
 .wapp-list {
@@ -1932,6 +2170,12 @@ textarea::placeholder {
   background: var(--wapp-overlay-bg);
   backdrop-filter: var(--wapp-overlay-blur);
   z-index: 50;
+  animation: wapp-fade-in var(--wapp-motion-fast) var(--wapp-motion-ease) both;
+}
+
+.wapp-mobile-backdrop.wapp-motion-exit {
+  animation-name: wapp-fade-out;
+  pointer-events: none;
 }
 
 .wapp-dialog-backdrop {
@@ -1940,6 +2184,7 @@ textarea::placeholder {
   z-index: 80;
   background: rgb(0 0 0 / 0.58);
   backdrop-filter: blur(10px);
+  animation: wapp-fade-in var(--wapp-motion-fast) var(--wapp-motion-ease) both;
 }
 
 .wapp-dialog {
@@ -1955,6 +2200,36 @@ textarea::placeholder {
   background: var(--wapp-surface);
   padding: 0;
   box-shadow: 0 24px 55px rgb(0 0 0 / 0.38);
+  animation: wapp-dialog-enter var(--wapp-motion-fast) var(--wapp-motion-ease) both;
+}
+
+.wapp-dialog.wapp-motion-exit,
+.wapp-modal.wapp-motion-exit {
+  animation-name: wapp-dialog-exit;
+}
+
+@keyframes wapp-dialog-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 0.5rem)) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes wapp-dialog-exit {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 0.5rem)) scale(0.98);
+  }
 }
 
 .wapp-dialog-title {
@@ -2026,6 +2301,13 @@ textarea::placeholder {
   overflow-x: hidden;
   overflow-y: auto;
   padding: 0.5rem;
+  animation: wapp-fade-in var(--wapp-motion-fast) var(--wapp-motion-ease) both;
+}
+
+.wapp-modal-layer.wapp-motion-exit,
+.wapp-dialog-backdrop.wapp-motion-exit {
+  animation: wapp-fade-out var(--wapp-motion-fast) var(--wapp-motion-ease) both;
+  pointer-events: none;
 }
 
 .wapp-modal-overlay {
@@ -2048,6 +2330,7 @@ textarea::placeholder {
   background: var(--wapp-surface);
   box-shadow: 0 24px 55px rgb(0 0 0 / 0.38);
   outline: none;
+  animation: wapp-dialog-enter var(--wapp-motion-fast) var(--wapp-motion-ease) both;
 }
 
 .wapp-modal-sm {
@@ -2205,7 +2488,15 @@ textarea::placeholder {
   transform: translateX(0);
 }
 
+:root[data-wapp-mobile] .wapp-shell:not(.sidebar-open) .wapp-sidebar {
+  pointer-events: none;
+}
+
 :root[data-wapp-mobile] .wapp-shell.sidebar-open .wapp-mobile-backdrop {
+  display: block;
+}
+
+:root[data-wapp-mobile] .wapp-mobile-backdrop.wapp-motion-exit {
   display: block;
 }
 

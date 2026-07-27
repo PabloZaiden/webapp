@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { MOTION_FAST_MS, usePresence } from "./motion";
 
 export type ToastVariant = "success" | "error" | "warning" | "info";
 export type ToastId = string;
@@ -67,31 +68,77 @@ function normalizeDuration(duration: number | undefined): number {
   return duration;
 }
 
+function ToastItem({
+  toast,
+  present,
+  onDismiss,
+  onExitComplete,
+}: {
+  toast: Toast;
+  present: boolean;
+  onDismiss: (id: ToastId) => void;
+  onExitComplete: (id: ToastId) => void;
+}) {
+  const presence = usePresence(present, { duration: MOTION_FAST_MS });
+
+  useEffect(() => {
+    if (!present && !presence.mounted) {
+      onExitComplete(toast.id);
+    }
+  }, [onExitComplete, presence.mounted, present, toast.id]);
+
+  if (!presence.mounted) {
+    return null;
+  }
+
+  const isError = toast.variant === "error";
+  return (
+    <div
+      className={`wapp-toast wapp-toast-${toast.variant} wapp-motion-${presence.state}`}
+      data-toast-variant={toast.variant}
+      role={isError ? "alert" : "status"}
+      aria-live={isError ? "assertive" : "polite"}
+      aria-atomic="true"
+      aria-hidden={present ? undefined : true}
+    >
+      <span className="wapp-toast-message">{toast.message}</span>
+      <button type="button" className="wapp-toast-dismiss" aria-label="Dismiss notification" onClick={() => onDismiss(toast.id)}>
+        ×
+      </button>
+    </div>
+  );
+}
+
 function ToastViewport({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: ToastId) => void }) {
-  if (toasts.length === 0) {
+  const [renderedToasts, setRenderedToasts] = useState<Toast[]>(toasts);
+  const activeIds = useMemo(() => new Set(toasts.map((toast) => toast.id)), [toasts]);
+
+  useEffect(() => {
+    setRenderedToasts((current) => {
+      const exiting = current.filter((toast) => !activeIds.has(toast.id));
+      return [...toasts, ...exiting];
+    });
+  }, [activeIds, toasts]);
+
+  const removeExited = useCallback((id: ToastId) => {
+    setRenderedToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
+
+  if (renderedToasts.length === 0) {
     return null;
   }
 
   return createPortal(
-    <div className="wapp-toast-viewport" role="region" aria-label="Notifications">
-      {toasts.map((toast) => {
-        const isError = toast.variant === "error";
-        return (
-          <div
-            key={toast.id}
-            className={`wapp-toast wapp-toast-${toast.variant}`}
-            data-toast-variant={toast.variant}
-            role={isError ? "alert" : "status"}
-            aria-live={isError ? "assertive" : "polite"}
-            aria-atomic="true"
-          >
-            <span className="wapp-toast-message">{toast.message}</span>
-            <button type="button" className="wapp-toast-dismiss" aria-label="Dismiss notification" onClick={() => onDismiss(toast.id)}>
-              ×
-            </button>
-          </div>
-        );
-      })}
+    <div className="wapp-toast-viewport" role="region" aria-label="Notifications" aria-hidden={toasts.length === 0 ? true : undefined}>
+      {renderedToasts.map((toast) => (
+        <ToastItem
+          key={toast.id}
+          toast={toast}
+          present={activeIds.has(toast.id)}
+          onDismiss={onDismiss}
+          onExitComplete={removeExited}
+        />
+      ))}
     </div>,
     document.body,
   );

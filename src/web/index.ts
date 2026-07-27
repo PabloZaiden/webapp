@@ -1,6 +1,8 @@
 export * from "./WebAppRoot";
 export * from "./components";
 export * from "./render";
+export * from "./motion";
+export { supportsViewTransitions } from "./routing";
 export * from "./api-client";
 export * from "./sidebar/types";
 export * from "./realtime/useRealtime";

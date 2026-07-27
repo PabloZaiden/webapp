@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type InputHTMLAttributes, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type InputHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import type { ActionMenuItem, BadgeVariant } from "../sidebar/types";
+import { AnimatedList, MOTION_FAST_MS, usePresence } from "../motion";
 
 export type ButtonVariant = "default" | "primary" | "danger" | "ghost";
 export type ButtonSize = "xs" | "sm" | "md" | "lg";
@@ -167,7 +168,7 @@ export function DataList({
   empty?: ReactNode;
   variant?: DataListVariant;
 }) {
-  return <div className={`wapp-data-list wapp-data-list-${variant}`}>{children ?? empty ?? null}</div>;
+  return <AnimatedList className={`wapp-data-list wapp-data-list-${variant}`}>{children ?? empty ?? null}</AnimatedList>;
 }
 
 export function DataListRow({
@@ -272,6 +273,148 @@ export function SegmentedControl<T extends string>({ value, options, onChange, l
           {option.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+export interface TabOption {
+  id: string;
+  label: ReactNode;
+  disabled?: boolean;
+}
+
+export function Tabs({
+  tabs,
+  value,
+  onChange,
+  ariaLabel = "Tabs",
+  panelIdPrefix = "wapp-tab-panel",
+  className = "",
+}: {
+  tabs: TabOption[];
+  value: string;
+  onChange: (id: string) => void;
+  ariaLabel?: string;
+  panelIdPrefix?: string;
+  className?: string;
+}) {
+  const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, tabId: string) => {
+    const enabledTabs = tabs.filter((tab) => !tab.disabled);
+    const currentIndex = enabledTabs.findIndex((tab) => tab.id === tabId);
+    if (currentIndex < 0 || enabledTabs.length < 2) {
+      return;
+    }
+
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1) % enabledTabs.length;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      nextIndex = (currentIndex - 1 + enabledTabs.length) % enabledTabs.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = enabledTabs.length - 1;
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    const nextTab = enabledTabs[nextIndex];
+    if (nextTab) {
+      onChange(nextTab.id);
+      const nextElement = tabRefs.current.get(nextTab.id);
+      if (nextElement) {
+        nextElement.focus();
+      }
+    }
+  };
+
+  return (
+    <div className={`wapp-tabs ${className}`.trim()} role="tablist" aria-label={ariaLabel}>
+      {tabs.map((tab) => (
+        <button
+          type="button"
+          key={tab.id}
+          className={`wapp-tab ${value === tab.id ? "active" : ""}`}
+          role="tab"
+          aria-selected={value === tab.id}
+          aria-controls={`${panelIdPrefix}-${tab.id}`}
+          tabIndex={value === tab.id ? 0 : -1}
+          disabled={tab.disabled}
+          ref={(element) => {
+            if (element) {
+              tabRefs.current.set(tab.id, element);
+            } else {
+              tabRefs.current.delete(tab.id);
+            }
+          }}
+          onClick={() => onChange(tab.id)}
+          onKeyDown={(event) => handleKeyDown(event, tab.id)}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function TabPanels({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`wapp-tab-panels ${className}`.trim()}>{children}</div>;
+}
+
+export function TabPanel({
+  id,
+  active,
+  labelledBy,
+  children,
+  keepMounted = false,
+  duration = MOTION_FAST_MS,
+  className = "",
+}: {
+  id: string;
+  active: boolean;
+  labelledBy?: string;
+  children: ReactNode;
+  keepMounted?: boolean;
+  duration?: number;
+  className?: string;
+}) {
+  const presence = usePresence(active, { duration });
+  const [keepMountedHidden, setKeepMountedHidden] = useState(!active);
+
+  useEffect(() => {
+    if (!keepMounted || active) {
+      if (active) {
+        setKeepMountedHidden(false);
+      }
+      return;
+    }
+
+    if (presence.reducedMotion || duration <= 0) {
+      setKeepMountedHidden(true);
+      return;
+    }
+
+    const timer = setTimeout(() => setKeepMountedHidden(true), duration);
+    return () => clearTimeout(timer);
+  }, [active, duration, keepMounted, presence.reducedMotion]);
+
+  if (!keepMounted && !presence.mounted) {
+    return null;
+  }
+
+  return (
+    <div
+      id={id}
+      className={`wapp-tab-panel wapp-motion-${presence.state} ${className}`.trim()}
+      role="tabpanel"
+      aria-labelledby={labelledBy}
+      aria-hidden={active ? undefined : true}
+      hidden={keepMounted && keepMountedHidden && !active}
+    >
+      {children}
     </div>
   );
 }
@@ -501,6 +644,7 @@ export function Modal({
   closeOnOverlayClick = true,
   className = "",
 }: ModalProps) {
+  const presence = usePresence(isOpen);
   const modalRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
   const titleId = useId();
@@ -509,7 +653,7 @@ export function Modal({
 
   useDialogKeyboardShortcuts({
     dialogRef: modalRef,
-    enabled: isOpen,
+    enabled: isOpen && presence.mounted,
     onCancel: () => onCloseRef.current(),
   });
 
@@ -560,14 +704,14 @@ export function Modal({
         previousFocusRef.current.focus();
       }
     };
-  }, [handleFocusTrap, isOpen]);
+  }, [handleFocusTrap, isOpen, presence.mounted]);
 
-  if (!isOpen) {
+  if (!presence.mounted) {
     return null;
   }
 
   return createPortal(
-    <div className="wapp-modal-layer">
+    <div className={`wapp-modal-layer wapp-motion-${presence.state}`} aria-hidden={isOpen ? undefined : true}>
       <div
         className="wapp-modal-overlay"
         onClick={closeOnOverlayClick ? onClose : undefined}
@@ -576,7 +720,7 @@ export function Modal({
       <div
         ref={modalRef}
         tabIndex={-1}
-        className={`wapp-modal wapp-modal-${size} ${className}`}
+        className={`wapp-modal wapp-modal-${size} wapp-motion-${presence.state} ${className}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -660,6 +804,7 @@ export function Dialog({
   children,
   actions,
   onClose,
+  keyboardShortcutsEnabled = true,
   className = "",
 }: {
   title: string;
@@ -667,10 +812,11 @@ export function Dialog({
   children?: ReactNode;
   actions?: ReactNode;
   onClose?: () => void;
+  keyboardShortcutsEnabled?: boolean;
   className?: string;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
-  useDialogKeyboardShortcuts({ dialogRef, onCancel: onClose });
+  useDialogKeyboardShortcuts({ dialogRef, enabled: keyboardShortcutsEnabled, onCancel: onClose });
 
   return (
     <div ref={dialogRef} className={`wapp-dialog ${className}`} role="dialog" aria-modal="true" aria-label={title}>
@@ -708,12 +854,15 @@ export function ConfirmDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  if (!open) return null;
+  const presence = usePresence(open);
+  if (!presence.mounted) return null;
   return createPortal(
-    <div className="wapp-dialog-backdrop" role="presentation">
+    <div className={`wapp-dialog-backdrop wapp-motion-${presence.state}`} role="presentation" aria-hidden={open ? undefined : true}>
       <Dialog
         title={title}
         onClose={onCancel}
+        keyboardShortcutsEnabled={open && presence.mounted}
+        className={`wapp-motion-${presence.state}`}
         actions={(
           <>
           <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
@@ -841,6 +990,7 @@ export function ActionMenu({
   triggerSize?: "default" | "compact";
 }) {
   const [open, setOpen] = useState(false);
+  const presence = usePresence(open);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [style, setStyle] = useState<CSSProperties>({ position: "fixed", top: -9999, left: -9999 });
@@ -873,7 +1023,7 @@ export function ActionMenu({
         y: triggerRect.bottom + 4,
       }),
     });
-  }, [open]);
+  }, [open, presence.mounted]);
 
   function handleItemClick(item: ActionMenuItem) {
     if (item.disabled) return;
@@ -899,8 +1049,8 @@ export function ActionMenu({
       >
         {trigger ?? <MenuIcon />}
       </button>
-      {open ? createPortal(
-        <div ref={menuRef} className="wapp-action-menu" role="menu" aria-label={ariaLabel} style={style}>
+      {presence.mounted ? createPortal(
+        <div ref={menuRef} className={`wapp-action-menu wapp-motion-${presence.state}`} role="menu" aria-label={ariaLabel} aria-hidden={open ? undefined : true} style={style}>
           <ActionMenuItems items={items} onItemClick={handleItemClick} />
         </div>,
         document.body,
@@ -921,20 +1071,28 @@ export function ContextMenu({
   ariaLabel?: string;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const presence = usePresence(Boolean(position));
+  const [renderPosition, setRenderPosition] = useState(position);
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(position ? hiddenMenuStyle(position) : null);
 
+  useEffect(() => {
+    if (position) {
+      setRenderPosition(position);
+    }
+  }, [position]);
+
   useLayoutEffect(() => {
-    if (!position) {
+    if (!renderPosition) {
       setMenuStyle(null);
       return;
     }
 
     let frameId: number | null = null;
     const updatePosition = () => {
-      setMenuStyle(boundedMenuStyle(menuRef.current, position));
+      setMenuStyle(boundedMenuStyle(menuRef.current, renderPosition));
     };
 
-    setMenuStyle(hiddenMenuStyle(position));
+    setMenuStyle(hiddenMenuStyle(renderPosition));
     updatePosition();
     frameId = window.requestAnimationFrame(updatePosition);
 
@@ -943,7 +1101,7 @@ export function ContextMenu({
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [items, position]);
+  }, [items, renderPosition]);
 
   useEffect(() => {
     if (!position) return;
@@ -974,7 +1132,7 @@ export function ContextMenu({
     };
   }, [onClose, position]);
 
-  if (!position || !menuStyle) return null;
+  if (!presence.mounted || !renderPosition || !menuStyle) return null;
 
   function handleItemClick(item: ActionMenuItem) {
     if (item.disabled) return;
@@ -985,9 +1143,10 @@ export function ContextMenu({
   return createPortal(
     <div
       ref={menuRef}
-      className="wapp-action-menu"
+      className={`wapp-action-menu wapp-motion-${presence.state}`}
       role="menu"
       aria-label={ariaLabel}
+      aria-hidden={position ? undefined : true}
       style={menuStyle}
       onContextMenu={(event: ReactMouseEvent<HTMLDivElement>) => {
         event.preventDefault();
