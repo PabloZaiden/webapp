@@ -337,10 +337,12 @@ export function AnimatedList({
   children,
   className = "",
   duration = MOTION_FAST_MS,
+  layout = "normal",
 }: {
   children: ReactNode;
   className?: string;
   duration?: number;
+  layout?: "normal" | "contents";
 }) {
   const childMap = new Map<string, ReactNode>();
   Children.toArray(children).forEach((child, index) => {
@@ -406,7 +408,7 @@ export function AnimatedList({
   }, []);
 
   return (
-    <div className={`wapp-animated-list ${className}`.trim()}>
+    <div className={`wapp-animated-list ${layout === "contents" ? "wapp-animated-list-contents" : ""} ${className}`.trim()}>
       {entries.map((entry) => {
         const child = childMap.get(entry.key) ?? exitingChildrenRef.current.get(entry.key);
         if (child === undefined) {

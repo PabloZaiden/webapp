@@ -970,7 +970,7 @@ export function FloatingPanel({
   anchorRef,
   onClose,
   children,
-  ariaLabel,
+  ariaLabel = "Floating panel",
   role = "dialog",
   id,
   placement = "bottom-start",
@@ -982,6 +982,7 @@ export function FloatingPanel({
 }: FloatingPanelProps) {
   const presence = usePresence(open);
   const panelRef = useRef<HTMLDivElement>(null);
+  const positionFrameRef = useRef<number | null>(null);
   const [panelStyle, setPanelStyle] = useState<CSSProperties | null>(null);
   const wasOpenRef = useRef(open);
 
@@ -994,15 +995,30 @@ export function FloatingPanel({
     setPanelStyle(floatingPanelStyle(panel, anchor, placement, offset));
   }, [anchorRef, offset, placement]);
 
+  const schedulePositionUpdate = useCallback(() => {
+    if (positionFrameRef.current !== null) {
+      return;
+    }
+    positionFrameRef.current = window.requestAnimationFrame(() => {
+      positionFrameRef.current = null;
+      updatePosition();
+    });
+  }, [updatePosition]);
+
   useLayoutEffect(() => {
     if (!open || !presence.mounted) {
       return;
     }
 
     updatePosition();
-    const frameId = window.requestAnimationFrame(updatePosition);
-    return () => window.cancelAnimationFrame(frameId);
-  }, [open, presence.mounted, updatePosition]);
+    schedulePositionUpdate();
+    return () => {
+      if (positionFrameRef.current !== null) {
+        window.cancelAnimationFrame(positionFrameRef.current);
+        positionFrameRef.current = null;
+      }
+    };
+  }, [open, presence.mounted, schedulePositionUpdate, updatePosition]);
 
   useEffect(() => {
     if (!presence.mounted) {
@@ -1030,7 +1046,7 @@ export function FloatingPanel({
       }
       onClose();
     };
-    const handleViewportChange = () => updatePosition();
+    const handleViewportChange = () => schedulePositionUpdate();
 
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("pointerdown", handlePointerDown);
@@ -1044,7 +1060,7 @@ export function FloatingPanel({
       window.removeEventListener("scroll", handleViewportChange, true);
       window.visualViewport?.removeEventListener("resize", handleViewportChange);
     };
-  }, [anchorRef, onClose, open, updatePosition]);
+  }, [anchorRef, onClose, open, schedulePositionUpdate]);
 
   useEffect(() => {
     if (open) {

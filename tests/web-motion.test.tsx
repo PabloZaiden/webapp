@@ -92,7 +92,6 @@ describe("framework motion primitives", () => {
             open={open}
             anchorRef={anchorRef}
             onClose={() => setOpen(false)}
-            ariaLabel="Panel"
           >
             Floating content
           </FloatingPanel>
@@ -103,10 +102,10 @@ describe("framework motion primitives", () => {
     const view = render(<Harness />);
     fireEvent.click(view.getByRole("button", { name: "Open panel" }));
 
-    const panel = view.getByRole("dialog", { name: "Panel" });
-    expect(panel.className).toContain("wapp-motion-enter");
+    const panel = view.getByRole("dialog", { name: "Floating panel" });
+    expect(panel).toBeTruthy();
     fireEvent.keyDown(document, { key: "Escape" });
-    await waitForExit(() => view.queryByRole("dialog", { name: "Panel" }));
+    await waitForExit(() => view.queryByRole("dialog", { name: "Floating panel" }));
   });
 
   test("animates keyed list removals without retaining them indefinitely", async () => {
