@@ -298,6 +298,8 @@ export function Tabs({
   panelIdPrefix?: string;
   className?: string;
 }) {
+  const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, tabId: string) => {
     const enabledTabs = tabs.filter((tab) => !tab.disabled);
     const currentIndex = enabledTabs.findIndex((tab) => tab.id === tabId);
@@ -322,6 +324,10 @@ export function Tabs({
     const nextTab = enabledTabs[nextIndex];
     if (nextTab) {
       onChange(nextTab.id);
+      const nextElement = tabRefs.current.get(nextTab.id);
+      if (nextElement) {
+        nextElement.focus();
+      }
     }
   };
 
@@ -337,6 +343,13 @@ export function Tabs({
           aria-controls={`${panelIdPrefix}-${tab.id}`}
           tabIndex={value === tab.id ? 0 : -1}
           disabled={tab.disabled}
+          ref={(element) => {
+            if (element) {
+              tabRefs.current.set(tab.id, element);
+            } else {
+              tabRefs.current.delete(tab.id);
+            }
+          }}
           onClick={() => onChange(tab.id)}
           onKeyDown={(event) => handleKeyDown(event, tab.id)}
         >

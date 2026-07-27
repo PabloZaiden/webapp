@@ -160,5 +160,6 @@ describe("framework motion primitives", () => {
     overviewTab.focus();
     fireEvent.keyDown(overviewTab, { key: "ArrowRight" });
     expect(activityTab.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(activityTab);
   });
 });
