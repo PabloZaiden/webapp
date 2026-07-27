@@ -1886,7 +1886,7 @@ textarea::placeholder {
   padding: 0.75rem;
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.14);
   pointer-events: auto;
-  animation: wapp-toast-enter 160ms ease-out;
+  animation: wapp-toast-enter var(--wapp-motion-fast) var(--wapp-motion-ease) both;
 }
 
 .wapp-toast-success {
