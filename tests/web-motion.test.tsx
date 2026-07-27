@@ -1,8 +1,8 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { act, useState } from "react";
+import { act, useRef, useState } from "react";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
-import { AnimatedList, Collapsible, StreamingText, TabPanel, TabPanels, Tabs } from "../src/web";
+import { AnimatedList, Collapsible, FloatingPanel, StreamingText, TabPanel, TabPanels, Tabs } from "../src/web";
 
 async function ensureHappyDom() {
   if (
@@ -79,6 +79,33 @@ describe("framework motion primitives", () => {
 
     expect(view.getByText("Collapsible content")).toBeTruthy();
     await waitForExit(() => view.queryByText("Collapsible content"));
+  });
+
+  test("animates anchored floating panels and closes them with Escape", async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      const anchorRef = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          <button ref={anchorRef} type="button" onClick={() => setOpen(true)}>Open panel</button>
+          <FloatingPanel
+            open={open}
+            anchorRef={anchorRef}
+            onClose={() => setOpen(false)}
+          >
+            Floating content
+          </FloatingPanel>
+        </>
+      );
+    }
+
+    const view = render(<Harness />);
+    fireEvent.click(view.getByRole("button", { name: "Open panel" }));
+
+    const panel = view.getByRole("dialog", { name: "Floating panel" });
+    expect(panel).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitForExit(() => view.queryByRole("dialog", { name: "Floating panel" }));
   });
 
   test("animates keyed list removals without retaining them indefinitely", async () => {

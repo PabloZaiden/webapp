@@ -911,6 +911,210 @@ function getViewportBounds(): ViewportBounds {
   };
 }
 
+export type FloatingPanelPlacement = "top-start" | "top-end" | "bottom-start" | "bottom-end";
+
+export interface FloatingPanelProps {
+  open: boolean;
+  anchorRef: RefObject<HTMLElement | null>;
+  onClose: () => void;
+  children: ReactNode;
+  ariaLabel?: string;
+  role?: "dialog" | "group" | "menu" | "region";
+  id?: string;
+  placement?: FloatingPanelPlacement;
+  offset?: number;
+  className?: string;
+  style?: CSSProperties;
+  focusSelector?: string;
+  restoreFocusOnClose?: boolean;
+}
+
+function floatingPanelStyle(
+  panel: HTMLDivElement,
+  anchor: HTMLElement,
+  placement: FloatingPanelPlacement,
+  offset: number,
+): CSSProperties {
+  const margin = 8;
+  const viewport = getViewportBounds();
+  const panelRect = panel.getBoundingClientRect();
+  const anchorRect = anchor.getBoundingClientRect();
+  const panelWidth = panelRect.width;
+  const panelHeight = panelRect.height;
+  const maxHeight = Math.max(80, viewport.height - margin * 2);
+  const canPlaceTop = anchorRect.top - panelHeight - offset >= viewport.top + margin;
+  const canPlaceBottom = anchorRect.bottom + panelHeight + offset <= viewport.bottom - margin;
+  const prefersTop = placement.startsWith("top");
+  const placeTop = prefersTop ? (canPlaceTop || !canPlaceBottom) : (!canPlaceBottom && canPlaceTop);
+  const preferredLeft = placement.endsWith("start")
+    ? anchorRect.left
+    : anchorRect.right - panelWidth;
+  const left = Math.max(viewport.left + margin, Math.min(preferredLeft, viewport.right - panelWidth - margin));
+  const preferredTop = placeTop
+    ? anchorRect.top - panelHeight - offset
+    : anchorRect.bottom + offset;
+  const top = Math.max(viewport.top + margin, Math.min(preferredTop, viewport.bottom - panelHeight - margin));
+
+  return {
+    position: "fixed",
+    left,
+    top,
+    maxHeight,
+    overflowY: "auto",
+    visibility: "visible",
+  };
+}
+
+export function FloatingPanel({
+  open,
+  anchorRef,
+  onClose,
+  children,
+  ariaLabel = "Floating panel",
+  role = "dialog",
+  id,
+  placement = "bottom-start",
+  offset = 8,
+  className = "",
+  style,
+  focusSelector,
+  restoreFocusOnClose = false,
+}: FloatingPanelProps) {
+  const presence = usePresence(open);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const positionFrameRef = useRef<number | null>(null);
+  const [panelStyle, setPanelStyle] = useState<CSSProperties | null>(null);
+  const wasOpenRef = useRef(open);
+
+  const updatePosition = useCallback(() => {
+    const panel = panelRef.current;
+    const anchor = anchorRef.current;
+    if (!panel || !anchor) {
+      return;
+    }
+    setPanelStyle(floatingPanelStyle(panel, anchor, placement, offset));
+  }, [anchorRef, offset, placement]);
+
+  const schedulePositionUpdate = useCallback(() => {
+    if (positionFrameRef.current !== null) {
+      return;
+    }
+    positionFrameRef.current = window.requestAnimationFrame(() => {
+      positionFrameRef.current = null;
+      updatePosition();
+    });
+  }, [updatePosition]);
+
+  useLayoutEffect(() => {
+    if (!open || !presence.mounted) {
+      return;
+    }
+
+    updatePosition();
+    schedulePositionUpdate();
+    return () => {
+      if (positionFrameRef.current !== null) {
+        window.cancelAnimationFrame(positionFrameRef.current);
+        positionFrameRef.current = null;
+      }
+    };
+  }, [open, presence.mounted, schedulePositionUpdate, updatePosition]);
+
+  useEffect(() => {
+    if (!presence.mounted) {
+      setPanelStyle(null);
+    }
+  }, [presence.mounted]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      const panel = panelRef.current;
+      const anchor = anchorRef.current;
+      const path = event.composedPath();
+      if ((panel && path.includes(panel)) || (anchor && path.includes(anchor))) {
+        return;
+      }
+      onClose();
+    };
+    const handleViewportChange = () => schedulePositionUpdate();
+
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("scroll", handleViewportChange, true);
+    window.visualViewport?.addEventListener("resize", handleViewportChange);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("scroll", handleViewportChange, true);
+      window.visualViewport?.removeEventListener("resize", handleViewportChange);
+    };
+  }, [anchorRef, onClose, open, schedulePositionUpdate]);
+
+  useEffect(() => {
+    if (open) {
+      wasOpenRef.current = true;
+      return;
+    }
+    if (!wasOpenRef.current) {
+      return;
+    }
+    wasOpenRef.current = false;
+    if (!restoreFocusOnClose) {
+      return;
+    }
+    const frameId = window.requestAnimationFrame(() => anchorRef.current?.focus());
+    return () => window.cancelAnimationFrame(frameId);
+  }, [anchorRef, open, restoreFocusOnClose]);
+
+  useEffect(() => {
+    if (!open || !presence.mounted || !focusSelector) {
+      return;
+    }
+    const frameId = window.requestAnimationFrame(() => {
+      panelRef.current?.querySelector<HTMLElement>(focusSelector)?.focus();
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [focusSelector, open, presence.mounted]);
+
+  if (!presence.mounted) {
+    return null;
+  }
+
+  const resolvedPanelStyle = panelStyle ?? {
+    position: "fixed" as const,
+    top: -9999,
+    left: -9999,
+    visibility: "hidden" as const,
+  };
+
+  return createPortal(
+    <div
+      ref={panelRef}
+      id={id}
+      className={`wapp-floating-panel wapp-motion-${presence.state} ${className}`.trim()}
+      role={role}
+      aria-label={ariaLabel}
+      aria-hidden={open ? undefined : true}
+      style={{ ...resolvedPanelStyle, ...style }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
 function MenuIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className="wapp-svg">
