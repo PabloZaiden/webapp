@@ -1814,10 +1814,13 @@ textarea::placeholder {
 .wapp-checkbox-field {
   display: flex;
   align-items: flex-start;
+  justify-content: space-between;
+  width: 100%;
   gap: 0.5rem;
 }
 
 .wapp-checkbox-field input {
+  order: 2;
   width: 1rem;
   min-height: 1rem;
   margin-top: 0.125rem;

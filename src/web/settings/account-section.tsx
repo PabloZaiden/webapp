@@ -103,6 +103,7 @@ export function AccountSection({ config, refresh, setError }: AccountSectionProp
               {VALID_LOG_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}
             </SelectField>
           ) : null}
+          <br />
           <CheckboxField
             label="Store server logs in memory"
             hint="Temporary; disabled and cleared when the server process starts or this setting is turned off."
