@@ -34,7 +34,8 @@ The web export includes `Presence`, `Collapsible`, `AsyncState`, `AnimatedList`,
 `Tabs`, `TabPanels`, and `TabPanel`. Use stable React keys with `AnimatedList`;
 it preserves removed keyed children for the exit duration and marks them
 inaccessible while they leave. The primitives honor
-`prefers-reduced-motion` and skip visual movement when it is enabled.
+`prefers-reduced-motion`; transient appearance animations use opacity-only
+fades, while structural primitives such as `Collapsible` animate their layout.
 
 ```tsx
 <AnimatedList>

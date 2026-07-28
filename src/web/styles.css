@@ -683,16 +683,22 @@ textarea::placeholder {
 }
 
 @keyframes wapp-view-transition-old {
+  from {
+    opacity: 1;
+  }
+
   to {
     opacity: 0;
-    transform: translateY(calc(var(--wapp-motion-distance) * -1));
   }
 }
 
 @keyframes wapp-view-transition-new {
   from {
     opacity: 0;
-    transform: translateY(var(--wapp-motion-distance));
+  }
+
+  to {
+    opacity: 1;
   }
 }
 
@@ -708,24 +714,20 @@ textarea::placeholder {
 @keyframes wapp-fade-in {
   from {
     opacity: 0;
-    transform: translateY(var(--wapp-motion-distance));
   }
 
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
 @keyframes wapp-fade-out {
   from {
     opacity: 1;
-    transform: translateY(0);
   }
 
   to {
     opacity: 0;
-    transform: translateY(calc(var(--wapp-motion-distance) * -1));
   }
 }
 
@@ -1341,7 +1343,6 @@ textarea::placeholder {
 
 .wapp-floating-panel {
   z-index: 1000;
-  transform-origin: top left;
 }
 
 .wapp-floating-panel.wapp-motion-enter {
@@ -1355,58 +1356,48 @@ textarea::placeholder {
 @keyframes wapp-floating-panel-enter {
   from {
     opacity: 0;
-    transform: translateY(0.25rem) scale(0.98);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
   }
 }
 
 @keyframes wapp-floating-panel-exit {
   from {
     opacity: 1;
-    transform: translateY(0) scale(1);
   }
 
   to {
     opacity: 0;
-    transform: translateY(0.25rem) scale(0.98);
   }
 }
 
 .wapp-action-menu.wapp-motion-enter {
-  transform-origin: top right;
   animation-name: wapp-menu-enter;
 }
 
 .wapp-action-menu.wapp-motion-exit {
-  transform-origin: top right;
   animation-name: wapp-menu-exit;
 }
 
 @keyframes wapp-menu-enter {
   from {
     opacity: 0;
-    transform: translateY(-0.25rem) scale(0.98);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
   }
 }
 
 @keyframes wapp-menu-exit {
   from {
     opacity: 1;
-    transform: translateY(0) scale(1);
   }
 
   to {
     opacity: 0;
-    transform: translateY(-0.25rem) scale(0.98);
   }
 }
 
@@ -1947,12 +1938,10 @@ textarea::placeholder {
 @keyframes wapp-toast-enter {
   from {
     opacity: 0;
-    transform: translateY(0.5rem);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -1966,9 +1955,12 @@ textarea::placeholder {
 }
 
 @keyframes wapp-toast-exit {
+  from {
+    opacity: 1;
+  }
+
   to {
     opacity: 0;
-    transform: translateY(0.25rem);
   }
 }
 
@@ -2242,16 +2234,6 @@ textarea::placeholder {
   animation: wapp-fade-in var(--wapp-motion-fast) var(--wapp-motion-ease) both;
 }
 
-.wapp-confirm-dialog-backdrop {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  padding: max(0.75rem, var(--wapp-safe-area-top)) max(0.75rem, var(--wapp-safe-area-right)) max(0.75rem, var(--wapp-safe-area-bottom)) max(0.75rem, var(--wapp-safe-area-left));
-}
-
 .wapp-dialog {
   position: fixed;
   top: 50%;
@@ -2265,77 +2247,11 @@ textarea::placeholder {
   background: var(--wapp-surface);
   padding: 0;
   box-shadow: 0 24px 55px rgb(0 0 0 / 0.38);
-  animation: wapp-dialog-enter var(--wapp-motion-fast) var(--wapp-motion-ease) both;
+  animation: wapp-fade-in var(--wapp-motion-fast) var(--wapp-motion-ease) both;
 }
 
-.wapp-dialog.wapp-motion-exit,
-.wapp-modal.wapp-motion-exit {
-  animation-name: wapp-dialog-exit;
-}
-
-@keyframes wapp-dialog-enter {
-  from {
-    opacity: 0;
-    transform: translate(-50%, calc(-50% + 0.5rem)) scale(0.98);
-  }
-
-  to {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
-  }
-}
-
-@keyframes wapp-dialog-exit {
-  from {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
-  }
-
-  to {
-    opacity: 0;
-    transform: translate(-50%, calc(-50% + 0.5rem)) scale(0.98);
-  }
-}
-
-.wapp-confirm-dialog-backdrop > .wapp-confirm-dialog {
-  position: relative;
-  top: auto;
-  left: auto;
-  width: min(28rem, 100%);
-  max-width: 100%;
-  max-height: calc(var(--wapp-viewport-height) - 1.5rem - var(--wapp-safe-area-top) - var(--wapp-safe-area-bottom));
-  transform: none;
-  display: flex;
-  flex-direction: column;
-  animation-name: wapp-confirm-dialog-enter;
-}
-
-.wapp-confirm-dialog-backdrop > .wapp-confirm-dialog.wapp-motion-exit {
-  animation-name: wapp-confirm-dialog-exit;
-}
-
-@keyframes wapp-confirm-dialog-enter {
-  from {
-    opacity: 0;
-    transform: translateY(0.5rem) scale(0.98);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes wapp-confirm-dialog-exit {
-  from {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-
-  to {
-    opacity: 0;
-    transform: translateY(0.5rem) scale(0.98);
-  }
+.wapp-dialog.wapp-motion-exit {
+  animation-name: wapp-fade-out;
 }
 
 .wapp-dialog-title {
@@ -2383,13 +2299,6 @@ textarea::placeholder {
   padding: 1.25rem 1.5rem;
 }
 
-.wapp-confirm-dialog .wapp-dialog-body {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow-x: hidden;
-  overflow-y: auto;
-}
-
 .wapp-dialog-body p {
   margin: 0;
   color: color-mix(in srgb, var(--wapp-text), var(--wapp-muted) 28%);
@@ -2401,17 +2310,6 @@ textarea::placeholder {
   justify-content: flex-end;
   gap: 0.5rem;
   padding: 1rem 1.5rem;
-}
-
-@media (max-width: 639px) {
-  .wapp-confirm-dialog .wapp-dialog-actions {
-    flex-direction: column-reverse;
-    align-items: stretch;
-  }
-
-  .wapp-confirm-dialog .wapp-dialog-actions .wapp-button {
-    width: 100%;
-  }
 }
 
 .wapp-modal-layer {
@@ -2454,7 +2352,11 @@ textarea::placeholder {
   background: var(--wapp-surface);
   box-shadow: 0 24px 55px rgb(0 0 0 / 0.38);
   outline: none;
-  animation: wapp-dialog-enter var(--wapp-motion-fast) var(--wapp-motion-ease) both;
+  animation: wapp-fade-in var(--wapp-motion-fast) var(--wapp-motion-ease) both;
+}
+
+.wapp-modal.wapp-motion-exit {
+  animation-name: wapp-fade-out;
 }
 
 .wapp-modal-sm {
