@@ -83,6 +83,9 @@ export function SecuritySection({ config, refresh, setError }: SecuritySectionPr
           )}
         </div>
       </div>
+      <br />
+      <br />
+      <br />
       {config.apiKeys.enabled ? (
         <>
           <div className="wapp-settings-row">
@@ -92,6 +95,8 @@ export function SecuritySection({ config, refresh, setError }: SecuritySectionPr
             </div>
             <div className="wapp-row-actions"><Button type="button" onClick={() => void createKey().catch((err) => setError(String(err)))}>Create API key</Button></div>
           </div>
+          <br />
+          <br />
           <div className="wapp-settings-row-content">
             {createdToken ? <code className="wapp-token">{createdToken}</code> : null}
             <ResourceState loading={apiKeysLoading} error={apiKeysLoadError} hasData={apiKeys !== undefined} refresh={refreshApiKeys} />
@@ -106,6 +111,8 @@ export function SecuritySection({ config, refresh, setError }: SecuritySectionPr
               </div>
             ) : apiKeys !== undefined && !apiKeysLoadError ? <EmptyState title="No API keys" /> : null}
           </div>
+          <br />
+          <br />
         </>
       ) : null}
       <ConfirmDialog

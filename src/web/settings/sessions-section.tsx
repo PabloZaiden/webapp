@@ -42,6 +42,7 @@ export function SessionsSection({ config, setError }: SessionsSectionProps) {
           <strong>Device auth sessions</strong>
           <p>Refresh-token sessions created through the device flow.</p>
         </div>
+        <br />
         <ResourceState loading={authSessionsLoading} error={authSessionsLoadError} hasData={authSessions !== undefined} refresh={refreshAuthSessions} />
         <div className="wapp-list">
           {authSessions?.length ? authSessions.map((session) => (
@@ -52,6 +53,8 @@ export function SessionsSection({ config, setError }: SessionsSectionProps) {
           )) : authSessions !== undefined && !authSessionsLoadError ? <EmptyState title="No device sessions" /> : null}
         </div>
       </div>
+      <br />
+      <br />
       <ConfirmDialog
         open={Boolean(authSessionToRevoke)}
         title="Revoke device session?"
