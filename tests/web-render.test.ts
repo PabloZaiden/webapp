@@ -915,6 +915,57 @@ test("settings device sessions show empty state when no active sessions are retu
   }
 });
 
+test("settings place app-defined sections before server operations and about", async () => {
+  const restoreFetch = mockSettingsFetch([]);
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+      },
+      settings: {
+        sections: [
+          {
+            id: "app-settings",
+            title: "Application settings",
+            rows: [{ id: "sync", title: "Sync status" }],
+          },
+          {
+            id: "advanced-app-settings",
+            title: "Advanced application settings",
+            rows: [{ id: "retention", title: "Retention" }],
+          },
+        ],
+      },
+    }));
+
+    fireEvent.click(await waitFor(() => view.getByLabelText("Open settings")));
+    await waitFor(() => expect(view.getByRole("heading", { name: "About", level: 3 })).toBeTruthy());
+
+    const headings = view.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
+    const applicationSettingsIndex = headings.indexOf("Application settings");
+    const advancedApplicationSettingsIndex = headings.indexOf("Advanced application settings");
+    const serverOperationsIndex = headings.indexOf("Server operations");
+    const aboutIndex = headings.indexOf("About");
+
+    expect(applicationSettingsIndex).toBeGreaterThanOrEqual(0);
+    expect(advancedApplicationSettingsIndex).toBeGreaterThanOrEqual(0);
+    expect(serverOperationsIndex).toBeGreaterThanOrEqual(0);
+    expect(aboutIndex).toBeGreaterThanOrEqual(0);
+    expect(applicationSettingsIndex).toBeLessThan(serverOperationsIndex);
+    expect(advancedApplicationSettingsIndex).toBeLessThan(serverOperationsIndex);
+    expect(aboutIndex).toBe(serverOperationsIndex + 1);
+  } finally {
+    restoreFetch();
+  }
+});
+
 test("user-management list failures are distinct from empty results and support retry", async () => {
   const user: WebAppUserSummary = {
     id: "user-1",

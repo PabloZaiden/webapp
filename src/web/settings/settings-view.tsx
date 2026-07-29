@@ -80,11 +80,11 @@ export function SettingsView({ config, refresh, customSections }: SettingsViewPr
         <SessionsSection config={config} setError={setError} />
       </FormSection>
       <UserManagement config={config} />
-      <ShutdownSection config={config} setError={setError} />
       {customSections.filter((section) => isScopeVisible(section.scope, config)).map((section) => ({
         ...section,
         rows: section.rows?.filter((row) => isScopeVisible(row.scope, config)),
       })).map((section) => <StructuredSettingsSection key={section.id} section={section} />)}
+      <ShutdownSection config={config} setError={setError} />
       <FormSection title="About">
         <p>{config.appName} {config.version}</p>
       </FormSection>
