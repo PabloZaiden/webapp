@@ -949,12 +949,17 @@ test("settings place app-defined sections before server operations and about", a
     await waitFor(() => expect(view.getByRole("heading", { name: "About", level: 3 })).toBeTruthy());
 
     const headings = view.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
+    const applicationSettingsIndex = headings.indexOf("Application settings");
+    const advancedApplicationSettingsIndex = headings.indexOf("Advanced application settings");
     const serverOperationsIndex = headings.indexOf("Server operations");
     const aboutIndex = headings.indexOf("About");
 
-    expect(headings.indexOf("Application settings")).toBeLessThan(serverOperationsIndex);
-    expect(headings.indexOf("Advanced application settings")).toBeLessThan(serverOperationsIndex);
+    expect(applicationSettingsIndex).toBeGreaterThanOrEqual(0);
+    expect(advancedApplicationSettingsIndex).toBeGreaterThanOrEqual(0);
     expect(serverOperationsIndex).toBeGreaterThanOrEqual(0);
+    expect(aboutIndex).toBeGreaterThanOrEqual(0);
+    expect(applicationSettingsIndex).toBeLessThan(serverOperationsIndex);
+    expect(advancedApplicationSettingsIndex).toBeLessThan(serverOperationsIndex);
     expect(aboutIndex).toBe(serverOperationsIndex + 1);
   } finally {
     restoreFetch();
