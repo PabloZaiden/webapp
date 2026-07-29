@@ -13,6 +13,12 @@ Settings is framework-owned so apps stay consistent. It includes:
 - Admin server kill
 - Version/about
 
+Application-defined settings sections are rendered after the framework-owned
+account, security, and user-management sections and before **Server
+operations**. When the admin-only server operations section is visible, it is
+immediately followed by **About**. Section and row scope rules still determine
+which application-defined settings are shown.
+
 The local-storage or system theme is applied immediately while the signed-in
 user preference loads in the background. If that request fails, the current
 theme remains active and Display Settings shows a non-blocking error with a
