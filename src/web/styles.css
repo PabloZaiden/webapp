@@ -373,7 +373,6 @@ textarea::placeholder {
 .wapp-search-clear:focus-visible {
   background: color-mix(in srgb, var(--wapp-muted), transparent 88%);
   color: var(--wapp-text);
-  outline: none;
 }
 
 .wapp-sidebar-section.top {
@@ -1949,7 +1948,6 @@ textarea::placeholder {
 .wapp-toast-dismiss:hover,
 .wapp-toast-dismiss:focus-visible {
   background: rgb(0 0 0 / 0.1);
-  outline: none;
 }
 
 @keyframes wapp-toast-enter {
