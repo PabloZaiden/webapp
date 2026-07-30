@@ -422,7 +422,7 @@ export function TabPanel({
 export function FormSection({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
     <section className="wapp-form-section">
-      <div>
+      <div className={description ? "wapp-form-section-heading wapp-form-section-heading-with-description" : "wapp-form-section-heading"}>
         <h3>{title}</h3>
         {description ? <p>{description}</p> : null}
       </div>

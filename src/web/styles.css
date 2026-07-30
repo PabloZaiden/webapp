@@ -1635,6 +1635,10 @@ textarea::placeholder {
   font-weight: 500;
 }
 
+.wapp-form-section-heading-with-description {
+  padding-bottom: 0.5rem;
+}
+
 .wapp-form-section-body {
   min-width: 0;
   border: 1px solid var(--wapp-border-muted);
@@ -2538,6 +2542,14 @@ textarea::placeholder {
 :root[data-wapp-mobile] .wapp-main-header {
   min-height: 3.5rem;
   padding: 0.5rem 0.75rem;
+}
+
+:root[data-wapp-mobile] .wapp-sidebar-header {
+  padding-inline: 0.5rem;
+}
+
+:root[data-wapp-mobile] .wapp-sidebar-actions {
+  gap: 0.25rem;
 }
 
 :root[data-wapp-mobile] .wapp-main {
