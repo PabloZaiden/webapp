@@ -284,8 +284,6 @@ textarea::placeholder {
 
 .wapp-sidebar-top-button:hover,
 .wapp-sidebar-top-button.active {
-  border-color: transparent;
-  background: transparent;
   color: var(--wapp-text);
 }
 
