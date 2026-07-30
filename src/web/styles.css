@@ -160,7 +160,7 @@ textarea::placeholder {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-right: 1px solid var(--wapp-border-soft);
+  border-right: 0;
   background: var(--wapp-shell-bg);
   backdrop-filter: blur(12px);
   transition: width 180ms ease, min-width 180ms ease, transform 180ms ease, opacity 180ms ease;
@@ -185,14 +185,8 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  border-bottom: 1px solid var(--wapp-border-soft);
-  background: var(--wapp-surface);
-}
-
-:root.dark .wapp-sidebar-header,
-:root.dark .wapp-main-header {
-  border-bottom-color: var(--wapp-border-soft);
-  background: #111111;
+  border-bottom: 0;
+  background: var(--wapp-shell-bg);
 }
 
 .wapp-sidebar-header {
@@ -633,6 +627,7 @@ textarea::placeholder {
   height: var(--wapp-viewport-height);
   display: flex;
   flex-direction: column;
+  background: var(--wapp-shell-bg);
 }
 
 .wapp-main-header h1 {
@@ -654,6 +649,7 @@ textarea::placeholder {
   min-height: 0;
   overflow: auto;
   overflow-x: hidden;
+  background: var(--wapp-shell-bg);
   padding: 0;
   scroll-padding-bottom: var(--wapp-mobile-bottom-clearance);
 }
@@ -2073,7 +2069,7 @@ textarea::placeholder {
   display: flex;
   align-items: flex-end;
   gap: 0.25rem;
-  border-bottom: 1px solid var(--wapp-border-soft);
+  border-bottom: 0;
 }
 
 .wapp-tab {
@@ -2089,7 +2085,7 @@ textarea::placeholder {
 .wapp-tab::after {
   position: absolute;
   right: 0.75rem;
-  bottom: -1px;
+  bottom: 0;
   left: 0.75rem;
   height: 2px;
   background: var(--wapp-primary);
