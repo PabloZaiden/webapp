@@ -42,7 +42,7 @@ Use these first:
 | `Page` | Required top-level wrapper for route content rendered by `WebAppRoot.routes`; uses standard margins/padding and mobile spacing by default, or `layout="full"` for viewport-sized content |
 | `Toolbar` | Page title/actions inside main content |
 | `Panel` | Cards/sections; use `actions` for a top-right menu/action area |
-| `ActionMenu` | Three-line action menu for secondary surfaces; entity-level shell menus should usually come from `SidebarNode.actions` so the framework renders them in the sidebar context menu and fixed title bar |
+| `ActionMenu` | Quiet overflow action menu for secondary surfaces; entity-level shell menus should usually come from `SidebarNode.actions` so the framework renders them in the sidebar context menu and fixed title bar |
 | `FloatingPanel` | Anchored arbitrary popup content; use it instead of app-owned portals when the content is not a simple `ActionMenu` |
 | `Button` / `IconButton` | Form submission and true inline controls; prefer action menus for entity/app commands |
 | `Badge` | Generic status/count labels; preserves the supplied text casing |
@@ -109,6 +109,6 @@ All destructive delete actions must use the framework `ConfirmDialog` before cal
 
 Framework dialogs and modal forms handle Enter as the primary/confirm action and Escape as cancel/close. Do not reimplement this keyboard behavior in app-local modal code.
 
-Prefer the framework action-menu pattern for app commands. Actions such as New task, New note, New project, archive, delete, or state transitions should live in `SidebarNode.actions` so they appear behind the three-line title-bar/item action menus. Destructive actions should be marked `destructive: true`; the framework also treats delete-labelled actions defensively, renders them red, and orders them last. Use discrete buttons mainly for form submission or inline controls that cannot reasonably live in an action menu.
+Prefer the framework action-menu pattern for app commands. Actions such as New task, New note, New project, archive, delete, or state transitions should live in `SidebarNode.actions` so they appear behind the quiet overflow title-bar/item action menus. Destructive actions should be marked `destructive: true`; the framework also treats delete-labelled actions defensively, renders them red, and orders them last. Use discrete buttons mainly for form submission or inline controls that cannot reasonably live in an action menu.
 
 Headers and menus should be allowed to shrink safely: titles and subtitles truncate, while icon buttons and action buttons keep their shape and remain visible. Context menus are framework-positioned to stay inside the visible viewport.

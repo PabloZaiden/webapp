@@ -1115,10 +1115,10 @@ export function FloatingPanel({
   );
 }
 
-function MenuIcon() {
+export function OverflowIcon({ className = "" }: { className?: string }) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="wapp-svg">
-      <path d="M4 7h16M4 12h16M4 17h16" />
+    <svg aria-hidden="true" viewBox="0 0 24 24" className={`wapp-svg wapp-overflow-icon ${className}`.trim()}>
+      <path d="M5 12h.01M12 12h.01M19 12h.01" />
     </svg>
   );
 }
@@ -1251,7 +1251,7 @@ export function ActionMenu({
         disabled={disabled || items.length === 0}
         onClick={() => setOpen((current) => !current)}
       >
-        {trigger ?? <MenuIcon />}
+        {trigger ?? <OverflowIcon />}
       </button>
       {presence.mounted ? createPortal(
         <div ref={menuRef} className={`wapp-action-menu wapp-motion-${presence.state}`} role="menu" aria-label={ariaLabel} aria-hidden={open ? undefined : true} style={style}>
