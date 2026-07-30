@@ -276,30 +276,20 @@ textarea::placeholder {
   min-width: 2.25rem;
   width: 2.25rem;
   height: 2.25rem;
-  border-color: var(--wapp-border-soft);
-  background: #ffffff;
-  color: var(--wapp-muted);
-}
-
-.wapp-sidebar-top-button:hover,
-.wapp-sidebar-top-button.active {
-  border-color: var(--wapp-border);
-  background: #ffffff;
-  color: var(--wapp-text);
-}
-
-:root.dark .wapp-sidebar-top-button {
-  border-color: var(--wapp-border-soft);
-  background: var(--wapp-surface-muted);
+  border: 0;
+  background: transparent;
   color: var(--wapp-muted);
   box-shadow: none;
 }
 
-:root.dark .wapp-sidebar-top-button:hover,
-:root.dark .wapp-sidebar-top-button.active {
-  border-color: var(--wapp-border);
-  background: var(--wapp-surface-pill);
-  color: #ffffff;
+.wapp-sidebar-top-button:hover,
+.wapp-sidebar-top-button.active {
+  color: var(--wapp-text);
+}
+
+.wapp-sidebar-top-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--wapp-muted), transparent 20%);
+  outline-offset: 2px;
 }
 
 .wapp-svg {
