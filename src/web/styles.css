@@ -2648,7 +2648,7 @@ textarea::placeholder {
   padding: 0.875rem 0.875rem max(1rem, var(--wapp-mobile-bottom-clearance));
 }
 
-:where(button, input, select, textarea, [role="button"]):focus-visible {
+:where(button, input, textarea, [role="button"]):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--wapp-primary), transparent 18%);
   outline-offset: 2px;
 }
