@@ -1,7 +1,7 @@
 :root {
   color-scheme: light;
   --wapp-bg: var(--wapp-shell-bg);
-  --wapp-shell-bg: rgb(249 250 251 / 0.95);
+  --wapp-shell-bg: #f9fafb;
   --wapp-surface: #ffffff;
   --wapp-surface-raised: #ffffff;
   --wapp-surface-muted: #f9fafb;
@@ -60,7 +60,7 @@
 :root.dark {
   color-scheme: dark;
   --wapp-bg: var(--wapp-shell-bg);
-  --wapp-shell-bg: rgb(13 13 13 / 0.98);
+  --wapp-shell-bg: #0d0d0d;
   --wapp-surface: #171717;
   --wapp-surface-raised: #1a1a1a;
   --wapp-surface-muted: #141414;
