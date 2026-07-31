@@ -519,6 +519,10 @@ function NotesTodoApp() {
       appName="Notes TODO"
       homeRoute={{ view: "home" }}
       sidebar={{
+        topActions: [
+          { id: "new-task", title: "New task", icon: "+", route: { view: "new-todo", sectionId: sections[0]?.id } },
+          { id: "new-note", title: "New note", icon: "chat", route: { view: "new-note", sectionId: sections[0]?.id } },
+        ],
         getNodes: sidebarNodes,
       }}
       routes={{

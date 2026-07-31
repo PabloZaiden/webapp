@@ -434,6 +434,37 @@ function typeSearch(input: HTMLElement, value: string) {
   });
 }
 
+test("sidebar keeps two app actions beside its framework actions", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        topActions: [
+          { id: "activity", title: "Activity", route: { view: "activity" } },
+          { id: "inbox", title: "Inbox", route: { view: "inbox" } },
+        ],
+        getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+        activity: createElement("p", null, "Activity"),
+        inbox: createElement("p", null, "Inbox"),
+      },
+    }));
+
+    await waitFor(() => expect(view.getByRole("button", { name: "Activity" })).toBeTruthy());
+    expect(view.getByRole("button", { name: "Inbox" })).toBeTruthy();
+    expect(view.getByRole("button", { name: "Open settings" })).toBeTruthy();
+    expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
+  } finally {
+    restoreFetch();
+  }
+});
+
 test("sidebar navigation replaces hash history entries", async () => {
   const restoreFetch = mockConfigFetch();
   window.location.hash = "#/home";
