@@ -1,7 +1,7 @@
 :root {
   color-scheme: light;
   --wapp-bg: var(--wapp-shell-bg);
-  --wapp-shell-bg: rgb(249 250 251 / 0.95);
+  --wapp-shell-bg: #f9fafb;
   --wapp-surface: #ffffff;
   --wapp-surface-raised: #ffffff;
   --wapp-surface-muted: #f9fafb;
@@ -60,7 +60,7 @@
 :root.dark {
   color-scheme: dark;
   --wapp-bg: var(--wapp-shell-bg);
-  --wapp-shell-bg: rgb(13 13 13 / 0.98);
+  --wapp-shell-bg: #0d0d0d;
   --wapp-surface: #171717;
   --wapp-surface-raised: #1a1a1a;
   --wapp-surface-muted: #141414;
@@ -220,6 +220,8 @@ textarea::placeholder {
 }
 
 .wapp-brand {
+  min-width: 0;
+  overflow: hidden;
   border: 0;
   background: transparent;
   color: var(--wapp-muted);
@@ -228,6 +230,8 @@ textarea::placeholder {
   font-weight: 600;
   letter-spacing: 0.24em;
   text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 0;
   transition: color 120ms ease;
 }
@@ -2541,11 +2545,11 @@ textarea::placeholder {
 }
 
 :root[data-wapp-mobile] .wapp-sidebar-header {
-  padding-inline: 0.5rem;
+  padding-inline: 0.75rem;
 }
 
 :root[data-wapp-mobile] .wapp-sidebar-actions {
-  gap: 0.25rem;
+  gap: 0.5rem;
 }
 
 :root[data-wapp-mobile] .wapp-main {
@@ -2635,13 +2639,20 @@ textarea::placeholder {
   height: 2.75rem;
 }
 
+:root[data-wapp-mobile] .wapp-sidebar-header .wapp-sidebar-top-button {
+  min-height: 2.25rem;
+  min-width: 2.25rem;
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
 :root[data-wapp-mobile] .wapp-sidebar-item,
 :root[data-wapp-mobile] .wapp-action-menu-item {
   min-height: 2.75rem;
 }
 
 :root[data-wapp-mobile] .wapp-search input {
-  height: 2.75rem;
+  height: 2.375rem;
 }
 
 :root[data-wapp-mobile] .wapp-settings {
