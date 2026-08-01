@@ -49,6 +49,22 @@ const app = createWebAppServer({
 await app.runFromCli();
 ```
 
+The server uses a 255-second request idle timeout by default. Apps can override
+it through `server.idleTimeout`; use `0` only when every request may remain
+open indefinitely, and use route-level `ctx.server?.timeout(req, seconds)` for
+individual streams or long-running operations:
+
+```ts
+createWebAppServer({
+  appName: "My App",
+  envPrefix: "MY_APP",
+  server: { idleTimeout: 120 },
+  routes,
+});
+```
+
+The maximum supported value is 255 seconds, as required by Bun.
+
 The framework generates the HTML document, React mount point, fixed-scale viewport metadata, PWA manifest, default SVG icons, and the theme prepaint script. On iPhone, iPad, and other mobile browsers that honor viewport scaling tokens, the generated viewport prevents pinch-to-zoom while preserving normal scrolling; clients that ignore those tokens are unaffected. By default it uses `./web/main.tsx` relative to the Bun entry file as the frontend entrypoint, so apps only need to create that file. Override document defaults only when the app needs different metadata:
 
 ```ts
