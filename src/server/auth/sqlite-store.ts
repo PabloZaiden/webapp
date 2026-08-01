@@ -552,9 +552,10 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
     },
 
     listApiKeys: (userId) => {
+      // Date values have millisecond precision; use insertion order for ties.
       const rows = userId
-        ? (db.query("SELECT * FROM webapp_api_keys WHERE user_id = ? ORDER BY created_at DESC").all(userId) as Row[])
-        : (db.query("SELECT * FROM webapp_api_keys ORDER BY created_at DESC").all() as Row[]);
+        ? (db.query("SELECT * FROM webapp_api_keys WHERE user_id = ? ORDER BY created_at DESC, rowid DESC").all(userId) as Row[])
+        : (db.query("SELECT * FROM webapp_api_keys ORDER BY created_at DESC, rowid DESC").all() as Row[]);
       return rows.map(mapApiKey);
     },
     getApiKeyByHash: (tokenHash) => {
