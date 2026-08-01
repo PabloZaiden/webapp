@@ -18,6 +18,10 @@ export type BadgeVariant =
   | "deleted"
   | "plan_ready";
 
+export type BadgeAppearance = "pill" | "text";
+export type SidebarBadgeAppearance = "dot" | "text";
+export type SidebarItemLayout = "default" | "subtitle-above-title";
+
 export interface WebAppRoute {
   view: string;
   [key: string]: string | number | boolean | undefined;
@@ -47,6 +51,8 @@ export interface SidebarNode {
   subtitle?: string;
   badge?: string;
   badgeVariant?: BadgeVariant;
+  badgeAppearance?: SidebarBadgeAppearance;
+  itemLayout?: SidebarItemLayout;
   route?: WebAppRoute;
   action?: SidebarAction;
   actions?: ActionMenuItem[];

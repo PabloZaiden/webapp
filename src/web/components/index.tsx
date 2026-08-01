@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type InputHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
-import type { ActionMenuItem, BadgeVariant } from "../sidebar/types";
+import type { ActionMenuItem, BadgeAppearance, BadgeVariant } from "../sidebar/types";
 import { AnimatedList, MOTION_FAST_MS, usePresence } from "../motion";
 
 export type ButtonVariant = "default" | "primary" | "danger" | "ghost";
@@ -35,23 +35,50 @@ export type BadgeSize = "sm" | "md";
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   variant?: BadgeVariant;
+  appearance?: BadgeAppearance;
   size?: BadgeSize;
   children: ReactNode;
 }
 
+export function formatStatusLabel(label: string): string {
+  return label
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()}`)
+    .join(" ");
+}
+
 export function Badge({
   variant = "default",
+  appearance = "pill",
   size = "sm",
   className = "",
   children,
   ...props
 }: BadgeProps) {
   const sizeClass = size === "md" ? "wapp-badge-md" : "";
-  return <span {...props} className={["wapp-badge", `wapp-badge-${variant}`, sizeClass, className].filter(Boolean).join(" ")}>{children}</span>;
+  const appearanceClass = appearance === "text" ? "wapp-badge-text" : "";
+  return <span {...props} className={["wapp-badge", `wapp-badge-${variant}`, appearanceClass, sizeClass, className].filter(Boolean).join(" ")}>{children}</span>;
 }
 
-export function StatusBadge({ className = "", ...props }: BadgeProps) {
-  return <Badge {...props} className={["wapp-status-badge", className].filter(Boolean).join(" ")} />;
+export function StatusBadge({
+  appearance = "text",
+  children,
+  className = "",
+  ...props
+}: BadgeProps) {
+  const label = typeof children === "string" ? formatStatusLabel(children) : children;
+  return (
+    <Badge
+      {...props}
+      appearance={appearance}
+      className={["wapp-status-badge", className].filter(Boolean).join(" ")}
+    >
+      {label}
+    </Badge>
+  );
 }
 
 export type PageLayout = "padded" | "full";
