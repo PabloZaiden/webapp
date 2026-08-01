@@ -39,7 +39,7 @@
     "build:notes-todo": "bun run --cwd examples/notes-todo build",
     "test": "bun run test:build-binary && bun run test:remaining",
     "test:build-binary": "bun test tests/build-binary.test.ts",
-    "test:remaining": "bun test --path-ignore-patterns=**/build-binary.test.ts",
+    "test:remaining": "bun test --isolate --path-ignore-patterns=**/build-binary.test.ts",
     "typecheck": "mkdir -p .cache/tsc && bunx tsc --noEmit --pretty false --incremental --tsBuildInfoFile .cache/tsc/build.tsbuildinfo",
     "tsc": "bun run typecheck"
   },

@@ -7,7 +7,7 @@ import { RealtimeBus, createLogger, createWebAppPublicAsset, createWebAppServer,
 import { authenticateApiKey, createApiKey, createManagedApiKey, listManagedApiKeys, revokeManagedApiKey } from "../src/server/auth/api-keys";
 import { sha256 } from "../src/server/auth/crypto";
 import { readRuntimeConfig, resolveEffectiveLogLevel, safeRuntimeConfig } from "../src/server/runtime-config";
-import type { UserRecord, WebAppStore } from "../src/server/auth/store";
+import type { ApiKeyRecord, UserRecord, WebAppStore } from "../src/server/auth/store";
 
 const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
 const testIcon = new URL("./fixtures/web/icon.svg", import.meta.url);
@@ -1758,6 +1758,40 @@ describe("server security defaults", () => {
     expect(revokeManagedApiKey(store, ownerGeneration.key.id, owner.id)).toBe(true);
     expect(revokeManagedApiKey(store, ownerGeneration.key.id, owner.id)).toBe(false);
     expect(listManagedApiKeys(store, owner.id, "context-1")).toEqual([]);
+  });
+
+  test("orders same-timestamp API keys by insertion order", () => {
+    const store = testStore("api-key-same-timestamp-order");
+    store.initialize();
+    const owner = configuredUser(store);
+    const createdAt = "2026-01-01T00:00:00.000Z";
+    const first: ApiKeyRecord = {
+      id: crypto.randomUUID(),
+      userId: owner.id,
+      name: "First",
+      prefix: "wapp",
+      tokenHash: sha256("first-token"),
+      scopes: ["*"],
+      createdAt,
+      kind: "managed",
+      managedBy: "test",
+    };
+    const second: ApiKeyRecord = {
+      id: crypto.randomUUID(),
+      userId: owner.id,
+      name: "Second",
+      prefix: "wapp",
+      tokenHash: sha256("second-token"),
+      scopes: ["*"],
+      createdAt,
+      kind: "managed",
+      managedBy: "test",
+    };
+
+    store.saveApiKey(first);
+    store.saveApiKey(second);
+
+    expect(store.listApiKeys(owner.id).map((key) => key.id)).toEqual([second.id, first.id]);
   });
 
   test("managed keys use bearer scopes and public CRUD cannot create or delete them", async () => {
