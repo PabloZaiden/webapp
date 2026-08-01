@@ -535,6 +535,39 @@ textarea::placeholder {
   overflow: hidden;
 }
 
+.wapp-sidebar-item-subtitle-above-title {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) fit-content(45%);
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 0.375rem;
+  row-gap: 0;
+}
+
+.wapp-sidebar-item-subtitle-above-title > span:first-child {
+  display: contents;
+}
+
+.wapp-sidebar-item-subtitle-above-title > span:first-child > small {
+  grid-column: 1;
+  grid-row: 1;
+  margin-top: 0;
+  font-size: 0.5625rem;
+  font-weight: 500;
+  line-height: 0.75rem;
+}
+
+.wapp-sidebar-item-subtitle-above-title > span:first-child > strong {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.125rem;
+}
+
 .wapp-sidebar-item strong {
   display: block;
   min-width: 0;
@@ -1480,8 +1513,19 @@ textarea::placeholder {
 }
 
 .wapp-status-badge {
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.wapp-badge.wapp-badge-text,
+:root.dark .wapp-badge.wapp-badge-text {
+  border-radius: 0;
+  background: transparent;
+  color: var(--wapp-badge-fg);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0;
 }
 
 .wapp-sidebar-badge {
@@ -1493,6 +1537,23 @@ textarea::placeholder {
   color: transparent;
   font-size: 0;
   line-height: 0;
+}
+
+.wapp-sidebar-badge-text {
+  display: inline-flex;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  padding: 0;
+  color: var(--wapp-badge-fg);
+  font-size: 0.5625rem;
+  font-weight: 600;
+  line-height: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .wapp-badge-success,
@@ -1605,6 +1666,18 @@ textarea::placeholder {
 .wapp-badge.wapp-sidebar-badge,
 :root.dark .wapp-badge.wapp-sidebar-badge {
   background: var(--wapp-badge-fg);
+}
+
+.wapp-badge.wapp-sidebar-badge-text,
+:root.dark .wapp-badge.wapp-sidebar-badge-text {
+  background: transparent;
+  color: var(--wapp-badge-fg);
+}
+
+.wapp-sidebar-item-subtitle-above-title > .wapp-sidebar-badge-text {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
 }
 
 .wapp-settings {

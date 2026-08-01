@@ -7,6 +7,8 @@ export type StoredSidebarPin = {
   subtitle?: string;
   badge?: string;
   badgeVariant?: SidebarNode["badgeVariant"];
+  badgeAppearance?: SidebarNode["badgeAppearance"];
+  itemLayout?: SidebarNode["itemLayout"];
   route: WebAppRoute;
 };
 
@@ -44,6 +46,8 @@ export function toStoredPin(node: SidebarNode): StoredSidebarPin | undefined {
     subtitle: node.subtitle,
     badge: node.badge,
     badgeVariant: node.badgeVariant,
+    badgeAppearance: node.badgeAppearance,
+    itemLayout: node.itemLayout,
     route: node.route,
   };
 }

@@ -109,6 +109,8 @@ function WebAppRootContent({
         subtitle: pin.subtitle,
         badge: pin.badge,
         badgeVariant: pin.badgeVariant,
+        badgeAppearance: pin.badgeAppearance,
+        itemLayout: pin.itemLayout,
         route: pin.route,
         pinnable: true,
       }),

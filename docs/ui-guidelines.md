@@ -45,8 +45,8 @@ Use these first:
 | `ActionMenu` | Quiet overflow action menu for secondary surfaces; entity-level shell menus should usually come from `SidebarNode.actions` so the framework renders them in the sidebar context menu and fixed title bar |
 | `FloatingPanel` | Anchored arbitrary popup content; use it instead of app-owned portals when the content is not a simple `ActionMenu` |
 | `Button` / `IconButton` | Form submission and true inline controls; prefer action menus for entity/app commands |
-| `Badge` | Generic status/count labels; preserves the supplied text casing |
-| `StatusBadge` | Status labels with the shared uppercase and letter-spacing treatment |
+| `Badge` | Generic status/count labels; use the default pill appearance or `appearance="text"` for a transparent, foreground-colored label |
+| `StatusBadge` | Status labels in the shared transparent text appearance with title-cased words |
 | `EntityHeader` | Main-content entity title/description/actions |
 | `DataList` / `DataListRow` | Lists with title, description, metadata, badge and actions |
 | `TextField`, `TextAreaField`, `SelectField` | Forms |

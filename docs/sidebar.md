@@ -34,6 +34,8 @@ Sidebar nodes support:
 | `pinnable` | Enables framework Pin/Unpin actions |
 | `pinId` | Stable pin identity when it should differ from `id` |
 | `badge` | Status/count value; sidebar items render it as a compact status dot with accessible label/tooltip |
+| `badgeAppearance` | `dot` (default) or `text`; textual badges use the shared title-case status style |
+| `itemLayout` | `default` (default) or `subtitle-above-title`; the latter keeps the subtitle and textual badge on the first line and lets the title wrap below |
 | `defaultCollapsed` | Initial collapsed state |
 
 Search is intentionally app-defined: `getNodes({ search })` receives raw search text and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
@@ -73,6 +75,23 @@ Pinning is framework-owned and persisted in browser `localStorage`. Mark route-b
   route: { view: "project", projectId: project.id },
   pinnable: true,
   actions: projectActions(project),
+}
+```
+
+For activity-style items with a context above the title, use the explicit sidebar
+presentation fields instead of styling the rendered DOM:
+
+```tsx
+{
+  type: "item",
+  id: "task:123",
+  title: "Improve the task list",
+  subtitle: "Frontend",
+  badge: "running",
+  badgeVariant: "running",
+  badgeAppearance: "text",
+  itemLayout: "subtitle-above-title",
+  route: { view: "task", taskId: "123" },
 }
 ```
 
