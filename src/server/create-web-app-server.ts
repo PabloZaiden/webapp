@@ -17,6 +17,23 @@ import { createPublicRouteDispatcher } from "./public-route-dispatch";
 import { createRouteDispatcher } from "./route-dispatch";
 import { notFound, withSecurityHeaders } from "./responses";
 
+export const MAX_SERVER_IDLE_TIMEOUT_SECONDS = 255;
+export const DEFAULT_SERVER_IDLE_TIMEOUT_SECONDS = MAX_SERVER_IDLE_TIMEOUT_SECONDS;
+
+export function resolveServerIdleTimeout(value: number | undefined): number {
+  const idleTimeout = value ?? DEFAULT_SERVER_IDLE_TIMEOUT_SECONDS;
+  if (
+    !Number.isInteger(idleTimeout)
+    || idleTimeout < 0
+    || idleTimeout > MAX_SERVER_IDLE_TIMEOUT_SECONDS
+  ) {
+    throw new Error(
+      `server.idleTimeout must be an integer between 0 and ${String(MAX_SERVER_IDLE_TIMEOUT_SECONDS)}; received "${String(value)}"`,
+    );
+  }
+  return idleTimeout;
+}
+
 export type {
   PublicRouteAsset,
   PublicRouteDefinition,
@@ -28,6 +45,7 @@ export type {
   WebAppPwaConfig,
   WebAppServer,
   WebAppServerConfig,
+  WebAppServerOptions,
   WebAppWebSocketData,
 } from "./server-types";
 export { WEBAPP_SOCKET_HANDLER };
@@ -59,6 +77,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const routes = input.routes ?? {};
   const publicRoutes = input.publicRoutes ?? {};
   const appWebsockets = input.websockets ?? {};
+  const idleTimeout = resolveServerIdleTimeout(input.server?.idleTimeout);
   const passkeysEnabled = input.auth?.passkeys !== false;
   const apiKeysEnabled = input.auth?.apiKeys ?? false;
   const deviceAuthEnabled = input.auth?.deviceAuth ?? false;
@@ -128,6 +147,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     config,
     version,
     deviceAuthEnabled,
+    idleTimeout,
     publicRoutes,
     appWebsockets,
     realtime,

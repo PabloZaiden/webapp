@@ -23,11 +23,22 @@ export type PublicRouteDefinition =
       headers?: HeadersInit;
     };
 
+export interface WebAppServerOptions {
+  /**
+   * Seconds of inactivity before Bun closes a request.
+   *
+   * Set to 0 to disable the timeout globally. Individual route handlers can
+   * override this value with `ctx.server?.timeout(req, seconds)`.
+   */
+  idleTimeout?: number;
+}
+
 export interface WebAppServerConfig<TEvent = unknown> {
   appName: string;
   envPrefix: string;
   runtimeConfig?: RuntimeConfig;
   web?: WebAppDocumentConfig;
+  server?: WebAppServerOptions;
   version?: string;
   store?: WebAppStore;
   routes?: RouteTable<TEvent>;

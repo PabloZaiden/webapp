@@ -10,6 +10,7 @@ export interface ServerLifecycleDependencies<TEvent = unknown> {
   config: RuntimeConfig;
   version: string;
   deviceAuthEnabled: boolean;
+  idleTimeout: number;
   publicRoutes: Readonly<Record<string, unknown>>;
   appWebsockets: NonNullable<WebAppServerConfig["websockets"]>;
   realtime: RealtimeBus<TEvent>;
@@ -25,6 +26,7 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     config,
     version,
     deviceAuthEnabled,
+    idleTimeout,
     publicRoutes,
     appWebsockets,
     realtime,
@@ -66,6 +68,7 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     const server = Bun.serve<WebAppWebSocketData>({
       hostname: config.host,
       port: config.port,
+      idleTimeout,
       routes: {
         ...publicRouteHandlers,
         ...entryRoute,
