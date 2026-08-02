@@ -1,5 +1,4 @@
-import { inspect } from "node:util";
-import { Logger, type ILogObj, type IMeta } from "tslog";
+import { Logger, type ILogObj, type ILogObjMeta, type IMeta, type Transport } from "tslog";
 import {
   DEFAULT_LOG_LEVEL,
   LOG_LEVEL_NAMES,
@@ -75,14 +74,50 @@ function formatValue(value: unknown): string {
   }
 }
 
-function appendTslogEntry(metadata: IMeta, line: string, logArgs: unknown[], logErrors: string[]): void {
+function logRecordMessage(record: ILogObj & ILogObjMeta): string {
+  if (Object.hasOwn(record, "0")) {
+    return formatValue(record["0"]);
+  }
+  if (Object.hasOwn(record, "nativeError") && typeof record["message"] === "string") {
+    return formatValue({
+      name: record["name"],
+      message: record["message"],
+    });
+  }
+  const payload: Record<string, unknown> = {};
+  for (const key of Object.keys(record)) {
+    if (key !== "_logMeta") {
+      payload[key] = record[key];
+    }
+  }
+  return formatValue(payload);
+}
+
+function getTslogMetadata(record: ILogObj & ILogObjMeta): IMeta | undefined {
+  const metadata = record["_logMeta"];
+  if (
+    !metadata ||
+    typeof metadata.logLevelId !== "number" ||
+    typeof metadata.logLevelName !== "string" ||
+    !(metadata.date instanceof Date)
+  ) {
+    return undefined;
+  }
+  return metadata;
+}
+
+function appendTslogEntry(record: ILogObj & ILogObjMeta, line: string): void {
+  const metadata = getTslogMetadata(record);
+  if (!metadata) {
+    return;
+  }
   const level = LOG_LEVEL_NAMES[metadata.logLevelId] ?? (metadata.logLevelName.toLowerCase() as LogLevelName);
   if (!isLogLevelName(level)) {
     return;
   }
   const timestamp = metadata.date.toISOString();
   const scope = typeof metadata.name === "string" && metadata.name ? metadata.name : "webapp";
-  const message = formatValue(logArgs[0] ?? logErrors[0] ?? "");
+  const message = logRecordMessage(record);
   appendInMemoryLogEntry({
     timestamp,
     level,
@@ -92,33 +127,33 @@ function appendTslogEntry(metadata: IMeta, line: string, logArgs: unknown[], log
   });
 }
 
-function renderConsoleValue(value: unknown): string {
-  return typeof value === "string" ? value : inspect(value, { colors: false, compact: true, depth: Infinity });
-}
-
-function transportFormatted(logMetaMarkup: string, logArgs: unknown[], logErrors: string[], logMeta?: IMeta): void {
-  const errors = (logErrors.length > 0 && logArgs.length > 0 ? "\n" : "") + logErrors.join("\n");
-  const line = `${logMetaMarkup}${logArgs.map(renderConsoleValue).join(" ")}${errors}`;
-  const level = LOG_LEVEL_NAMES[logMeta?.logLevelId ?? LOG_LEVELS.info] ?? DEFAULT_LOG_LEVEL;
-  if (level === "fatal" || level === "error") {
-    console.error(line);
-  } else if (level === "warn") {
-    console.warn(line);
-  } else {
-    console.log(line);
-  }
-  if (logMeta) {
-    appendTslogEntry(logMeta, line, logArgs, logErrors);
-  }
-}
+const consoleTransport: Transport<ILogObj> = {
+  name: "webapp-console",
+  format: "pretty",
+  write(record, line) {
+    const metadata = getTslogMetadata(record);
+    const level = LOG_LEVEL_NAMES[metadata?.logLevelId ?? LOG_LEVELS.info] ?? DEFAULT_LOG_LEVEL;
+    if (level === "fatal" || level === "error") {
+      console.error(line);
+    } else if (level === "warn") {
+      console.warn(line);
+    } else {
+      console.log(line);
+    }
+    appendTslogEntry(record, line);
+  },
+};
 
 export const log = new Logger<ILogObj>({
+  type: "hidden",
   name: "webapp",
   minLevel: LOG_LEVELS[DEFAULT_LOG_LEVEL],
-  prettyLogTimeZone: "UTC",
-  stylePrettyLogs: false,
-  prettyInspectOptions: { colors: false, compact: true, depth: Infinity },
-  overwrite: { transportFormatted },
+  pretty: {
+    timeZone: "UTC",
+    style: false,
+    inspectOptions: { colors: false, compact: true, depth: Infinity },
+  },
+  attachedTransports: [consoleTransport],
 });
 
 export function createLogger(scope: string): Logger<ILogObj> {
