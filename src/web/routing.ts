@@ -52,7 +52,7 @@ function updateRoute(
   route: WebAppRoute,
 ): void {
   const startViewTransition = typeof document === "undefined" ? undefined : document.startViewTransition;
-  if (!startViewTransition || prefersReducedMotion()) {
+  if (!startViewTransition || document.visibilityState === "hidden" || prefersReducedMotion()) {
     setRoute(route);
     return;
   }

@@ -511,6 +511,64 @@ test("sidebar navigation replaces hash history entries", async () => {
   }
 });
 
+test("sidebar navigation updates synchronously while the document is hidden", async () => {
+  const restoreFetch = mockConfigFetch();
+  const previousVisibilityDescriptor = Object.getOwnPropertyDescriptor(document, "visibilityState");
+  const previousTransitionDescriptor = Object.getOwnPropertyDescriptor(document, "startViewTransition");
+  let transitionCalls = 0;
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "hidden",
+  });
+  Object.defineProperty(document, "startViewTransition", {
+    configurable: true,
+    value: () => {
+      transitionCalls += 1;
+      throw new DOMException(
+        "View transition was skipped because document visibility state is hidden.",
+        "InvalidStateError",
+      );
+    },
+  });
+
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        getNodes: () => [
+          { type: "item" as const, id: "home", title: "Home", route: { view: "home" } },
+          { type: "item" as const, id: "target", title: "Target", route: { view: "target" } },
+        ],
+      },
+      routes: {
+        home: createElement("p", null, "Home view"),
+        target: createElement("p", null, "Target screen"),
+      },
+    }));
+
+    await waitFor(() => expect(view.getByText("Home view")).toBeTruthy());
+    fireEvent.click(view.getByRole("button", { name: "Target" }));
+
+    await waitFor(() => expect(view.getByText("Target screen")).toBeTruthy());
+    expect(transitionCalls).toBe(0);
+  } finally {
+    if (previousVisibilityDescriptor) {
+      Object.defineProperty(document, "visibilityState", previousVisibilityDescriptor);
+    } else {
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+    if (previousTransitionDescriptor) {
+      Object.defineProperty(document, "startViewTransition", previousTransitionDescriptor);
+    } else {
+      Reflect.deleteProperty(document, "startViewTransition");
+    }
+    restoreFetch();
+  }
+});
+
 test("sidebar navigation to the current hash does not emit duplicate hash changes", async () => {
   const restoreFetch = mockConfigFetch();
   window.location.hash = "#/target";
