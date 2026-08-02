@@ -245,7 +245,7 @@ test("buildWebAppBinary resolves the renderer from an application-local package 
   writeFileSync(join(fixtureRoot, "package.json"), JSON.stringify({
     name: "fixture-app-package",
     private: true,
-    dependencies: { react: "19.2.7", "react-dom": "fixture-local" },
+    dependencies: { react: "19.2.8", "react-dom": "fixture-local" },
   }));
   writeFileSync(join(reactDomRoot, "package.json"), JSON.stringify({
     name: "react-dom",
