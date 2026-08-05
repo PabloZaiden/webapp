@@ -1,9 +1,9 @@
-import { useEffect, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { ActionMenu, IconButton } from "./components";
 import { Presence } from "./motion";
 import { SidebarTree } from "./sidebar-tree";
 import type { SidebarCollapsedState } from "./sidebar-state";
-import type { ActionMenuItem, SidebarAction, SidebarNode, WebAppRoute } from "./sidebar/types";
+import type { ActionMenuItem, SidebarAction, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
 
 function isSidebarShortcutEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -38,6 +38,10 @@ function ActionIcon({ icon }: { icon?: ReactNode }) {
   return <>{icon}</>;
 }
 
+function sidebarTabInitial(title: string): string {
+  return Array.from(title.trim())[0]?.toUpperCase() ?? "?";
+}
+
 export interface AppShellProps {
   appName: string;
   homeRoute: WebAppRoute;
@@ -46,6 +50,9 @@ export interface AppShellProps {
   route: WebAppRoute;
   navigate: (route: WebAppRoute) => void;
   sidebarSearchEnabled: boolean;
+  sidebarTabs: SidebarTab[];
+  activeSidebarTab?: string;
+  onSidebarTabChange: (id: string) => void;
   search: string;
   onSearchChange: (search: string) => void;
   sidebarSearchId: string;
@@ -75,6 +82,9 @@ export function AppShell({
   route,
   navigate,
   sidebarSearchEnabled,
+  sidebarTabs,
+  activeSidebarTab,
+  onSidebarTabChange,
   search,
   onSearchChange,
   sidebarSearchId,
@@ -119,6 +129,7 @@ export function AppShell({
 
   const topSidebarActions = topActions.slice(0, 2);
   const sidebarToggleLabel = sidebarCollapsed ? "Show sidebar" : "Collapse sidebar";
+  const sidebarTabRefs = useRef(new Map<string, HTMLButtonElement>());
   const closeSidebar = () => setSidebarOpen(false);
   const navigateFromSidebarHeader = (nextRoute: WebAppRoute) => {
     navigate(nextRoute);
@@ -131,6 +142,32 @@ export function AppShell({
       navigate(action.route);
     }
     closeSidebar();
+  };
+  const handleSidebarTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, tabId: string) => {
+    const currentIndex = sidebarTabs.findIndex((tab) => tab.id === tabId);
+    if (currentIndex < 0 || sidebarTabs.length < 2) {
+      return;
+    }
+
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1) % sidebarTabs.length;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      nextIndex = (currentIndex - 1 + sidebarTabs.length) % sidebarTabs.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = sidebarTabs.length - 1;
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    const nextTab = sidebarTabs[nextIndex];
+    if (nextTab) {
+      onSidebarTabChange(nextTab.id);
+      sidebarTabRefs.current.get(nextTab.id)?.focus();
+    }
   };
 
   return (
@@ -163,7 +200,7 @@ export function AppShell({
           />
         )}
       </Presence>
-      <aside id="wapp-sidebar" className="wapp-sidebar">
+      <aside id="wapp-sidebar" className={`wapp-sidebar${sidebarTabs.length ? " wapp-sidebar-with-tabs" : ""}`}>
         <div className="wapp-sidebar-header">
           <button type="button" className="wapp-brand" onClick={() => navigateFromSidebarHeader(homeRoute)}>{appName}</button>
           <div className="wapp-sidebar-actions">
@@ -195,8 +232,45 @@ export function AppShell({
             </div>
           ) : null}
           <SidebarTree nodes={nodes} route={route} navigate={(next) => { navigate(next); setSidebarOpen(false); }} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} />
-          <div className="wapp-sidebar-footer">v{effectiveVersion}<button type="button" aria-label="Reload" onClick={() => window.location.reload()}><Icon name="refresh" /></button></div>
         </div>
+        <div className="wapp-sidebar-footer">v{effectiveVersion}<button type="button" aria-label="Reload" onClick={() => window.location.reload()}><Icon name="refresh" /></button></div>
+        {sidebarTabs.length ? (
+          <nav className="wapp-sidebar-tabs" aria-label="Sidebar sections">
+            <div className={`wapp-sidebar-tabs-list${sidebarTabs.length > 5 ? " scrollable" : ""}`} role="tablist">
+              {sidebarTabs.map((tab) => {
+                const generatedIcon = tab.icon === undefined;
+                const icon = generatedIcon ? sidebarTabInitial(tab.title) : tab.icon;
+                const hasIcon = icon !== null && icon !== undefined && icon !== false && icon !== "";
+                const visibleLabel = tab.label ?? (hasIcon ? undefined : tab.title);
+                const isActive = activeSidebarTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-label={tab.title}
+                    aria-selected={isActive}
+                    tabIndex={isActive ? 0 : -1}
+                    className={`wapp-sidebar-tab${isActive ? " active" : ""}`}
+                    title={tab.title}
+                    ref={(element) => {
+                      if (element) {
+                        sidebarTabRefs.current.set(tab.id, element);
+                      } else {
+                        sidebarTabRefs.current.delete(tab.id);
+                      }
+                    }}
+                    onClick={() => onSidebarTabChange(tab.id)}
+                    onKeyDown={(event) => handleSidebarTabKeyDown(event, tab.id)}
+                  >
+                    {hasIcon ? <span className={`wapp-sidebar-tab-icon${generatedIcon ? " initial" : ""}`} aria-hidden="true">{icon}</span> : null}
+                    {visibleLabel ? <span className="wapp-sidebar-tab-label">{visibleLabel}</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+        ) : null}
       </aside>
       <section className="wapp-main">
         <header className="wapp-main-header">

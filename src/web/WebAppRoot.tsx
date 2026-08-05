@@ -5,14 +5,16 @@ import { DeviceVerificationScreen, PasskeyAuthScreen, UserSetupScreen } from "./
 import { EmptyState, Panel } from "./components";
 import { useMobileBreakpoint, useMobileSidebarSwipe, useMobileViewportHeight } from "./mobile-hooks";
 import { routeToHash, supportsViewTransitions, useRoute } from "./routing";
-import { flattenSidebarItems, toStoredPin, useSidebarCollapsedState, useSidebarPins } from "./sidebar-state";
+import { flattenSidebarItems, toStoredPin, useSidebarCollapsedState, useSidebarPins, useSidebarTab } from "./sidebar-state";
 import { SettingsView } from "./settings/settings-view";
 import type { HeaderContext, WebAppRootProps } from "./root-types";
-import type { ActionMenuItem, SidebarNode, WebAppRoute } from "./sidebar/types";
+import type { ActionMenuItem, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
 import { ThemeProvider } from "./theme";
 import { WebAppConfigProvider, useWebAppConfig } from "./webapp-config";
 import { setLogLevel } from "./logger";
 import { useReducedMotion } from "./motion";
+
+const EMPTY_SIDEBAR_TABS: SidebarTab[] = [];
 
 export { replaceHashRoute, replaceWebAppRoute, routeToHash } from "./routing";
 export type {
@@ -58,6 +60,8 @@ function WebAppRootContent({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const sidebarTreeState = useSidebarCollapsedState(appName);
+  const sidebarTabs = sidebar.tabs ?? EMPTY_SIDEBAR_TABS;
+  const { activeTab, selectTab } = useSidebarTab(appName, sidebarTabs);
   useMobileSidebarSwipe(isMobile, sidebarOpen, setSidebarOpen);
   const toggleSidebarCollapsed = useCallback(() => {
     setSidebarCollapsed((current) => {
@@ -71,8 +75,8 @@ function WebAppRootContent({
   const sidebarSearchActive = normalizedSidebarSearch.length > 0;
   const pinningEnabled = sidebar.pinning !== false;
   const sidebarPins = useSidebarPins(appName, sidebar.pinning ? sidebar.pinning.storageKey : undefined);
-  const baseNodes = useMemo(() => sidebar.getNodes({ search: "" }), [sidebar]);
-  const filteredNodes = useMemo(() => sidebar.getNodes({ search: normalizedSidebarSearch }), [sidebar, normalizedSidebarSearch]);
+  const baseNodes = useMemo(() => sidebar.getNodes({ search: "", activeTab }), [activeTab, sidebar]);
+  const filteredNodes = useMemo(() => sidebar.getNodes({ search: normalizedSidebarSearch, activeTab }), [activeTab, normalizedSidebarSearch, sidebar]);
   const allPinnableItems = useMemo(() => flattenSidebarItems(baseNodes).filter((node) => node.pinnable && node.route), [baseNodes]);
   const currentPins = useMemo(() => {
     const byId = new Map(allPinnableItems.map((node) => [node.pinId ?? node.id, node]));
@@ -177,6 +181,9 @@ function WebAppRootContent({
       route={route}
       navigate={navigate}
       sidebarSearchEnabled={sidebarSearchEnabled}
+      sidebarTabs={sidebarTabs}
+      activeSidebarTab={activeTab}
+      onSidebarTabChange={selectTab}
       search={search}
       onSearchChange={setSearch}
       sidebarSearchId={sidebarSearchId}

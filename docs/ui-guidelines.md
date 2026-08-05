@@ -3,7 +3,7 @@
 The framework intentionally provides a consistent base UI:
 
 - Fixed sidebar header and main header share the same height.
-- Sidebar content scrolls independently; the title row and footer stay fixed.
+- Sidebar content scrolls independently; the title row, version footer and optional tab bar stay fixed.
 - Sidebar width is desktop-first and collapsible; mobile uses a drawer with backdrop.
 - The app title in the sidebar navigates home.
 - Settings and collapse controls are framework-owned.

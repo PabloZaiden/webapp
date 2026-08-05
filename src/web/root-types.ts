@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { ActionMenuItem, SidebarAction, SidebarBuildContext, SidebarNode, WebAppRoute } from "./sidebar/types";
+import type { ActionMenuItem, SidebarAction, SidebarBuildContext, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
 
 export type SettingsScope = "user" | "admin" | "owner";
 
@@ -44,6 +44,7 @@ export interface WebAppRootProps {
   sidebar: {
     search?: boolean;
     topActions?: SidebarAction[];
+    tabs?: SidebarTab[];
     pinning?: false | {
       sectionTitle?: string;
       storageKey?: string;

@@ -158,7 +158,6 @@ function KitchenSinkApp() {
       type: "section",
       id: "diagnostics",
       title: "Diagnostics",
-      defaultCollapsed: true,
       children: [
         { type: "item", id: "activity", title: "Activity", subtitle: "Realtime checks", route: { view: "activity" } },
         { type: "item", id: "public-ping", title: "Public ping", subtitle: "/api/public/ping", route: { view: "activity" } },
@@ -175,10 +174,15 @@ function KitchenSinkApp() {
         topActions: [
           { id: "activity", title: "Activity", icon: "↯", route: { view: "activity" } },
         ],
-        getNodes: ({ search }) => {
-          if (!search.trim()) return sidebarNodes;
+        tabs: [
+          { id: "projects", title: "Projects" },
+          { id: "diagnostics", title: "Diagnostics", label: "Diagnostics" },
+        ],
+        getNodes: ({ search, activeTab }) => {
+          const selectedNodes = sidebarNodes.filter((section) => section.id === (activeTab === "diagnostics" ? "diagnostics" : "projects"));
+          if (!search.trim()) return selectedNodes;
           const q = search.toLowerCase();
-          return sidebarNodes.map((section) => ({
+          return selectedNodes.map((section) => ({
             ...section,
             children: section.children?.filter((child) => child.title.toLowerCase().includes(q)),
           }));
