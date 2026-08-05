@@ -1,6 +1,6 @@
 # Sidebar and routing
 
-`WebAppRoot` owns the app shell: fixed sidebar title row, top action buttons, search, scrollable tree, version footer, main title bar and mobile drawer behavior.
+`WebAppRoot` owns the app shell: fixed sidebar title row, top action buttons, search, scrollable tree, version footer, optional tab bar, main title bar and mobile drawer behavior.
 
 ```tsx
 <WebAppRoot
@@ -11,7 +11,11 @@
       { id: "activity", title: "Activity", route: { view: "home" } },
       { id: "inbox", title: "Inbox", route: { view: "inbox" } },
     ],
-    getNodes: ({ search }) => buildSidebarNodes(search),
+    tabs: [
+      { id: "work", title: "Work", icon: <WorkIcon /> },
+      { id: "notes", title: "Notes", icon: null },
+    ],
+    getNodes: ({ search, activeTab }) => buildSidebarNodes({ search, activeTab }),
   }}
   routes={{
     home: <Home />,
@@ -21,6 +25,20 @@
 ```
 
 The first two app actions are optional; settings and collapse/uncollapse are always framework-owned and always appear as the rightmost fixed actions.
+
+Optional sidebar tabs stay fixed at the bottom of the sidebar, below the version footer, while the tree and search remain independently scrollable. The first tab is selected by default and the selected tab id is persisted in `localStorage` per app. The active id is passed to `getNodes` as `activeTab`, alongside the raw `search` value.
+
+Tabs can be icon-only, text-only, or show an icon with a label:
+
+```tsx
+tabs: [
+  { id: "work", title: "Work", icon: <WorkIcon /> },
+  { id: "notes", title: "Notes", icon: null },
+  { id: "admin", title: "Administration", label: "Admin", icon: <AdminIcon /> },
+]
+```
+
+The `title` is used for accessibility and the tooltip. If `icon` is omitted, the framework uses the first character of `title` in uppercase as the icon; add `label` to show text below it. If `icon` is explicitly `null`, the tab is text-only. A provided icon without `label` is icon-only. Tabs use equal widths, keep a minimum touch target, and scroll horizontally when more than five are configured. Apps can provide a dynamic `tabs` array; if the persisted tab no longer exists, the first available tab is selected.
 
 Sidebar nodes support:
 
@@ -38,7 +56,7 @@ Sidebar nodes support:
 | `itemLayout` | `default` (default) or `subtitle-above-title`; the latter keeps the subtitle and textual badge on the first line and lets the title wrap below |
 | `defaultCollapsed` | Initial collapsed state |
 
-Search is intentionally app-defined: `getNodes({ search })` receives raw search text and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
+Search is intentionally app-defined: `getNodes({ search, activeTab })` receives raw search text and the selected tab id, and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
 
 On mobile widths, the drawer can be opened with a horizontal swipe starting within the first 24px of the viewport, in addition to the header button. The gesture must move at least 64px to the right, stay within 48px of vertical displacement, and remain more horizontal than vertical.
 

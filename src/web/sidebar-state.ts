@@ -110,3 +110,37 @@ export function useSidebarCollapsedState(appName: string) {
 
   return { collapsed, toggleCollapsed };
 }
+
+function sidebarTabStorageKey(appName: string): string {
+  return `webapp.${appName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.sidebar.tab`;
+}
+
+export function useSidebarTab(appName: string, tabs: Array<{ id: string }>) {
+  const key = sidebarTabStorageKey(appName);
+  const [selectedTabId, setSelectedTabId] = useState<string | undefined>(() => {
+    try {
+      const stored = localStorage.getItem(key);
+      return stored || undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const activeTab = useMemo(
+    () => tabs.find((tab) => tab.id === selectedTabId)?.id ?? tabs[0]?.id,
+    [selectedTabId, tabs],
+  );
+
+  useEffect(() => {
+    if (activeTab) {
+      localStorage.setItem(key, activeTab);
+    }
+  }, [activeTab, key]);
+
+  const selectTab = useCallback((id: string) => {
+    if (tabs.some((tab) => tab.id === id)) {
+      setSelectedTabId(id);
+    }
+  }, [tabs]);
+
+  return { activeTab, selectTab };
+}

@@ -460,6 +460,62 @@ test("sidebar keeps two app actions beside its framework actions", async () => {
     expect(view.getByRole("button", { name: "Inbox" })).toBeTruthy();
     expect(view.getByRole("button", { name: "Open settings" })).toBeTruthy();
     expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
+    expect(view.getByText("v1.0.0")).toBeTruthy();
+    expect(view.queryByRole("tab")).toBeNull();
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar tabs select the first item, update the node context, and persist selection", async () => {
+  const restoreFetch = mockConfigFetch();
+  let lastContext: { search: string; activeTab?: string } | undefined;
+  const renderTabApp = () => render(createElement(WebAppRoot, {
+    appName: "Test App",
+    homeRoute: { view: "home" },
+    sidebar: {
+      search: true,
+      pinning: false,
+      tabs: [
+        { id: "work", title: "Work", icon: "W" },
+        { id: "notes", title: "notes" },
+        { id: "admin", title: "Administration", label: "Admin", icon: "A" },
+        { id: "text", title: "Text only", icon: null },
+      ],
+      getNodes: ({ search, activeTab }) => {
+        lastContext = { search, activeTab };
+        return [{
+          type: "item" as const,
+          id: `item:${activeTab ?? "none"}`,
+          title: activeTab === "notes" ? "Notes item" : activeTab === "admin" ? "Admin item" : "Work item",
+          route: { view: "home" },
+        }];
+      },
+    },
+    routes: {
+      home: createElement("p", null, "Home"),
+    },
+  }));
+
+  try {
+    let view = renderTabApp();
+    await waitFor(() => expect(view.getByText("Work item")).toBeTruthy());
+    expect(view.getByRole("tab", { name: "Work" }).getAttribute("aria-selected")).toBe("true");
+    expect(view.getByText("N")).toBeTruthy();
+    expect(view.getByText("Admin")).toBeTruthy();
+    expect(view.getByText("Text only")).toBeTruthy();
+
+    fireEvent.click(view.getByRole("tab", { name: "notes" }));
+    await waitFor(() => expect(view.getByText("Notes item")).toBeTruthy());
+    expect(lastContext).toEqual({ search: "", activeTab: "notes" });
+
+    typeSearch(view.getByRole("textbox", { name: "Search" }), "query");
+    await waitFor(() => expect(lastContext).toEqual({ search: "query", activeTab: "notes" }));
+
+    view.unmount();
+    view = renderTabApp();
+    await waitFor(() => expect(view.getByText("Notes item")).toBeTruthy());
+    expect(view.getByRole("tab", { name: "notes" }).getAttribute("aria-selected")).toBe("true");
   } finally {
     restoreFetch();
   }

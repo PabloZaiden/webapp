@@ -36,6 +36,13 @@ export interface SidebarAction {
   onAction?: () => void;
 }
 
+export interface SidebarTab {
+  id: string;
+  title: string;
+  label?: string;
+  icon?: ReactNode;
+}
+
 export interface ActionMenuItem {
   id?: string;
   label: string;
@@ -64,4 +71,5 @@ export interface SidebarNode {
 
 export interface SidebarBuildContext {
   search: string;
+  activeTab?: string;
 }

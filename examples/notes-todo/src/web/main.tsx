@@ -388,7 +388,7 @@ function NotesTodoApp() {
     { id: "delete-task", label: "Delete task", destructive: true, onAction: () => void deleteTodo(todo) },
   ], [deleteTodo, patchTodo]);
 
-  const sidebarNodes = useCallback(({ search }: { search: string }): SidebarNode[] => {
+  const sidebarNodes = useCallback(({ search, activeTab }: { search: string; activeTab?: string }): SidebarNode[] => {
     const query = search.trim().toLowerCase();
     const matches = (value: string | undefined) => !query || (value ?? "").toLowerCase().includes(query);
     const sectionsByParent = new Map<string, Section[]>();
@@ -457,7 +457,7 @@ function NotesTodoApp() {
       actions: todoActions(todo),
     }));
 
-    return [
+    const nodes: SidebarNode[] = [
       {
         type: "section",
         id: "lists",
@@ -483,6 +483,7 @@ function NotesTodoApp() {
         ],
       },
     ];
+    return activeTab ? nodes.filter((node) => node.id === activeTab) : nodes;
   }, [noteActions, notes, sectionActions, sections, todoActions, todos]);
 
   const headerActions = useCallback(({ route }: { route: WebAppRoute; defaultTitle: string }): ActionMenuItem[] => {
@@ -522,6 +523,11 @@ function NotesTodoApp() {
         topActions: [
           { id: "new-task", title: "New task", icon: "+", route: { view: "new-todo", sectionId: sections[0]?.id } },
           { id: "new-note", title: "New note", icon: "chat", route: { view: "new-note", sectionId: sections[0]?.id } },
+        ],
+        tabs: [
+          { id: "lists", title: "Lists" },
+          { id: "notes", title: "Notes", label: "Notes" },
+          { id: "tasks", title: "Tasks", icon: null },
         ],
         getNodes: sidebarNodes,
       }}
