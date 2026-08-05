@@ -26,7 +26,7 @@
 
 The first two app actions are optional; settings and collapse/uncollapse are always framework-owned and always appear as the rightmost fixed actions.
 
-Optional sidebar tabs stay fixed at the bottom of the sidebar, below the version footer, while the tree and search remain independently scrollable. The first tab is selected by default and the selected tab id is persisted in `localStorage` per app. The active id is passed to `getNodes` as `activeTab`, alongside the raw `search` value.
+Optional sidebar tabs stay fixed at the bottom of the sidebar, below the version footer, while the tree and search remain independently scrollable. The first tab is selected by default and the selected tab id is persisted in `localStorage` per app. The active id is passed to `getNodes` as `activeTab`, alongside the normalized search value.
 
 Tabs can be icon-only, text-only, or show an icon with a label:
 
@@ -56,7 +56,7 @@ Sidebar nodes support:
 | `itemLayout` | `default` (default) or `subtitle-above-title`; the latter keeps the subtitle and textual badge on the first line and lets the title wrap below |
 | `defaultCollapsed` | Initial collapsed state |
 
-Search is intentionally app-defined: `getNodes({ search, activeTab })` receives raw search text and the selected tab id, and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
+Search is intentionally app-defined: `getNodes({ search, activeTab })` receives trimmed search text (an empty string for a blank or whitespace-only query) and the selected tab id, and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
 
 On mobile widths, the drawer can be opened with a horizontal swipe starting within the first 24px of the viewport, in addition to the header button. The gesture must move at least 64px to the right, stay within 48px of vertical displacement, and remain more horizontal than vertical.
 

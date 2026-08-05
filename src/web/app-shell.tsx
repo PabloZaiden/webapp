@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { ActionMenu, IconButton } from "./components";
 import { Presence } from "./motion";
 import { SidebarTree } from "./sidebar-tree";
@@ -129,6 +129,7 @@ export function AppShell({
 
   const topSidebarActions = topActions.slice(0, 2);
   const sidebarToggleLabel = sidebarCollapsed ? "Show sidebar" : "Collapse sidebar";
+  const sidebarTabRefs = useRef(new Map<string, HTMLButtonElement>());
   const closeSidebar = () => setSidebarOpen(false);
   const navigateFromSidebarHeader = (nextRoute: WebAppRoute) => {
     navigate(nextRoute);
@@ -141,6 +142,32 @@ export function AppShell({
       navigate(action.route);
     }
     closeSidebar();
+  };
+  const handleSidebarTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, tabId: string) => {
+    const currentIndex = sidebarTabs.findIndex((tab) => tab.id === tabId);
+    if (currentIndex < 0 || sidebarTabs.length < 2) {
+      return;
+    }
+
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1) % sidebarTabs.length;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      nextIndex = (currentIndex - 1 + sidebarTabs.length) % sidebarTabs.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = sidebarTabs.length - 1;
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    const nextTab = sidebarTabs[nextIndex];
+    if (nextTab) {
+      onSidebarTabChange(nextTab.id);
+      sidebarTabRefs.current.get(nextTab.id)?.focus();
+    }
   };
 
   return (
@@ -223,9 +250,18 @@ export function AppShell({
                     role="tab"
                     aria-label={tab.title}
                     aria-selected={isActive}
+                    tabIndex={isActive ? 0 : -1}
                     className={`wapp-sidebar-tab${isActive ? " active" : ""}`}
                     title={tab.title}
+                    ref={(element) => {
+                      if (element) {
+                        sidebarTabRefs.current.set(tab.id, element);
+                      } else {
+                        sidebarTabRefs.current.delete(tab.id);
+                      }
+                    }}
                     onClick={() => onSidebarTabChange(tab.id)}
+                    onKeyDown={(event) => handleSidebarTabKeyDown(event, tab.id)}
                   >
                     {hasIcon ? <span className={`wapp-sidebar-tab-icon${generatedIcon ? " initial" : ""}`} aria-hidden="true">{icon}</span> : null}
                     {visibleLabel ? <span className="wapp-sidebar-tab-label">{visibleLabel}</span> : null}

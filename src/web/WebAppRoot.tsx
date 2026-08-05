@@ -82,8 +82,8 @@ function WebAppRootContent({
     const byId = new Map(allPinnableItems.map((node) => [node.pinId ?? node.id, node]));
     return sidebarPins.pins.map((pin) => {
       const current = byId.get(pin.id);
-      return current ? toStoredPin(current) : undefined;
-    }).filter((pin): pin is NonNullable<typeof pin> => Boolean(pin));
+      return current ? toStoredPin(current) ?? pin : pin;
+    });
   }, [allPinnableItems, sidebarPins.pins]);
   const pinningActionFor = useCallback((node: SidebarNode): ActionMenuItem | undefined => {
     if (!pinningEnabled || !node.pinnable || !node.route) return undefined;

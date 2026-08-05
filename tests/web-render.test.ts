@@ -501,6 +501,8 @@ test("sidebar tabs select the first item, update the node context, and persist s
     let view = renderTabApp();
     await waitFor(() => expect(view.getByText("Work item")).toBeTruthy());
     expect(view.getByRole("tab", { name: "Work" }).getAttribute("aria-selected")).toBe("true");
+    expect(view.getByRole("tab", { name: "Work" }).getAttribute("tabindex")).toBe("0");
+    expect(view.getByRole("tab", { name: "notes" }).getAttribute("tabindex")).toBe("-1");
     expect(view.getByText("N")).toBeTruthy();
     expect(view.getByText("Admin")).toBeTruthy();
     expect(view.getByText("Text only")).toBeTruthy();
@@ -508,7 +510,22 @@ test("sidebar tabs select the first item, update the node context, and persist s
     fireEvent.click(view.getByRole("tab", { name: "notes" }));
     await waitFor(() => expect(view.getByText("Notes item")).toBeTruthy());
     expect(lastContext).toEqual({ search: "", activeTab: "notes" });
+    expect(view.getByRole("tab", { name: "notes" }).getAttribute("tabindex")).toBe("0");
 
+    fireEvent.keyDown(view.getByRole("tab", { name: "notes" }), { key: "ArrowRight" });
+    await waitFor(() => expect(lastContext).toEqual({ search: "", activeTab: "admin" }));
+    expect(document.activeElement).toBe(view.getByRole("tab", { name: "Administration" }));
+
+    fireEvent.keyDown(view.getByRole("tab", { name: "Administration" }), { key: "End" });
+    await waitFor(() => expect(lastContext).toEqual({ search: "", activeTab: "text" }));
+    expect(document.activeElement).toBe(view.getByRole("tab", { name: "Text only" }));
+
+    fireEvent.keyDown(view.getByRole("tab", { name: "Text only" }), { key: "Home" });
+    await waitFor(() => expect(lastContext).toEqual({ search: "", activeTab: "work" }));
+    expect(document.activeElement).toBe(view.getByRole("tab", { name: "Work" }));
+
+    fireEvent.click(view.getByRole("tab", { name: "notes" }));
+    await waitFor(() => expect(lastContext).toEqual({ search: "", activeTab: "notes" }));
     typeSearch(view.getByRole("textbox", { name: "Search" }), "query");
     await waitFor(() => expect(lastContext).toEqual({ search: "query", activeTab: "notes" }));
 
@@ -516,6 +533,43 @@ test("sidebar tabs select the first item, update the node context, and persist s
     view = renderTabApp();
     await waitFor(() => expect(view.getByText("Notes item")).toBeTruthy());
     expect(view.getByRole("tab", { name: "notes" }).getAttribute("aria-selected")).toBe("true");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar tabs retain pins from other tab trees", async () => {
+  const restoreFetch = mockConfigFetch();
+  localStorage.setItem("webapp.test-app.sidebar.pins", JSON.stringify([{
+    id: "notes-item",
+    title: "Stored note",
+    route: { view: "note" },
+  }]));
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        tabs: [
+          { id: "work", title: "Work" },
+          { id: "notes", title: "Notes" },
+        ],
+        getNodes: ({ activeTab }) => [{
+          type: "item" as const,
+          id: activeTab === "notes" ? "notes-item" : "work-item",
+          title: activeTab === "notes" ? "Live note" : "Work item",
+          route: { view: activeTab === "notes" ? "note" : "home" },
+          pinnable: true,
+        }],
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+        note: createElement("p", null, "Note"),
+      },
+    }));
+
+    await waitFor(() => expect(view.getByRole("button", { name: "Stored note" })).toBeTruthy());
   } finally {
     restoreFetch();
   }
