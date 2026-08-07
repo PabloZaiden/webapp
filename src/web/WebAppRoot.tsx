@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useReducer, useRef, useState, type ForwardedRef, type ReactNode } from "react";
 import type { WebAppConfigResponse } from "../contracts";
 import { AppShell } from "./app-shell";
 import { DeviceVerificationScreen, PasskeyAuthScreen, UserSetupScreen } from "./auth-screens";
@@ -15,6 +15,34 @@ import { setLogLevel } from "./logger";
 import { useReducedMotion } from "./motion";
 
 const EMPTY_SIDEBAR_TABS: SidebarTab[] = [];
+
+type SidebarVisibilityState = {
+  open: boolean;
+  collapsed: boolean;
+};
+
+type SidebarVisibilityAction =
+  | { type: "open" }
+  | { type: "close" }
+  | { type: "toggle-collapsed" };
+
+const INITIAL_SIDEBAR_VISIBILITY: SidebarVisibilityState = {
+  open: false,
+  collapsed: false,
+};
+
+function reduceSidebarVisibility(state: SidebarVisibilityState, action: SidebarVisibilityAction): SidebarVisibilityState {
+  switch (action.type) {
+    case "open":
+      return { open: true, collapsed: false };
+    case "close":
+      return { ...state, open: false };
+    case "toggle-collapsed": {
+      const collapsed = !state.collapsed;
+      return { open: !collapsed, collapsed };
+    }
+  }
+}
 
 export { replaceHashRoute, replaceWebAppRoute, routeToHash } from "./routing";
 export type {
@@ -62,16 +90,18 @@ function WebAppRootContent({
   const sidebarSearchId = useId();
   const sidebarSearchInputRef = useRef<HTMLInputElement>(null);
   const [sidebarSearchFocusRequested, setSidebarSearchFocusRequested] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarVisibility, dispatchSidebarVisibility] = useReducer(reduceSidebarVisibility, INITIAL_SIDEBAR_VISIBILITY);
+  const { open: sidebarOpen, collapsed: sidebarCollapsed } = sidebarVisibility;
   const sidebarTreeState = useSidebarCollapsedState(appName);
   const sidebarTabs = sidebar.tabs ?? EMPTY_SIDEBAR_TABS;
   const { activeTab, selectTab } = useSidebarTab(appName, sidebarTabs);
+  const setSidebarOpen = useCallback((open: boolean) => {
+    dispatchSidebarVisibility({ type: open ? "open" : "close" });
+  }, []);
   useMobileSidebarSwipe(isMobile, sidebarOpen, setSidebarOpen);
   const openSidebar = useCallback(() => {
-    setSidebarCollapsed(false);
     setSidebarOpen(true);
-  }, []);
+  }, [setSidebarOpen]);
   const focusSidebarSearch = useCallback(() => {
     if (!sidebarSearchEnabled) {
       return;
@@ -80,11 +110,7 @@ function WebAppRootContent({
     openSidebar();
   }, [openSidebar, sidebarSearchEnabled]);
   const toggleSidebarCollapsed = useCallback(() => {
-    setSidebarCollapsed((current) => {
-      const nextCollapsed = !current;
-      setSidebarOpen(!nextCollapsed);
-      return nextCollapsed;
-    });
+    dispatchSidebarVisibility({ type: "toggle-collapsed" });
   }, []);
   const normalizedSidebarSearch = sidebarSearchEnabled ? search.trim() : "";
   const sidebarSearchActive = normalizedSidebarSearch.length > 0;
