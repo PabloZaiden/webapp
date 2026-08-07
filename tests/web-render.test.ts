@@ -564,6 +564,12 @@ test("sidebar supports application-owned custom item renderers", async () => {
               active ? "Custom active" : node.title,
             ),
           },
+          {
+            type: "item" as const,
+            id: "fallback",
+            title: "Fallback item",
+            render: () => null,
+          },
         ],
       },
       routes: {
@@ -573,6 +579,7 @@ test("sidebar supports application-owned custom item renderers", async () => {
     }));
 
     await waitFor(() => expect(view.getByRole("button", { name: "Custom item" })).toBeTruthy());
+    expect(view.getByRole("button", { name: "Fallback item" })).toBeTruthy();
 
     fireEvent.click(view.getByRole("button", { name: "Custom item" }));
     await waitFor(() => expect(view.getByText("Custom detail view")).toBeTruthy());

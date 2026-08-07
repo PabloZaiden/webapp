@@ -54,7 +54,7 @@ export interface ActionMenuItem {
 export type SidebarItemRenderContext = {
   node: SidebarNode;
   active: boolean;
-  collapsed: boolean;
+  childrenCollapsed: boolean;
   hasChildren: boolean;
   searchActive: boolean;
   navigate: (route: WebAppRoute) => void;

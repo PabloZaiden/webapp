@@ -90,42 +90,44 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
           onContextMenu: handleContextMenu,
           ...(active ? { "aria-current": "page" as const } : {}),
         };
+        const standardContent = (
+          <>
+            <span>
+              <strong>{node.title}</strong>
+              {node.subtitle ? <small>{node.subtitle}</small> : null}
+            </span>
+            {node.badge ? (
+              <Badge
+                variant={node.badgeVariant}
+                appearance={isTextBadge ? "text" : "pill"}
+                className={[
+                  "wapp-sidebar-badge",
+                  isTextBadge ? "wapp-sidebar-badge-text" : "",
+                ].filter(Boolean).join(" ")}
+                title={badgeLabel}
+                aria-label={badgeLabel}
+              >
+                {isTextBadge ? badgeLabel : " "}
+              </Badge>
+            ) : null}
+          </>
+        );
         const customContent = node.render?.({
           node,
           active,
-          collapsed: isCollapsed,
+          childrenCollapsed: isCollapsed,
           hasChildren,
           searchActive,
           navigate,
           toggleCollapsed: toggleNodeCollapsed,
           actions: node.actions ?? [],
         });
+        const itemContent = customContent ?? standardContent;
         return (
           <div className={`wapp-sidebar-item-wrap ${hasChildren ? "has-toggle" : ""}`} key={node.id} style={sidebarIndentStyle(level, parentKind)}>
             {hasChildren ? <button type="button" className="wapp-tree-toggle" aria-expanded={!isCollapsed} aria-label={toggleAriaLabel} disabled={searchActive} onClick={toggleNodeCollapsed}>{isCollapsed ? "▶" : "▼"}</button> : null}
             <button {...itemProps}>
-              {node.render ? customContent : (
-                <>
-                  <span>
-                    <strong>{node.title}</strong>
-                    {node.subtitle ? <small>{node.subtitle}</small> : null}
-                  </span>
-                  {node.badge ? (
-                    <Badge
-                      variant={node.badgeVariant}
-                      appearance={isTextBadge ? "text" : "pill"}
-                      className={[
-                        "wapp-sidebar-badge",
-                        isTextBadge ? "wapp-sidebar-badge-text" : "",
-                      ].filter(Boolean).join(" ")}
-                      title={badgeLabel}
-                      aria-label={badgeLabel}
-                    >
-                      {isTextBadge ? badgeLabel : " "}
-                    </Badge>
-                  ) : null}
-                </>
-              )}
+              {itemContent}
             </button>
             {node.children ? (
               <Collapsible open={!isCollapsed} className="wapp-sidebar-children">
