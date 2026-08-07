@@ -21,7 +21,6 @@ export type BadgeVariant =
 export type BadgeAppearance = "pill" | "text";
 export type SidebarBadgeAppearance = "dot" | "text";
 export type SidebarItemLayout = "default" | "subtitle-above-title";
-export type SidebarItemBelowTitleAlign = "left" | "right";
 
 export interface WebAppRoute {
   view: string;
@@ -77,8 +76,6 @@ export interface SidebarNode {
   id: string;
   title: string;
   subtitle?: string;
-  belowTitle?: ReactNode;
-  belowTitleAlign?: SidebarItemBelowTitleAlign;
   badge?: string;
   badgeVariant?: BadgeVariant;
   badgeAppearance?: SidebarBadgeAppearance;

@@ -54,30 +54,12 @@ Sidebar nodes support:
 | `badge` | Status/count value; sidebar items render it as a compact status dot with accessible label/tooltip |
 | `badgeAppearance` | `dot` (default) or `text`; textual badges use the shared title-case status style |
 | `itemLayout` | `default` (default) or `subtitle-above-title`; the latter keeps the subtitle and textual badge on the first line and lets the title wrap below |
-| `belowTitle` | Optional third line rendered below the title |
-| `belowTitleAlign` | `left` (default) or `right` alignment for `belowTitle` |
 | `render` | Optional custom item renderer; it receives the node, active/collapse state, navigation, actions, and framework interaction props |
 | `defaultCollapsed` | Initial collapsed state |
 
 Search is intentionally app-defined: `getNodes({ search, activeTab })` receives trimmed search text (an empty string for a blank or whitespace-only query) and the selected tab id, and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
 
-### Third-line metadata and custom item rendering
-
-Use `belowTitle` for a small third line without replacing the framework item
-renderer. It accepts text or a small React component and can be aligned to
-either side:
-
-```tsx
-{
-  type: "item",
-  id: "task:123",
-  title: "Improve the task list",
-  subtitle: "Frontend",
-  belowTitle: "Task",
-  belowTitleAlign: "right",
-  route: { view: "task", taskId: "123" },
-}
-```
+### Custom item rendering
 
 For an application-owned layout, provide `render`. The callback owns the item
 markup, while `itemProps` supplies the framework's default button class,
@@ -102,10 +84,9 @@ sidebar interactions:
 ```
 
 Custom renderers are application-owned and are not serialized into persisted
-pins. String `belowTitle` metadata is persisted with a pin, while component
-content is not. When the source node is available, pinned entries reuse its
-current renderer; if it is no longer available, the framework falls back to
-the serializable default presentation.
+pins. When the source node is available, pinned entries reuse its current
+renderer; if it is no longer available, the framework falls back to the
+serializable standard presentation.
 
 ## Programmatic sidebar controls
 
@@ -192,8 +173,8 @@ Pinning is framework-owned and persisted in browser `localStorage`. Mark route-b
 }
 ```
 
-For activity-style items with a context above the title, use the explicit sidebar
-presentation fields instead of styling the rendered DOM:
+For activity-style items with a context above the title, use the standard
+`itemLayout` presentation field:
 
 ```tsx
 {

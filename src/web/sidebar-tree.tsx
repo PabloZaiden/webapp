@@ -66,9 +66,6 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
         const active = node.route?.view === route.view && Object.entries(node.route).every(([key, value]) => key === "view" || route[key] === value);
         const badgeLabel = node.badge ? formatStatusLabel(node.badge) : "";
         const isTextBadge = node.badgeAppearance === "text";
-        const hasBelowTitle = node.belowTitle !== undefined
-          && node.belowTitle !== null
-          && node.belowTitle !== false;
         const itemClassName = [
           "wapp-sidebar-item",
           active ? "active" : "",
@@ -112,15 +109,6 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
                 <span>
                   <strong>{node.title}</strong>
                   {node.subtitle ? <small>{node.subtitle}</small> : null}
-                  {hasBelowTitle ? (
-                    <span className={[
-                      "wapp-sidebar-item-below-title",
-                      node.belowTitleAlign === "right" ? "wapp-sidebar-item-below-title-align-right" : "",
-                    ].filter(Boolean).join(" ")}
-                    >
-                      {node.belowTitle}
-                    </span>
-                  ) : null}
                 </span>
                 {node.badge ? (
                   <Badge

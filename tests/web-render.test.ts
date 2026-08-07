@@ -543,7 +543,7 @@ test("sidebar tabs select the first item, update the node context, and persist s
   }
 });
 
-test("sidebar supports below-title metadata and custom item renderers", async () => {
+test("sidebar supports application-owned custom item renderers", async () => {
   const restoreFetch = mockConfigFetch();
   try {
     const view = render(createElement(WebAppRoot, {
@@ -553,24 +553,6 @@ test("sidebar supports below-title metadata and custom item renderers", async ()
         search: false,
         pinning: false,
         getNodes: () => [
-          {
-            type: "item" as const,
-            id: "left-detail",
-            title: "Left detail",
-            belowTitle: "Left metadata",
-            belowTitleAlign: "left" as const,
-            route: { view: "left-detail" },
-          },
-          {
-            type: "item" as const,
-            id: "right-detail",
-            title: "Right detail",
-            subtitle: "Workspace",
-            belowTitle: "Right metadata",
-            belowTitleAlign: "right" as const,
-            itemLayout: "subtitle-above-title" as const,
-            route: { view: "right-detail" },
-          },
           {
             type: "item" as const,
             id: "custom",
@@ -589,53 +571,15 @@ test("sidebar supports below-title metadata and custom item renderers", async ()
       },
       routes: {
         home: createElement("p", null, "Home"),
-        "left-detail": createElement("p", null, "Left detail view"),
-        "right-detail": createElement("p", null, "Right detail view"),
         custom: createElement("p", null, "Custom detail view"),
       },
     }));
 
-    await waitFor(() => expect(view.getByText("Left metadata")).toBeTruthy());
-    expect(view.getByText("Right metadata")).toBeTruthy();
-    expect(view.getByRole("button", { name: "Custom item custom" })).toBeTruthy();
+    await waitFor(() => expect(view.getByRole("button", { name: "Custom item custom" })).toBeTruthy());
 
     fireEvent.click(view.getByRole("button", { name: "Custom item custom" }));
     await waitFor(() => expect(view.getByText("Custom detail view")).toBeTruthy());
     expect(view.getByRole("button", { name: "Custom item custom" }).textContent).toBe("Custom active");
-  } finally {
-    restoreFetch();
-  }
-});
-
-test("pinned fallback preserves string below-title metadata", async () => {
-  const restoreFetch = mockConfigFetch();
-  localStorage.setItem("webapp.test-app.sidebar.pins", JSON.stringify([{
-    id: "missing-item",
-    title: "Stored item",
-    belowTitle: "Stored metadata",
-    belowTitleAlign: "right",
-    route: { view: "stored" },
-  }]));
-  try {
-    const view = render(createElement(WebAppRoot, {
-      appName: "Test App",
-      homeRoute: { view: "home" },
-      sidebar: {
-        search: false,
-        getNodes: () => [{
-          type: "item" as const,
-          id: "home",
-          title: "Home",
-          route: { view: "home" },
-        }],
-      },
-      routes: {
-        home: createElement("p", null, "Home"),
-        stored: createElement("p", null, "Stored"),
-      },
-    }));
-
-    await waitFor(() => expect(view.getByText("Stored metadata")).toBeTruthy());
   } finally {
     restoreFetch();
   }

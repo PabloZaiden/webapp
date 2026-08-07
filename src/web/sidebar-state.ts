@@ -5,8 +5,6 @@ export type StoredSidebarPin = {
   id: string;
   title: string;
   subtitle?: string;
-  belowTitle?: string;
-  belowTitleAlign?: SidebarNode["belowTitleAlign"];
   badge?: string;
   badgeVariant?: SidebarNode["badgeVariant"];
   badgeAppearance?: SidebarNode["badgeAppearance"];
@@ -46,8 +44,6 @@ export function toStoredPin(node: SidebarNode): StoredSidebarPin | undefined {
     id: node.pinId ?? node.id,
     title: node.title,
     subtitle: node.subtitle,
-    ...(typeof node.belowTitle === "string" ? { belowTitle: node.belowTitle } : {}),
-    belowTitleAlign: node.belowTitleAlign,
     badge: node.badge,
     badgeVariant: node.badgeVariant,
     badgeAppearance: node.badgeAppearance,
