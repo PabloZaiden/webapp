@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { act, createElement, useState } from "react";
+import { act, createElement, createRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { ConfirmDialog, ConfirmModal } from "../src/web/components";
@@ -8,7 +8,8 @@ import type { ApiKeySummary, AuthSessionSummary, ThemePreference, WebAppConfigRe
 import { configureWebAppClient, onAuthRequired } from "../src/web/api-client";
 import { MOBILE_MEDIA_QUERY } from "../src/web/mobile";
 import type { SidebarNode } from "../src/web/sidebar/types";
-import { useTheme } from "../src/web";
+import { useWebAppConfig } from "../src/web/webapp-config";
+import { useTheme, type WebAppRootController } from "../src/web";
 import { WebAppRoot } from "../src/web/WebAppRoot";
 import { configureWebAppRenderer, renderWebApp } from "../src/web/render";
 
@@ -571,6 +572,212 @@ test("sidebar tabs retain pins from other tab trees", async () => {
 
     await waitFor(() => expect(view.getByRole("button", { name: "Stored note" })).toBeTruthy());
   } finally {
+    restoreFetch();
+  }
+});
+
+test("public sidebar controller selects tabs without remounting the current route", async () => {
+  const restoreFetch = mockConfigFetch();
+  const controllerRef = createRef<WebAppRootController>();
+  const routeChanges: string[] = [];
+  const selectTabForRoute = (route: { view: string }) => {
+    const targetTab = route.view === "home" ? "notes" : "work";
+    controllerRef.current?.sidebar.selectTab(targetTab);
+  };
+  function StatefulRoute() {
+    const [count, setCount] = useState(0);
+    return createElement(
+      "div",
+      null,
+      createElement("p", null, `Route state: ${count}`),
+      createElement("button", { type: "button", onClick: () => setCount((current) => current + 1) }, "Increment route"),
+    );
+  }
+
+  try {
+    const view = render(createElement(WebAppRoot, {
+      ref: controllerRef,
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        tabs: [
+          { id: "work", title: "Work" },
+          { id: "notes", title: "Notes" },
+        ],
+        getNodes: ({ activeTab }) => [{
+          type: "item" as const,
+          id: `${activeTab ?? "none"}-item`,
+          title: `${activeTab === "notes" ? "Notes" : "Work"} item`,
+          route: { view: "home" },
+        }],
+      },
+      routes: {
+        home: createElement(StatefulRoute),
+      },
+      onRouteChange: (route) => routeChanges.push(route.view),
+    }));
+
+    await waitFor(() => expect(view.getByText("Work item")).toBeTruthy());
+    await waitFor(() => expect(controllerRef.current).toBeTruthy());
+    fireEvent.click(view.getByRole("button", { name: "Increment route" }));
+    expect(view.getByText("Route state: 1")).toBeTruthy();
+
+    const initialHash = window.location.hash;
+    const initialRouteChangeCount = routeChanges.length;
+    act(() => {
+      selectTabForRoute({ view: "home" });
+    });
+
+    await waitFor(() => expect(view.getByText("Notes item")).toBeTruthy());
+    expect(view.getByRole("tab", { name: "Notes" }).getAttribute("aria-selected")).toBe("true");
+    expect(view.getByText("Route state: 1")).toBeTruthy();
+    expect(window.location.hash).toBe(initialHash);
+    expect(routeChanges).toHaveLength(initialRouteChangeCount);
+    await waitFor(() => expect(localStorage.getItem("webapp.test-app.sidebar.tab")).toBe("notes"));
+
+    act(() => {
+      controllerRef.current?.sidebar.selectTab("unknown");
+    });
+    expect(view.getByRole("tab", { name: "Notes" }).getAttribute("aria-selected")).toBe("true");
+    expect(localStorage.getItem("webapp.test-app.sidebar.tab")).toBe("notes");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("public sidebar controller opens and focuses search on desktop", async () => {
+  const restoreFetch = mockConfigFetch();
+  const controllerRef = createRef<WebAppRootController>();
+
+  try {
+    const view = render(createElement(WebAppRoot, {
+      ref: controllerRef,
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: true,
+        pinning: false,
+        getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+      },
+    }));
+
+    const searchInput = await waitFor(() => view.getByRole("textbox", { name: "Search" }));
+    await waitFor(() => expect(controllerRef.current).toBeTruthy());
+    fireEvent.click(view.getByRole("button", { name: "Collapse sidebar" }));
+    await waitFor(() => expect(view.queryByRole("button", { name: "Collapse sidebar" })).toBeNull());
+
+    act(() => {
+      controllerRef.current?.sidebar.open();
+    });
+    await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
+
+    fireEvent.click(view.getByRole("button", { name: "Collapse sidebar" }));
+    await waitFor(() => expect(view.queryByRole("button", { name: "Collapse sidebar" })).toBeNull());
+    act(() => {
+      controllerRef.current?.sidebar.focusSearch();
+    });
+
+    await waitFor(() => {
+      expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
+      expect(document.activeElement).toBe(searchInput);
+    });
+    await act(async () => {});
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("public sidebar controller focuses search when a config refresh retains the previous config", async () => {
+  const restoreFetch = mockConfigFetch();
+  const controllerRef = createRef<WebAppRootController>();
+  function ConfigRefreshProbe() {
+    const { error, refresh } = useWebAppConfig();
+    return createElement(
+      "div",
+      null,
+      createElement("button", { type: "button", onClick: () => { void refresh(); } }, "Refresh config"),
+      error ? createElement("p", null, "Config refresh failed") : null,
+    );
+  }
+
+  try {
+    const view = render(createElement(WebAppRoot, {
+      ref: controllerRef,
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: true,
+        pinning: false,
+        getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+      },
+      routes: {
+        home: createElement(ConfigRefreshProbe),
+      },
+    }));
+
+    const searchInput = await waitFor(() => view.getByRole("textbox", { name: "Search" }));
+    await waitFor(() => expect(controllerRef.current).toBeTruthy());
+    const delegatedFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const rawUrl = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+      if (new URL(String(rawUrl), "http://localhost").pathname === "/api/config") {
+        return Response.json({ message: "Config refresh unavailable" }, { status: 503 });
+      }
+      return delegatedFetch(input, init);
+    }) as typeof fetch;
+
+    fireEvent.click(view.getByRole("button", { name: "Refresh config" }));
+    await waitFor(() => expect(view.getByText("Config refresh failed")).toBeTruthy());
+    expect(view.getByText("Home")).toBeTruthy();
+
+    act(() => {
+      controllerRef.current?.sidebar.focusSearch();
+    });
+    await waitFor(() => expect(document.activeElement).toBe(searchInput));
+    await act(async () => {});
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("public sidebar controller opens and focuses search on mobile", async () => {
+  const restoreFetch = mockConfigFetch();
+  const restoreMediaQuery = mockMobileMediaQuery(true);
+  const controllerRef = createRef<WebAppRootController>();
+
+  try {
+    const view = render(createElement(WebAppRoot, {
+      ref: controllerRef,
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: true,
+        pinning: false,
+        getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+      },
+    }));
+
+    const searchInput = await waitFor(() => view.getByRole("textbox", { name: "Search" }));
+    await waitFor(() => expect(controllerRef.current).toBeTruthy());
+    act(() => {
+      controllerRef.current?.sidebar.focusSearch();
+    });
+
+    await waitFor(() => {
+      expect(view.getByRole("button", { name: "Close sidebar" })).toBeTruthy();
+      expect(document.activeElement).toBe(searchInput);
+    });
+    await act(async () => {});
+  } finally {
+    restoreMediaQuery();
     restoreFetch();
   }
 });

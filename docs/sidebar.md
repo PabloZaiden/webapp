@@ -58,6 +58,53 @@ Sidebar nodes support:
 
 Search is intentionally app-defined: `getNodes({ search, activeTab })` receives trimmed search text (an empty string for a blank or whitespace-only query) and the selected tab id, and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
 
+## Programmatic sidebar controls
+
+`WebAppRoot` exposes a typed controller ref for application shell integrations that
+need to control framework-owned sidebar behavior:
+
+```tsx
+import { useRef } from "react";
+import { WebAppRoot, type WebAppRootController } from "@pablozaiden/webapp/web";
+
+function AppShell() {
+  const webAppRef = useRef<WebAppRootController>(null);
+
+  const focusSidebarSearch = () => {
+    webAppRef.current?.sidebar.focusSearch();
+  };
+
+  const selectTabForRoute = (route: { view: string }) => {
+    const tab = route.view === "workspace" ? "workspaces" : "active";
+    webAppRef.current?.sidebar.selectTab(tab);
+  };
+
+  return (
+    <WebAppRoot
+      ref={webAppRef}
+      appName="My App"
+      homeRoute={{ view: "home" }}
+      sidebar={{ tabs, getNodes }}
+      routes={routes}
+      onRouteChange={selectTabForRoute}
+    />
+  );
+}
+```
+
+`sidebar.open()` makes the sidebar visible: it opens the mobile drawer and
+uncollapses the desktop sidebar. `sidebar.focusSearch()` does the same as needed
+and focuses the search input after the visibility state is committed. It is a
+no-op when `sidebar.search` is `false`. `sidebar.selectTab(id)` accepts only ids
+from the configured `sidebar.tabs`; invalid ids are ignored. Route-to-tab
+matching remains application-owned, while webapp keeps the selected tab
+reactive and persists it.
+
+Do not query `#wapp-sidebar`, select buttons by accessibility labels, write
+`webapp.<app>.sidebar.tab`, or change the `WebAppRoot` key to synchronize a
+route. The controller preserves the mounted route view and keeps those
+implementation details inside webapp.
+
 On mobile widths, the drawer can be opened with a horizontal swipe starting within the first 24px of the viewport, in addition to the header button. The gesture must move at least 64px to the right, stay within 48px of vertical displacement, and remain more horizontal than vertical.
 
 Use `actions` when an entity needs commands in the sidebar. `WebAppRoot` finds the active route-backed sidebar node and automatically renders its `ActionMenuItem[]` in the title-bar overflow menu, so the sidebar right-click menu and header menu stay consistent from one source of truth. Use `header.getActions` only for extra route-level actions that are not represented by the active sidebar node.
