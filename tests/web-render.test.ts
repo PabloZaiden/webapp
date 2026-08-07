@@ -8,6 +8,7 @@ import type { ApiKeySummary, AuthSessionSummary, ThemePreference, WebAppConfigRe
 import { configureWebAppClient, onAuthRequired } from "../src/web/api-client";
 import { MOBILE_MEDIA_QUERY } from "../src/web/mobile";
 import type { SidebarNode } from "../src/web/sidebar/types";
+import { useWebAppConfig } from "../src/web/webapp-config";
 import { useTheme, type WebAppRootController } from "../src/web";
 import { WebAppRoot } from "../src/web/WebAppRoot";
 import { configureWebAppRenderer, renderWebApp } from "../src/web/render";
@@ -685,6 +686,59 @@ test("public sidebar controller opens and focuses search on desktop", async () =
       expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
       expect(document.activeElement).toBe(searchInput);
     });
+    await act(async () => {});
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("public sidebar controller focuses search when a config refresh retains the previous config", async () => {
+  const restoreFetch = mockConfigFetch();
+  const controllerRef = createRef<WebAppRootController>();
+  function ConfigRefreshProbe() {
+    const { error, refresh } = useWebAppConfig();
+    return createElement(
+      "div",
+      null,
+      createElement("button", { type: "button", onClick: () => { void refresh(); } }, "Refresh config"),
+      error ? createElement("p", null, "Config refresh failed") : null,
+    );
+  }
+
+  try {
+    const view = render(createElement(WebAppRoot, {
+      ref: controllerRef,
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: true,
+        pinning: false,
+        getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+      },
+      routes: {
+        home: createElement(ConfigRefreshProbe),
+      },
+    }));
+
+    const searchInput = await waitFor(() => view.getByRole("textbox", { name: "Search" }));
+    await waitFor(() => expect(controllerRef.current).toBeTruthy());
+    const delegatedFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const rawUrl = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+      if (new URL(String(rawUrl), "http://localhost").pathname === "/api/config") {
+        return Response.json({ message: "Config refresh unavailable" }, { status: 503 });
+      }
+      return delegatedFetch(input, init);
+    }) as typeof fetch;
+
+    fireEvent.click(view.getByRole("button", { name: "Refresh config" }));
+    await waitFor(() => expect(view.getByText("Config refresh failed")).toBeTruthy());
+    expect(view.getByText("Home")).toBeTruthy();
+
+    act(() => {
+      controllerRef.current?.sidebar.focusSearch();
+    });
+    await waitFor(() => expect(document.activeElement).toBe(searchInput));
     await act(async () => {});
   } finally {
     restoreFetch();

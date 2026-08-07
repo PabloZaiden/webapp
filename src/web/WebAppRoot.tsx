@@ -152,7 +152,7 @@ function WebAppRootContent({
     if (!sidebarSearchFocusRequested) {
       return;
     }
-    if (!sidebarSearchEnabled || error) {
+    if (!sidebarSearchEnabled || (error && !config)) {
       setSidebarSearchFocusRequested(false);
       return;
     }
