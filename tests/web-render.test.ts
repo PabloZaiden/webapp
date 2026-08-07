@@ -543,6 +543,52 @@ test("sidebar tabs select the first item, update the node context, and persist s
   }
 });
 
+test("sidebar supports application-owned custom item renderers", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        getNodes: () => [
+          {
+            type: "item" as const,
+            id: "custom",
+            title: "Custom item",
+            route: { view: "custom" },
+            render: ({ node, active }) => createElement(
+              "span",
+              null,
+              active ? "Custom active" : node.title,
+            ),
+          },
+          {
+            type: "item" as const,
+            id: "fallback",
+            title: "Fallback item",
+            render: () => null,
+          },
+        ],
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+        custom: createElement("p", null, "Custom detail view"),
+      },
+    }));
+
+    await waitFor(() => expect(view.getByRole("button", { name: "Custom item" })).toBeTruthy());
+    expect(view.getByRole("button", { name: "Fallback item" })).toBeTruthy();
+
+    fireEvent.click(view.getByRole("button", { name: "Custom item" }));
+    await waitFor(() => expect(view.getByText("Custom detail view")).toBeTruthy());
+    expect(view.getByRole("button", { name: "Custom active" }).textContent).toBe("Custom active");
+  } finally {
+    restoreFetch();
+  }
+});
+
 test("pinned routes retain their header actions across sidebar tabs", async () => {
   const restoreFetch = mockConfigFetch();
   localStorage.setItem("webapp.test-app.sidebar.pins", JSON.stringify([{

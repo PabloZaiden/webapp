@@ -51,6 +51,19 @@ export interface ActionMenuItem {
   onAction: () => void;
 }
 
+export type SidebarItemRenderContext = {
+  node: SidebarNode;
+  active: boolean;
+  childrenCollapsed: boolean;
+  hasChildren: boolean;
+  searchActive: boolean;
+  navigate: (route: WebAppRoute) => void;
+  toggleCollapsed: () => void;
+  actions: ActionMenuItem[];
+};
+
+export type SidebarItemRenderer = (context: SidebarItemRenderContext) => ReactNode;
+
 export interface SidebarNode {
   type: "section" | "item";
   id: string;
@@ -60,6 +73,7 @@ export interface SidebarNode {
   badgeVariant?: BadgeVariant;
   badgeAppearance?: SidebarBadgeAppearance;
   itemLayout?: SidebarItemLayout;
+  render?: SidebarItemRenderer;
   route?: WebAppRoute;
   action?: SidebarAction;
   actions?: ActionMenuItem[];

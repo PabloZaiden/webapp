@@ -54,9 +54,42 @@ Sidebar nodes support:
 | `badge` | Status/count value; sidebar items render it as a compact status dot with accessible label/tooltip |
 | `badgeAppearance` | `dot` (default) or `text`; textual badges use the shared title-case status style |
 | `itemLayout` | `default` (default) or `subtitle-above-title`; the latter keeps the subtitle and textual badge on the first line and lets the title wrap below |
+| `render` | Optional custom content renderer for `type: "item"` nodes; it receives the node, active/child-collapse state, navigation, and actions |
 | `defaultCollapsed` | Initial collapsed state |
 
 Search is intentionally app-defined: `getNodes({ search, activeTab })` receives trimmed search text (an empty string for a blank or whitespace-only query) and the selected tab id, and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
+
+### Custom item rendering
+
+For an application-owned layout on an item node, provide `render`. The callback
+returns the content inside the item; webapp always owns the interactive button,
+its default class, navigation, active-route state, accessibility, and
+context-menu behavior. Custom content should not return another button. If the
+callback returns `null` or `undefined`, webapp uses the standard content:
+
+```tsx
+{
+  type: "item",
+  id: "task:123",
+  title: "Improve the task list",
+  route: { view: "task", taskId: "123" },
+  actions: taskActions,
+  render: ({ node }) => (
+    <span>
+      <strong>{node.title}</strong>
+      <small>Custom task presentation</small>
+    </span>
+  ),
+}
+```
+
+The render context names the child expansion state `childrenCollapsed` to
+distinguish it from the framework sidebar's own collapsed state.
+
+Custom renderers are application-owned and are not serialized into persisted
+pins. When the source node is available, pinned entries reuse its current
+renderer; if it is no longer available, the framework falls back to the
+serializable standard presentation.
 
 ## Programmatic sidebar controls
 
@@ -143,8 +176,8 @@ Pinning is framework-owned and persisted in browser `localStorage`. Mark route-b
 }
 ```
 
-For activity-style items with a context above the title, use the explicit sidebar
-presentation fields instead of styling the rendered DOM:
+For activity-style items with a context above the title, use the standard
+`itemLayout` presentation field:
 
 ```tsx
 {
