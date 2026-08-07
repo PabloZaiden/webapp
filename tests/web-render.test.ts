@@ -581,7 +581,7 @@ test("pinned routes retain their header actions across sidebar tabs", async () =
     fireEvent.click(view.getByRole("button", { name: "Stored note" }));
     await waitFor(() => expect(view.getByText("Note")).toBeTruthy());
     fireEvent.click(await waitFor(() => view.getByLabelText("Actions for note")));
-    expect(view.getAllByRole("menuitem", { name: "Inspect note" })).toHaveLength(1);
+    await waitFor(() => expect(view.getAllByRole("menuitem", { name: "Inspect note" })).toHaveLength(1));
   } finally {
     restoreFetch();
   }
