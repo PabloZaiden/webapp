@@ -607,6 +607,40 @@ test("sidebar supports below-title metadata and custom item renderers", async ()
   }
 });
 
+test("pinned fallback preserves string below-title metadata", async () => {
+  const restoreFetch = mockConfigFetch();
+  localStorage.setItem("webapp.test-app.sidebar.pins", JSON.stringify([{
+    id: "missing-item",
+    title: "Stored item",
+    belowTitle: "Stored metadata",
+    belowTitleAlign: "right",
+    route: { view: "stored" },
+  }]));
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        getNodes: () => [{
+          type: "item" as const,
+          id: "home",
+          title: "Home",
+          route: { view: "home" },
+        }],
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+        stored: createElement("p", null, "Stored"),
+      },
+    }));
+
+    await waitFor(() => expect(view.getByText("Stored metadata")).toBeTruthy());
+  } finally {
+    restoreFetch();
+  }
+});
+
 test("pinned routes retain their header actions across sidebar tabs", async () => {
   const restoreFetch = mockConfigFetch();
   localStorage.setItem("webapp.test-app.sidebar.pins", JSON.stringify([{

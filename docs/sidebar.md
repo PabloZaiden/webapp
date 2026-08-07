@@ -102,9 +102,10 @@ sidebar interactions:
 ```
 
 Custom renderers are application-owned and are not serialized into persisted
-pins. When the source node is available, pinned entries reuse its current
-renderer; if it is no longer available, the framework falls back to the
-serializable default presentation.
+pins. String `belowTitle` metadata is persisted with a pin, while component
+content is not. When the source node is available, pinned entries reuse its
+current renderer; if it is no longer available, the framework falls back to
+the serializable default presentation.
 
 ## Programmatic sidebar controls
 

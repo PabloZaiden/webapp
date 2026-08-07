@@ -197,6 +197,8 @@ function WebAppRootContent({
           type: "item" as const,
           title: pin.title,
           subtitle: pin.subtitle,
+          belowTitle: pin.belowTitle,
+          belowTitleAlign: pin.belowTitleAlign,
           badge: pin.badge,
           badgeVariant: pin.badgeVariant,
           badgeAppearance: pin.badgeAppearance,
@@ -207,6 +209,10 @@ function WebAppRootContent({
         ...(actionNode ? {
           title: pin.title,
           subtitle: pin.subtitle,
+          ...(pin.belowTitle !== undefined ? {
+            belowTitle: pin.belowTitle,
+            belowTitleAlign: pin.belowTitleAlign,
+          } : {}),
           badge: pin.badge,
           badgeVariant: pin.badgeVariant,
           badgeAppearance: pin.badgeAppearance,
