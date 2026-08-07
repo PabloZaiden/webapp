@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { act, createElement, createRef, useState } from "react";
+import { StrictMode, act, createElement, createRef, startTransition, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { ConfirmDialog, ConfirmModal } from "../src/web/components";
@@ -357,6 +357,8 @@ function ThemeStateProbe() {
 type SidebarFixtureOptions = {
   search?: boolean;
   sectionDefaultCollapsed?: boolean;
+  controllerRef?: { current: WebAppRootController | null };
+  strictMode?: boolean;
 };
 
 function createSidebarFixtureNodes({ sectionDefaultCollapsed = false }: SidebarFixtureOptions = {}): SidebarNode[] {
@@ -384,8 +386,9 @@ function filterSidebarNodesByTitle(nodes: SidebarNode[], search: string): Sideba
 }
 
 async function renderSidebarWebApp(options: SidebarFixtureOptions = {}) {
-  const { search = false } = options;
-  const view = render(createElement(WebAppRoot, {
+  const { search = false, controllerRef } = options;
+  const root = createElement(WebAppRoot, {
+    ref: controllerRef,
     appName: "Test App",
     homeRoute: { view: "home" },
     sidebar: {
@@ -397,15 +400,16 @@ async function renderSidebarWebApp(options: SidebarFixtureOptions = {}) {
       home: createElement("p", null, "Home"),
       alpha: createElement("p", null, "Alpha"),
     },
-  }));
+  });
+  const view = render(options.strictMode ? createElement(StrictMode, null, root) : root);
 
   await waitFor(() => expect(view.getByRole("button", { name: /Projects/ })).toBeTruthy());
 
   return view;
 }
 
-async function renderShortcutWebApp({ search = false } = {}) {
-  const view = await renderSidebarWebApp({ search });
+async function renderShortcutWebApp(options: SidebarFixtureOptions = {}) {
+  const view = await renderSidebarWebApp(options);
 
   await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
   await act(async () => {});
@@ -1068,6 +1072,28 @@ test("sidebar toggle control changes the accessible action", async () => {
     fireEvent.click(view.getAllByRole("button", { name: "Show sidebar" })[0]!);
     await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
   } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar opening remains authoritative over a queued collapse toggle", async () => {
+  const restoreFetch = mockConfigFetch();
+  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
+  const controllerRef = createRef<WebAppRootController>();
+
+  try {
+    const view = await renderShortcutWebApp({ controllerRef, strictMode: true });
+    const collapseSidebar = view.getByRole("button", { name: "Collapse sidebar" });
+
+    await act(async () => {
+      startTransition(() => collapseSidebar.click());
+      controllerRef.current?.sidebar.open();
+    });
+
+    const showSidebar = await waitFor(() => view.getByRole("button", { name: "Show sidebar" }));
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
+  } finally {
+    restoreMobileMediaQuery();
     restoreFetch();
   }
 });
