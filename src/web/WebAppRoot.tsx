@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type ReactNode } from "react";
 import type { WebAppConfigResponse } from "../contracts";
 import { AppShell } from "./app-shell";
 import { DeviceVerificationScreen, PasskeyAuthScreen, UserSetupScreen } from "./auth-screens";
@@ -7,7 +7,7 @@ import { useMobileBreakpoint, useMobileSidebarSwipe, useMobileViewportHeight } f
 import { routeToHash, supportsViewTransitions, useRoute } from "./routing";
 import { flattenSidebarItems, toStoredPin, useSidebarCollapsedState, useSidebarPins, useSidebarTab } from "./sidebar-state";
 import { SettingsView } from "./settings/settings-view";
-import type { HeaderContext, WebAppRootProps } from "./root-types";
+import type { HeaderContext, WebAppRootController, WebAppRootProps } from "./root-types";
 import type { ActionMenuItem, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
 import { ThemeProvider } from "./theme";
 import { WebAppConfigProvider, useWebAppConfig } from "./webapp-config";
@@ -23,6 +23,7 @@ export type {
   SettingsRow,
   SettingsRowContentPlacement,
   SettingsSection,
+  WebAppRootController,
   WebAppRootProps,
 } from "./root-types";
 
@@ -45,24 +46,39 @@ function WebAppRootContent({
   config,
   error,
   refresh,
+  controllerRef,
 }: WebAppRootProps & {
   config?: WebAppConfigResponse;
   error?: Error;
   refresh: () => Promise<void>;
+  controllerRef: ForwardedRef<WebAppRootController>;
 }) {
   const isMobile = useMobileBreakpoint();
   const reducedMotion = useReducedMotion();
   useMobileViewportHeight(isMobile);
   const { route, navigate } = useRoute(homeRoute);
+  const sidebarSearchEnabled = sidebar.search !== false;
   const [search, setSearch] = useState("");
   const sidebarSearchId = useId();
   const sidebarSearchInputRef = useRef<HTMLInputElement>(null);
+  const [sidebarSearchFocusRequested, setSidebarSearchFocusRequested] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const sidebarTreeState = useSidebarCollapsedState(appName);
   const sidebarTabs = sidebar.tabs ?? EMPTY_SIDEBAR_TABS;
   const { activeTab, selectTab } = useSidebarTab(appName, sidebarTabs);
   useMobileSidebarSwipe(isMobile, sidebarOpen, setSidebarOpen);
+  const openSidebar = useCallback(() => {
+    setSidebarCollapsed(false);
+    setSidebarOpen(true);
+  }, []);
+  const focusSidebarSearch = useCallback(() => {
+    if (!sidebarSearchEnabled) {
+      return;
+    }
+    setSidebarSearchFocusRequested(true);
+    openSidebar();
+  }, [openSidebar, sidebarSearchEnabled]);
   const toggleSidebarCollapsed = useCallback(() => {
     setSidebarCollapsed((current) => {
       const nextCollapsed = !current;
@@ -70,7 +86,6 @@ function WebAppRootContent({
       return nextCollapsed;
     });
   }, []);
-  const sidebarSearchEnabled = sidebar.search !== false;
   const normalizedSidebarSearch = sidebarSearchEnabled ? search.trim() : "";
   const sidebarSearchActive = normalizedSidebarSearch.length > 0;
   const pinningEnabled = sidebar.pinning !== false;
@@ -132,6 +147,40 @@ function WebAppRootContent({
   useEffect(() => {
     onRouteChange?.(route);
   }, [onRouteChange, route]);
+
+  useEffect(() => {
+    if (!sidebarSearchFocusRequested) {
+      return;
+    }
+    if (!sidebarSearchEnabled || error) {
+      setSidebarSearchFocusRequested(false);
+      return;
+    }
+    if (!config) {
+      return;
+    }
+    const input = sidebarSearchInputRef.current;
+    if (!input) {
+      return;
+    }
+    input.focus();
+    setSidebarSearchFocusRequested(false);
+  }, [
+    config,
+    error,
+    sidebarCollapsed,
+    sidebarOpen,
+    sidebarSearchEnabled,
+    sidebarSearchFocusRequested,
+  ]);
+
+  useImperativeHandle(controllerRef, () => ({
+    sidebar: {
+      open: openSidebar,
+      focusSearch: focusSidebarSearch,
+      selectTab,
+    },
+  }), [focusSidebarSearch, openSidebar, selectTab]);
 
   if (error && !config) {
     return <main className="wapp-auth-screen"><Panel title="Unable to load app" description={error.message} /></main>;
@@ -207,7 +256,12 @@ function WebAppRootContent({
   );
 }
 
-function WebAppRootWithConfig(props: WebAppRootProps) {
+function WebAppRootWithConfig({
+  controllerRef,
+  ...props
+}: WebAppRootProps & {
+  controllerRef: ForwardedRef<WebAppRootController>;
+}) {
   const { config, error, refresh } = useWebAppConfig();
 
   useEffect(() => {
@@ -218,15 +272,15 @@ function WebAppRootWithConfig(props: WebAppRootProps) {
 
   return (
     <ThemeProvider userId={config?.currentUser?.id}>
-      <WebAppRootContent {...props} config={config} error={error} refresh={refresh} />
+      <WebAppRootContent {...props} config={config} error={error} refresh={refresh} controllerRef={controllerRef} />
     </ThemeProvider>
   );
 }
 
-export function WebAppRoot(props: WebAppRootProps) {
+export const WebAppRoot = forwardRef<WebAppRootController, WebAppRootProps>(function WebAppRoot(props, controllerRef) {
   return (
     <WebAppConfigProvider>
-      <WebAppRootWithConfig {...props} />
+      <WebAppRootWithConfig {...props} controllerRef={controllerRef} />
     </WebAppConfigProvider>
   );
-}
+});

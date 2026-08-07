@@ -38,6 +38,14 @@ export type HeaderContext = {
   defaultTitle: string;
 };
 
+export interface WebAppRootController {
+  sidebar: {
+    open: () => void;
+    focusSearch: () => void;
+    selectTab: (id: string) => void;
+  };
+}
+
 export interface WebAppRootProps {
   appName: string;
   homeRoute: WebAppRoute;
