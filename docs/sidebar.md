@@ -26,7 +26,7 @@
 
 The first two app actions are optional; settings and collapse/uncollapse are always framework-owned and always appear as the rightmost fixed actions.
 
-Optional sidebar tabs stay fixed at the bottom of the sidebar, below the version footer, while the tree and search remain independently scrollable. The first tab is selected by default and the selected tab id is persisted in `localStorage` per app. The active id is passed to `getNodes` as `activeTab`, alongside the normalized search value.
+Optional sidebar tabs stay fixed at the bottom of the sidebar, below the version footer, while the tree and search remain independently scrollable. The first tab is selected by default and the selected tab id is persisted in `localStorage` per app. The active id is passed to `getNodes` as `activeTab`, alongside the normalized search value. Header actions and pinned-item actions are resolved across all configured tabs, so they do not depend on which tab is currently visible.
 
 Tabs can be icon-only, text-only, or show an icon with a label:
 

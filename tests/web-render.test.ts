@@ -543,7 +543,7 @@ test("sidebar tabs select the first item, update the node context, and persist s
   }
 });
 
-test("sidebar tabs retain pins from other tab trees", async () => {
+test("pinned routes retain their header actions across sidebar tabs", async () => {
   const restoreFetch = mockConfigFetch();
   localStorage.setItem("webapp.test-app.sidebar.pins", JSON.stringify([{
     id: "notes-item",
@@ -565,6 +565,9 @@ test("sidebar tabs retain pins from other tab trees", async () => {
           id: activeTab === "notes" ? "notes-item" : "work-item",
           title: activeTab === "notes" ? "Live note" : "Work item",
           route: { view: activeTab === "notes" ? "note" : "home" },
+          actions: activeTab === "notes"
+            ? [{ id: "inspect", label: "Inspect note", onAction: () => undefined }]
+            : undefined,
           pinnable: true,
         }],
       },
@@ -575,6 +578,10 @@ test("sidebar tabs retain pins from other tab trees", async () => {
     }));
 
     await waitFor(() => expect(view.getByRole("button", { name: "Stored note" })).toBeTruthy());
+    fireEvent.click(view.getByRole("button", { name: "Stored note" }));
+    await waitFor(() => expect(view.getByText("Note")).toBeTruthy());
+    fireEvent.click(await waitFor(() => view.getByLabelText("Actions for note")));
+    expect(view.getAllByRole("menuitem", { name: "Inspect note" })).toHaveLength(1);
   } finally {
     restoreFetch();
   }

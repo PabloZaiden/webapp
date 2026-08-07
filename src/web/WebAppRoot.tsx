@@ -62,6 +62,21 @@ function routeMatches(left: WebAppRoute | undefined, right: WebAppRoute): boolea
   return left.view === right.view && Object.entries(left).every(([key, value]) => key === "view" || right[key] === value);
 }
 
+function sidebarNodeKey(node: SidebarNode): string {
+  return node.pinId ?? node.id;
+}
+
+function uniqueSidebarItems(nodeTrees: SidebarNode[][]): SidebarNode[] {
+  const itemsById = new Map<string, SidebarNode>();
+  for (const node of nodeTrees.flatMap((tree) => flattenSidebarItems(tree))) {
+    const key = sidebarNodeKey(node);
+    if (!itemsById.has(key)) {
+      itemsById.set(key, node);
+    }
+  }
+  return [...itemsById.values()];
+}
+
 function WebAppRootContent({
   appName,
   homeRoute,
@@ -118,9 +133,31 @@ function WebAppRootContent({
   const sidebarPins = useSidebarPins(appName, sidebar.pinning ? sidebar.pinning.storageKey : undefined);
   const baseNodes = useMemo(() => sidebar.getNodes({ search: "", activeTab }), [activeTab, sidebar]);
   const filteredNodes = useMemo(() => sidebar.getNodes({ search: normalizedSidebarSearch, activeTab }), [activeTab, normalizedSidebarSearch, sidebar]);
+  const baseItems = useMemo(() => uniqueSidebarItems([baseNodes]), [baseNodes]);
+  const activeRouteIsInBaseNodes = useMemo(
+    () => baseItems.some((node) => routeMatches(node.route, route)),
+    [baseItems, route],
+  );
+  const hasPinOutsideActiveTab = useMemo(() => {
+    const baseItemIds = new Set(baseItems.map(sidebarNodeKey));
+    return sidebarPins.pins.some((pin) => !baseItemIds.has(pin.id));
+  }, [baseItems, sidebarPins.pins]);
+  const actionLookupTrees = useMemo(() => {
+    if (sidebarTabs.length === 0 || (activeRouteIsInBaseNodes && !hasPinOutsideActiveTab)) {
+      return [baseNodes];
+    }
+    // Header actions and pinned items must resolve nodes outside the selected tab.
+    return [
+      baseNodes,
+      ...sidebarTabs
+        .filter((tab) => tab.id !== activeTab)
+        .map((tab) => sidebar.getNodes({ search: "", activeTab: tab.id })),
+    ];
+  }, [activeRouteIsInBaseNodes, activeTab, baseNodes, hasPinOutsideActiveTab, sidebar, sidebarTabs]);
+  const actionLookupItems = useMemo(() => uniqueSidebarItems(actionLookupTrees), [actionLookupTrees]);
   const allPinnableItems = useMemo(() => flattenSidebarItems(baseNodes).filter((node) => node.pinnable && node.route), [baseNodes]);
   const currentPins = useMemo(() => {
-    const byId = new Map(allPinnableItems.map((node) => [node.pinId ?? node.id, node]));
+    const byId = new Map(allPinnableItems.map((node) => [sidebarNodeKey(node), node]));
     return sidebarPins.pins.map((pin) => {
       const current = byId.get(pin.id);
       return current ? toStoredPin(current) ?? pin : pin;
@@ -134,41 +171,58 @@ function WebAppRootContent({
       ? { id: "unpin", label: "Unpin from sidebar", onAction: () => sidebarPins.unpin(id) }
       : { id: "pin", label: "Pin to sidebar", onAction: () => sidebarPins.pin(node) };
   }, [pinningEnabled, sidebarPins]);
-  const augmentPinningActions = useCallback((inputNodes: SidebarNode[]): SidebarNode[] => inputNodes.map((node) => {
-    const children = node.children ? augmentPinningActions(node.children) : undefined;
+  const addPinningAction = useCallback((node: SidebarNode): SidebarNode => {
     const pinAction = pinningActionFor(node);
     return {
       ...node,
-      ...(children ? { children } : {}),
       ...(pinAction ? { actions: [...(node.actions ?? []).filter((action) => action.id !== "pin" && action.id !== "unpin"), pinAction] } : {}),
     };
-  }), [pinningActionFor]);
+  }, [pinningActionFor]);
+  const augmentPinningActions = useCallback((inputNodes: SidebarNode[]): SidebarNode[] => inputNodes.map((node) => {
+    const children = node.children ? augmentPinningActions(node.children) : undefined;
+    return addPinningAction({
+      ...node,
+      ...(children ? { children } : {}),
+    });
+  }), [addPinningAction]);
+  const actionItemsWithPinning = useMemo(() => actionLookupItems.map(addPinningAction), [actionLookupItems, addPinningAction]);
   const nodes = useMemo(() => {
     const augmented = augmentPinningActions(filteredNodes);
     if (!pinningEnabled || sidebarSearchActive || currentPins.length === 0) return augmented;
-    const augmentedByPinId = new Map(flattenSidebarItems(augmentPinningActions(baseNodes)).map((node) => [node.pinId ?? node.id, node]));
-    const pinnedChildren = currentPins.map((pin) => ({
-      ...(augmentedByPinId.get(pin.id) ?? {
-        type: "item" as const,
-        title: pin.title,
-        subtitle: pin.subtitle,
-        badge: pin.badge,
-        badgeVariant: pin.badgeVariant,
-        badgeAppearance: pin.badgeAppearance,
-        itemLayout: pin.itemLayout,
-        route: pin.route,
-        pinnable: true,
-      }),
-      id: `pinned:${pin.id}`,
-      pinId: pin.id,
-      children: undefined,
-    } satisfies SidebarNode));
+    const augmentedByPinId = new Map(actionItemsWithPinning.map((node) => [sidebarNodeKey(node), node]));
+    const pinnedChildren = currentPins.map((pin) => {
+      const actionNode = augmentedByPinId.get(pin.id);
+      return {
+        ...(actionNode ?? {
+          type: "item" as const,
+          title: pin.title,
+          subtitle: pin.subtitle,
+          badge: pin.badge,
+          badgeVariant: pin.badgeVariant,
+          badgeAppearance: pin.badgeAppearance,
+          itemLayout: pin.itemLayout,
+          route: pin.route,
+          pinnable: true,
+        }),
+        ...(actionNode ? {
+          title: pin.title,
+          subtitle: pin.subtitle,
+          badge: pin.badge,
+          badgeVariant: pin.badgeVariant,
+          badgeAppearance: pin.badgeAppearance,
+          itemLayout: pin.itemLayout,
+          route: pin.route,
+        } : {}),
+        id: `pinned:${pin.id}`,
+        pinId: pin.id,
+        children: undefined,
+      } satisfies SidebarNode;
+    });
     return [
       { type: "section" as const, id: "framework:pinned", title: sidebar.pinning ? sidebar.pinning.sectionTitle ?? "Pinned" : "Pinned", children: pinnedChildren },
       ...augmented,
     ];
-  }, [augmentPinningActions, baseNodes, currentPins, filteredNodes, pinningEnabled, sidebar.pinning, sidebarSearchActive]);
-  const activeActionNodes = useMemo(() => augmentPinningActions(baseNodes), [augmentPinningActions, baseNodes]);
+  }, [actionItemsWithPinning, augmentPinningActions, currentPins, filteredNodes, pinningEnabled, sidebar.pinning, sidebarSearchActive]);
 
   useEffect(() => {
     onRouteChange?.(route);
@@ -237,7 +291,7 @@ function WebAppRootContent({
 
   const defaultTitle = route.view === "settings" ? "Settings" : route.view === homeRoute.view ? appName : route.view.replace(/-/g, " ");
   const headerContext: HeaderContext = { route, defaultTitle };
-  const activeSidebarNode = flattenSidebarItems(activeActionNodes).find((node) => routeMatches(node.route, route));
+  const activeSidebarNode = actionItemsWithPinning.find((node) => routeMatches(node.route, route));
   const activeSidebarActions = activeSidebarNode?.actions ?? [];
   const headerActions = [
     ...(header?.getActions?.(headerContext) ?? []),
