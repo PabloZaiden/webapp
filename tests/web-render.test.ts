@@ -558,13 +558,10 @@ test("sidebar supports application-owned custom item renderers", async () => {
             id: "custom",
             title: "Custom item",
             route: { view: "custom" },
-            render: ({ node, active, itemProps }) => createElement(
-              "button",
-              {
-                ...itemProps,
-                "aria-label": `${node.title} custom`,
-              },
-              active ? "Custom active" : "Custom item",
+            render: ({ node, active }) => createElement(
+              "span",
+              null,
+              active ? "Custom active" : node.title,
             ),
           },
         ],
@@ -575,11 +572,11 @@ test("sidebar supports application-owned custom item renderers", async () => {
       },
     }));
 
-    await waitFor(() => expect(view.getByRole("button", { name: "Custom item custom" })).toBeTruthy());
+    await waitFor(() => expect(view.getByRole("button", { name: "Custom item" })).toBeTruthy());
 
-    fireEvent.click(view.getByRole("button", { name: "Custom item custom" }));
+    fireEvent.click(view.getByRole("button", { name: "Custom item" }));
     await waitFor(() => expect(view.getByText("Custom detail view")).toBeTruthy());
-    expect(view.getByRole("button", { name: "Custom item custom" }).textContent).toBe("Custom active");
+    expect(view.getByRole("button", { name: "Custom active" }).textContent).toBe("Custom active");
   } finally {
     restoreFetch();
   }

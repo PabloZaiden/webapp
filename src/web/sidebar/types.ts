@@ -1,4 +1,4 @@
-import type { MouseEventHandler, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 export type BadgeVariant =
   | "default"
@@ -60,13 +60,6 @@ export type SidebarItemRenderContext = {
   navigate: (route: WebAppRoute) => void;
   toggleCollapsed: () => void;
   actions: ActionMenuItem[];
-  itemProps: {
-    type: "button";
-    className: string;
-    onClick: () => void;
-    onContextMenu: MouseEventHandler<HTMLButtonElement>;
-    "aria-current"?: "page";
-  };
 };
 
 export type SidebarItemRenderer = (context: SidebarItemRenderContext) => ReactNode;

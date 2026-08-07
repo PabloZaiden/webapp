@@ -54,18 +54,17 @@ Sidebar nodes support:
 | `badge` | Status/count value; sidebar items render it as a compact status dot with accessible label/tooltip |
 | `badgeAppearance` | `dot` (default) or `text`; textual badges use the shared title-case status style |
 | `itemLayout` | `default` (default) or `subtitle-above-title`; the latter keeps the subtitle and textual badge on the first line and lets the title wrap below |
-| `render` | Optional custom item renderer; it receives the node, active/collapse state, navigation, actions, and framework interaction props |
+| `render` | Optional custom content renderer; it receives the node, active/collapse state, navigation, and actions |
 | `defaultCollapsed` | Initial collapsed state |
 
 Search is intentionally app-defined: `getNodes({ search, activeTab })` receives trimmed search text (an empty string for a blank or whitespace-only query) and the selected tab id, and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
 
 ### Custom item rendering
 
-For an application-owned layout, provide `render`. The callback owns the item
-markup, while `itemProps` supplies the framework's default button class,
-navigation, active-route state, and context-menu behavior. Spread those props
-onto the interactive root when the custom component should retain the standard
-sidebar interactions:
+For an application-owned layout, provide `render`. The callback returns the
+content inside the item; webapp always owns the interactive button, its default
+class, navigation, active-route state, accessibility, and context-menu behavior.
+Custom content should not return another button:
 
 ```tsx
 {
@@ -74,11 +73,11 @@ sidebar interactions:
   title: "Improve the task list",
   route: { view: "task", taskId: "123" },
   actions: taskActions,
-  render: ({ node, itemProps }) => (
-    <button {...itemProps}>
+  render: ({ node }) => (
+    <span>
       <strong>{node.title}</strong>
       <small>Custom task presentation</small>
-    </button>
+    </span>
   ),
 }
 ```
