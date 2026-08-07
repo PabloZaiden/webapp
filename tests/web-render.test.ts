@@ -543,6 +543,70 @@ test("sidebar tabs select the first item, update the node context, and persist s
   }
 });
 
+test("sidebar supports below-title metadata and custom item renderers", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        getNodes: () => [
+          {
+            type: "item" as const,
+            id: "left-detail",
+            title: "Left detail",
+            belowTitle: "Left metadata",
+            belowTitleAlign: "left" as const,
+            route: { view: "left-detail" },
+          },
+          {
+            type: "item" as const,
+            id: "right-detail",
+            title: "Right detail",
+            subtitle: "Workspace",
+            belowTitle: "Right metadata",
+            belowTitleAlign: "right" as const,
+            itemLayout: "subtitle-above-title" as const,
+            route: { view: "right-detail" },
+          },
+          {
+            type: "item" as const,
+            id: "custom",
+            title: "Custom item",
+            route: { view: "custom" },
+            render: ({ node, active, itemProps }) => createElement(
+              "button",
+              {
+                ...itemProps,
+                "aria-label": `${node.title} custom`,
+              },
+              active ? "Custom active" : "Custom item",
+            ),
+          },
+        ],
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+        "left-detail": createElement("p", null, "Left detail view"),
+        "right-detail": createElement("p", null, "Right detail view"),
+        custom: createElement("p", null, "Custom detail view"),
+      },
+    }));
+
+    await waitFor(() => expect(view.getByText("Left metadata")).toBeTruthy());
+    expect(view.getByText("Right metadata")).toBeTruthy();
+    expect(view.getByRole("button", { name: "Custom item custom" })).toBeTruthy();
+
+    fireEvent.click(view.getByRole("button", { name: "Custom item custom" }));
+    await waitFor(() => expect(view.getByText("Custom detail view")).toBeTruthy());
+    expect(view.getByRole("button", { name: "Custom item custom" }).textContent).toBe("Custom active");
+  } finally {
+    restoreFetch();
+  }
+});
+
 test("pinned routes retain their header actions across sidebar tabs", async () => {
   const restoreFetch = mockConfigFetch();
   localStorage.setItem("webapp.test-app.sidebar.pins", JSON.stringify([{

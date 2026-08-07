@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Badge, ContextMenu, formatStatusLabel, type ContextMenuPosition } from "./components";
 import { AnimatedList, Collapsible } from "./motion";
 import type { SidebarCollapsedState } from "./sidebar-state";
@@ -66,44 +66,78 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
         const active = node.route?.view === route.view && Object.entries(node.route).every(([key, value]) => key === "view" || route[key] === value);
         const badgeLabel = node.badge ? formatStatusLabel(node.badge) : "";
         const isTextBadge = node.badgeAppearance === "text";
+        const hasBelowTitle = node.belowTitle !== undefined
+          && node.belowTitle !== null
+          && node.belowTitle !== false;
+        const itemClassName = [
+          "wapp-sidebar-item",
+          active ? "active" : "",
+          node.itemLayout === "subtitle-above-title" ? "wapp-sidebar-item-subtitle-above-title" : "",
+        ].filter(Boolean).join(" ");
+        const activate = () => {
+          if (node.route) {
+            navigate(node.route);
+          }
+        };
+        const handleContextMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
+          if (!node.actions?.length) {
+            return;
+          }
+          event.preventDefault();
+          setContextMenu({ position: { x: event.clientX, y: event.clientY }, items: node.actions, title: node.title });
+        };
+        const itemProps = {
+          type: "button" as const,
+          className: itemClassName,
+          onClick: activate,
+          onContextMenu: handleContextMenu,
+          ...(active ? { "aria-current": "page" as const } : {}),
+        };
+        const customItem = node.render?.({
+          node,
+          active,
+          collapsed: isCollapsed,
+          hasChildren,
+          searchActive,
+          navigate,
+          toggleCollapsed: toggleNodeCollapsed,
+          actions: node.actions ?? [],
+          itemProps,
+        });
         return (
           <div className={`wapp-sidebar-item-wrap ${hasChildren ? "has-toggle" : ""}`} key={node.id} style={sidebarIndentStyle(level, parentKind)}>
             {hasChildren ? <button type="button" className="wapp-tree-toggle" aria-expanded={!isCollapsed} aria-label={toggleAriaLabel} disabled={searchActive} onClick={toggleNodeCollapsed}>{isCollapsed ? "▶" : "▼"}</button> : null}
-            <button
-              type="button"
-              className={[
-                "wapp-sidebar-item",
-                active ? "active" : "",
-                node.itemLayout === "subtitle-above-title" ? "wapp-sidebar-item-subtitle-above-title" : "",
-              ].filter(Boolean).join(" ")}
-              onClick={() => node.route && navigate(node.route)}
-              onContextMenu={(event) => {
-                if (!node.actions?.length) {
-                  return;
-                }
-                event.preventDefault();
-                setContextMenu({ position: { x: event.clientX, y: event.clientY }, items: node.actions, title: node.title });
-              }}
-            >
-              <span>
-                <strong>{node.title}</strong>
-                {node.subtitle ? <small>{node.subtitle}</small> : null}
-              </span>
-              {node.badge ? (
-                <Badge
-                  variant={node.badgeVariant}
-                  appearance={isTextBadge ? "text" : "pill"}
-                  className={[
-                    "wapp-sidebar-badge",
-                    isTextBadge ? "wapp-sidebar-badge-text" : "",
-                  ].filter(Boolean).join(" ")}
-                  title={badgeLabel}
-                  aria-label={badgeLabel}
-                >
-                  {isTextBadge ? badgeLabel : " "}
-                </Badge>
-              ) : null}
-            </button>
+            {node.render ? customItem : (
+              <button {...itemProps}>
+                <span>
+                  <strong>{node.title}</strong>
+                  {node.subtitle ? <small>{node.subtitle}</small> : null}
+                  {hasBelowTitle ? (
+                    <span className={[
+                      "wapp-sidebar-item-below-title",
+                      node.belowTitleAlign === "right" ? "wapp-sidebar-item-below-title-align-right" : "",
+                    ].filter(Boolean).join(" ")}
+                    >
+                      {node.belowTitle}
+                    </span>
+                  ) : null}
+                </span>
+                {node.badge ? (
+                  <Badge
+                    variant={node.badgeVariant}
+                    appearance={isTextBadge ? "text" : "pill"}
+                    className={[
+                      "wapp-sidebar-badge",
+                      isTextBadge ? "wapp-sidebar-badge-text" : "",
+                    ].filter(Boolean).join(" ")}
+                    title={badgeLabel}
+                    aria-label={badgeLabel}
+                  >
+                    {isTextBadge ? badgeLabel : " "}
+                  </Badge>
+                ) : null}
+              </button>
+            )}
             {node.children ? (
               <Collapsible open={!isCollapsed} className="wapp-sidebar-children">
                 <SidebarTree nodes={node.children} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} level={level + 1} parentKind="item" />
