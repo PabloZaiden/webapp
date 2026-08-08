@@ -40,8 +40,12 @@ useRealtimeRefresh({
 Or combine initial loading and realtime refresh:
 
 ```tsx
-const todos = useLiveQuery({
-  load: () => api<Todo[]>("/api/todos"),
+import { appJson, useLiveQuery } from "@pablozaiden/webapp/web";
+
+type Todo = { id: string; title: string };
+
+const todos = useLiveQuery<Todo[]>({
+  load: () => appJson<Todo[]>("/api/todos"),
   realtime: { resources: ["todos"] },
 });
 ```

@@ -3,7 +3,7 @@
 Use these templates for applications built with `@pablozaiden/webapp`. They follow the framework deployment pattern:
 
 1. Pull requests install, build, test and smoke-test the Bun dev server.
-2. Merges to `main` publish a `main` Docker image to GHCR.
+2. Pushes to `main` publish a `main` Docker image to GHCR.
 3. Published GitHub releases upload standalone binaries.
 4. Published GitHub releases publish semver Docker images to GHCR.
 
@@ -29,9 +29,14 @@ The templates assume these package scripts:
 }
 ```
 
-If the app uses TypeScript typechecking separately, add a `tsc` script and call it from the PR workflow before tests.
+If the app's build does not typecheck, add a `typecheck` script and call
+`bun run typecheck` from the PR workflow before tests.
 
-The smoke templates only hit health/static/public endpoints. `MY_APP_DISABLE_PASSKEY=true` authenticates as the existing owner when one exists; it does not create an owner in an empty data directory. If a smoke test needs protected app APIs, seed a test owner in `MY_APP_DATA_DIR` first or add a deliberate public smoke endpoint.
+The smoke templates only hit health/static/public endpoints.
+`MY_APP_DISABLE_PASSKEY=true` authenticates as the stored owner, or creates an
+owner named `admin` in an empty data directory. Use it only with disposable CI
+data. If a smoke test needs protected app APIs, the bypassed owner can access
+them; otherwise add a deliberate public smoke endpoint.
 
 ## Dockerfile
 

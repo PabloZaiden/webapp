@@ -303,7 +303,7 @@ The app configures an uppercase `envPrefix`; the framework reads only variables 
 | `{PREFIX}_DATA_DIR` | `./data` | Durable SQLite persistence directory for framework auth and app data |
 | `{PREFIX}_LOG_LEVEL` | `info` | `silly`, `trace`, `debug`, `info`, `warn`, `error`, `fatal`; locks settings log-level control when set |
 | `{PREFIX}_IN_MEMORY_LOGS` | `false` | Initial value for process-local server-log capture; `true`, `1`, or `yes` enables it |
-| `{PREFIX}_DISABLE_PASSKEY` | unset | Emergency bypass that logs in as the existing owner; it does not create users |
+| `{PREFIX}_DISABLE_PASSKEY` | unset | Emergency bypass that authenticates as the stored owner or creates an `admin` owner when none exists; it does not create additional users |
 | `{PREFIX}_DISABLE_SAME_ORIGIN_CHECK` | unset | Development/testing escape hatch |
 | `{PREFIX}_TRUST_PROXY` | `false` | Explicitly trust the documented `X-Forwarded-*` headers; keep disabled for direct deployments |
 | `{PREFIX}_TRUST_PROXY_HEADERS` | `proto,host,prefix` when enabled | Comma-separated subset of supported forwarded values: `proto`, `host`, `prefix` |

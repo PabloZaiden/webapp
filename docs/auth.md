@@ -34,7 +34,9 @@ PATCH: (_req, ctx) => {
 
 `ctx.requireOwned()` returns 404 for missing resources and for resources owned by another user, avoiding cross-user existence leaks. For user-owned realtime updates, publish through `ctx.userRealtime` instead of the global `ctx.realtime`.
 
-`{PREFIX}_DISABLE_PASSKEY=true` is an emergency bypass that logs in as the existing owner only. It does not create the owner.
+`{PREFIX}_DISABLE_PASSKEY=true` is an emergency bypass: it authenticates as the
+stored owner, or creates an owner named `admin` when no owner exists. Use it
+only with disposable or otherwise controlled data.
 
 ## API keys
 

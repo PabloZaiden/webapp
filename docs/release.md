@@ -5,31 +5,36 @@
 `PR Checks` runs on every pull request:
 
 1. Install dependencies with `bun install --frozen-lockfile`.
-2. Run `bun run tsc`.
-3. Run `bun run test`, which runs the build-binary integration tests in an isolated process before the remaining suites.
-4. Build both example apps.
-5. Start the compiled example binaries and smoke-test `/api/health` plus one app endpoint.
+2. Run `bun run typecheck`.
+3. Run `bun run test:build-binary`.
+4. Run `bun run test:remaining`.
+5. Build both example apps with `bun run build:examples`.
+6. Start the compiled example binaries and smoke-test `/api/health` plus one public app endpoint.
 
 ## Main branch
 
-`Main Docker Smoke` runs after merges to `main`:
+`Main Docker Smoke` runs on pushes to `main`:
 
-1. Build Linux x64 and Linux arm64 binaries for both examples.
-2. Build each Docker image with an explicit `linux/amd64` or `linux/arm64` platform and matching `APP_BINARY` path.
-3. Validate missing, unsupported, and mismatched Docker arguments fail during the image build.
-4. Run both architecture variants of both containers.
-5. Smoke-test `/api/health` plus one app endpoint through the published container ports.
+1. Install dependencies and run `bun run typecheck`.
+2. Build Linux x64 and Linux arm64 binaries for both examples.
+3. Build each Docker image with an explicit `linux/amd64` or `linux/arm64` platform and matching `APP_BINARY` path.
+4. Validate missing, unsupported, and mismatched Docker arguments fail during the image build.
+5. Run both architecture variants of both containers.
+6. Smoke-test `/api/health` plus one public app endpoint through the published container ports.
 
 ## NPM releases
 
-`Release NPM Package` publishes `@pablozaiden/webapp` when a GitHub release is published. It also supports manual dispatch with a tag input, publishing with npm tag `unstable`.
+`Release NPM Package` publishes `@pablozaiden/webapp` when a `v*.*.*` tag is
+pushed. It also supports manual dispatch with a tag input, publishing with npm
+tag `unstable`.
 
 The workflow:
 
 1. Reads the version from the release tag, e.g. `v0.1.0` -> `0.1.0`.
 2. Checks out that tag.
 3. Updates `package.json` version in the workflow workspace.
-4. Runs install, tests and build.
+4. Runs `bun run typecheck`, `bun run test:build-binary`,
+   `bun run test:remaining`, and `bun run build:examples`.
 5. Publishes with npm provenance and public access.
 
 ## First manual publish / trusted publishing setup

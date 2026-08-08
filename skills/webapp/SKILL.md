@@ -8,6 +8,21 @@ description: 'Build, modify, validate, and ship apps using @pablozaiden/webapp. 
 
 Use this skill when building an app with `@pablozaiden/webapp`.
 
+## Repository-local references
+
+This document is self-contained for the framework rules and validation workflow.
+The expanded templates and manual checklist it references are maintained in the
+`pablozaiden/webapp` repository at its repository root, not relative to this
+skill file or an installed skill bundle:
+
+- [`docs/github-actions.md`](https://github.com/PabloZaiden/webapp/blob/main/docs/github-actions.md)
+  contains the full Docker and GitHub Actions templates.
+- [`docs/auth-validation.md`](https://github.com/PabloZaiden/webapp/blob/main/docs/auth-validation.md)
+  contains the manual passkey, API-key, and device-auth checklist.
+
+Paths such as `.github/workflows/pr.yml` in this document are files to create in
+the application being built; they are not expected to exist beside this skill.
+
 ## Rules
 
 - Treat the app as one Bun server that serves React, API routes and websockets together.
@@ -233,7 +248,7 @@ PATCH: (_req, ctx) => {
 
 ## Validation checklist
 
-Run targeted tests, `bun run tsc`, example binary builds, and app health checks. Use the temporary Playwright harness above for visual validation, and use `docs/auth-validation.md` for manual passkey/API-key/device-auth validation. If Docker base images can be pulled, build and run the example containers and check `/api/health`.
+Run targeted tests, `bun run typecheck`, example binary builds, and app health checks. Use the temporary Playwright harness above for visual validation, and use `docs/auth-validation.md` for manual passkey/API-key/device-auth validation. If Docker base images can be pulled, build and run the example containers and check `/api/health`.
 
 ## CI/CD checklist for generated apps
 
@@ -241,7 +256,7 @@ Use `docs/github-actions.md` as the source of truth. At minimum, generated apps 
 
 - A root `Dockerfile` that builds with `oven/bun`, copies the standalone binary into a slim runtime image, runs as a non-root user, and healthchecks `/api/health`.
 - `.github/workflows/pr.yml` with install, build, test, Bun dev-server smoke checks, and Docker image smoke checks.
-- `.github/workflows/docker-main.yml` to publish `ghcr.io/<owner>/<repo>:main` after merges to `main` and smoke-test the container.
+- `.github/workflows/docker-main.yml` to publish `ghcr.io/<owner>/<repo>:main` on pushes to `main` and smoke-test the container.
 - `.github/workflows/binary-release.yml` using `pablozaiden/installer/.github/workflows/reusable-binary-release.yml`.
 - `.github/workflows/docker-release.yml` to publish semver GHCR images on published GitHub releases.
 
