@@ -44,7 +44,7 @@ import { appJson, useLiveQuery } from "@pablozaiden/webapp/web";
 
 type Todo = { id: string; title: string };
 
-const todos = useLiveQuery<Todo[]>({
+const { data: todos } = useLiveQuery<Todo[]>({
   load: () => appJson<Todo[]>("/api/todos"),
   realtime: { resources: ["todos"] },
 });
