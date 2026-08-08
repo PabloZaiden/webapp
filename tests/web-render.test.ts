@@ -1784,6 +1784,56 @@ test("mobile sidebar backdrop supports non-pointer activation", async () => {
   }
 });
 
+test("mobile sidebar dismiss does not activate background content", async () => {
+  const restoreFetch = mockConfigFetch();
+  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
+  let backgroundActivations = 0;
+  let backgroundPointerDowns = 0;
+  const handleBackgroundPointerDown = () => {
+    backgroundPointerDowns += 1;
+  };
+  document.addEventListener("pointerdown", handleBackgroundPointerDown);
+
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+      },
+      routes: {
+        home: createElement(
+          "button",
+          { type: "button", onClick: () => { backgroundActivations += 1; } },
+          "Background action",
+        ),
+      },
+    }));
+
+    const showSidebar = await waitFor(() => view.getByRole("button", { name: "Show sidebar" }));
+    fireEvent.click(showSidebar);
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
+
+    const backdrop = view.getByRole("button", { name: "Close sidebar" });
+    fireEvent.pointerDown(backdrop, { button: 0, pointerId: 1 });
+    fireEvent.pointerUp(backdrop, { button: 0, pointerId: 1 });
+    fireEvent.click(view.getByRole("button", { name: "Background action" }), { detail: 1 });
+
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
+    expect(backgroundPointerDowns).toBe(0);
+    expect(backgroundActivations).toBe(0);
+
+    fireEvent.click(view.getByRole("button", { name: "Background action" }));
+    expect(backgroundActivations).toBe(1);
+  } finally {
+    document.removeEventListener("pointerdown", handleBackgroundPointerDown);
+    restoreMobileMediaQuery();
+    restoreFetch();
+  }
+});
+
 test("mobile left-edge swipe opens navigation", async () => {
   const restoreFetch = mockConfigFetch();
   const restoreMobileMediaQuery = mockMobileMediaQuery(true);
