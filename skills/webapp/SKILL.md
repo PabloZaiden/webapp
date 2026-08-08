@@ -10,10 +10,9 @@ Use this skill when building an app with `@pablozaiden/webapp`.
 
 ## Repository-local references
 
-This document is self-contained for the framework rules and validation workflow.
-The expanded templates and manual checklist it references are maintained in the
-`pablozaiden/webapp` repository at its repository root, not relative to this
-skill file or an installed skill bundle:
+The expanded templates and manual checklist referenced below are maintained in
+the `pablozaiden/webapp` repository at its repository root, not relative to
+this skill file or an installed skill bundle:
 
 - [`docs/github-actions.md`](https://github.com/PabloZaiden/webapp/blob/main/docs/github-actions.md)
   contains the full Docker and GitHub Actions templates.
