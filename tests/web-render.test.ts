@@ -1739,8 +1739,13 @@ test("mobile sidebar backdrop closes the open sidebar", async () => {
     fireEvent.click(showSidebar);
     await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
 
-    fireEvent.pointerDown(view.getByRole("button", { name: "Close sidebar" }));
+    const backdrop = view.getByRole("button", { name: "Close sidebar" });
+    fireEvent.pointerDown(backdrop, { button: 0 });
 
+    await waitFor(() => {
+      expect(backdrop.getAttribute("aria-hidden")).toBe("true");
+      expect(backdrop.getAttribute("tabindex")).toBe("-1");
+    });
     await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
   } finally {
     restoreFetch();
@@ -1780,6 +1785,61 @@ test("mobile sidebar backdrop supports non-pointer activation", async () => {
 
     await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
   } finally {
+    restoreFetch();
+  }
+});
+
+test("mobile sidebar dismiss does not activate background content", async () => {
+  const restoreFetch = mockConfigFetch();
+  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
+  let backgroundActivations = 0;
+  let backgroundPointerDowns = 0;
+  const handleBackgroundPointerDown = () => {
+    backgroundPointerDowns += 1;
+  };
+  document.addEventListener("pointerdown", handleBackgroundPointerDown);
+
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+      },
+      routes: {
+        home: createElement(
+          "button",
+          { type: "button", onClick: () => { backgroundActivations += 1; } },
+          "Background action",
+        ),
+      },
+    }));
+
+    const showSidebar = await waitFor(() => view.getByRole("button", { name: "Show sidebar" }));
+    fireEvent.click(showSidebar);
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
+
+    const backdrop = view.getByRole("button", { name: "Close sidebar" });
+    const backgroundAction = view.getByRole("button", { name: "Background action" });
+    fireEvent.pointerDown(backdrop, { button: 0, pointerId: 1 });
+    fireEvent.pointerUp(backdrop, { button: 0, pointerId: 1 });
+    fireEvent.click(backgroundAction, { detail: 1 });
+
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
+    expect(backgroundPointerDowns).toBe(0);
+    expect(backgroundActivations).toBe(0);
+
+    await waitFor(() => expect(backdrop.isConnected).toBe(false));
+    fireEvent.pointerDown(backgroundAction, { button: 0, pointerId: 2 });
+    fireEvent.pointerUp(backgroundAction, { button: 0, pointerId: 2 });
+    fireEvent.click(backgroundAction, { detail: 1 });
+    expect(backgroundPointerDowns).toBe(1);
+    expect(backgroundActivations).toBe(1);
+  } finally {
+    document.removeEventListener("pointerdown", handleBackgroundPointerDown);
+    restoreMobileMediaQuery();
     restoreFetch();
   }
 });

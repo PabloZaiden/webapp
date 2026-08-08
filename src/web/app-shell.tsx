@@ -131,6 +131,7 @@ export function AppShell({
   const sidebarToggleLabel = sidebarCollapsed ? "Show sidebar" : "Collapse sidebar";
   const sidebarTabRefs = useRef(new Map<string, HTMLButtonElement>());
   const closeSidebar = () => setSidebarOpen(false);
+  const suppressNextContentClickRef = useRef(false);
   const navigateFromSidebarHeader = (nextRoute: WebAppRoute) => {
     navigate(nextRoute);
     closeSidebar();
@@ -171,29 +172,52 @@ export function AppShell({
   };
 
   return (
-    <main className={`wapp-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarOpen ? "sidebar-open" : ""} ${nativeRouteTransitions ? "wapp-native-route-transitions" : ""}`.trim()}>
+    <main
+      className={`wapp-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarOpen ? "sidebar-open" : ""} ${nativeRouteTransitions ? "wapp-native-route-transitions" : ""}`.trim()}
+      onPointerDownCapture={() => {
+        if (suppressNextContentClickRef.current) {
+          suppressNextContentClickRef.current = false;
+        }
+      }}
+      onClickCapture={(event) => {
+        if (!suppressNextContentClickRef.current) {
+          return;
+        }
+        suppressNextContentClickRef.current = false;
+        if (event.detail === 0) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+    >
       <Presence present={sidebarOpen}>
         {(state) => (
           <div
             className={`wapp-mobile-backdrop wapp-motion-${state}`}
             role="button"
-            tabIndex={0}
+            tabIndex={state === "exit" ? -1 : 0}
             aria-label="Close sidebar"
             aria-hidden={state === "exit" ? true : undefined}
             onPointerDown={(event) => {
               if (event.button === 0) {
                 event.preventDefault();
+                event.stopPropagation();
+                suppressNextContentClickRef.current = true;
                 closeSidebar();
               }
             }}
             onClick={(event) => {
+              event.stopPropagation();
               if (event.detail === 0) {
+                event.preventDefault();
                 closeSidebar();
               }
             }}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
+                event.stopPropagation();
                 closeSidebar();
               }
             }}

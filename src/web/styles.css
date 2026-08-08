@@ -2398,7 +2398,7 @@ textarea::placeholder {
 
 .wapp-mobile-backdrop.wapp-motion-exit {
   animation-name: wapp-fade-out;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .wapp-dialog-backdrop {
