@@ -85,14 +85,16 @@ Route defaults are intentionally secure:
 
 Set `auth: "public", sameOrigin: "never"` only for deliberate unauthenticated endpoints such as health probes, webhooks or callback receivers.
 
-Route definitions can include optional metadata. This keeps the API route table as the single source of truth for handlers, CLI endpoint listing, schema output and docs:
+Route definitions can include optional metadata. This keeps the API route table
+as the single source of truth for handlers, CLI endpoint listing, and schema
+output; it does not generate prose documentation automatically:
 
 | Field | Meaning |
 | --- | --- |
 | `description` | Human-readable route description |
 | `cliPath` | CLI-friendly path; defaults to the API path without `/api/` |
-| `tags` | Grouping labels for docs/CLI |
-| `requestSchema`, `querySchema`, `responseSchema` | Optional schema objects for CLI/docs; use the same runtime `requestSchema` with `parseJson` when a route accepts a body |
+| `tags` | Grouping labels exposed through the route catalog and schema output |
+| `requestSchema`, `querySchema`, `responseSchema` | Optional schema objects for CLI/schema output; use the same runtime `requestSchema` with `parseJson` when a route accepts a body |
 | `catalog: false` | Exclude a route from generated catalogs |
 
 Use `createRouteCatalog(routes)` and `findRouteCatalogEntry(catalog, input)` to power app CLI commands without maintaining a second route catalog.
@@ -185,7 +187,7 @@ Built-in endpoints include:
 | `/api/preferences/theme`, `/api/preferences/log-level` | Settings persistence |
 | `GET /api/server/logs` | Admin-only snapshot of the in-memory server logs |
 | `PUT /api/server/logs/settings` | Admin-only runtime toggle for in-memory server logs |
-| `/api/server/kill` | Authenticated server shutdown |
+| `/api/server/kill` | Admin-only server shutdown |
 | `/api/ws` | Realtime websocket by default |
 
 The effective log level in `GET /api/config` and `GET

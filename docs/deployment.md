@@ -5,10 +5,11 @@
 Use `buildWebAppBinary` from `@pablozaiden/webapp/build`.
 
 ```ts
+import { fileURLToPath } from "node:url";
 import { buildWebAppBinary, getBunCompileTargetFromArgs } from "@pablozaiden/webapp/build";
 
 await buildWebAppBinary({
-  entrypoint: import.meta.resolve("./src/index.ts").replace("file://", ""),
+  entrypoint: fileURLToPath(import.meta.resolve("./src/index.ts")),
   outfile: "./dist/my-app",
   target: getBunCompileTargetFromArgs(),
   define: {

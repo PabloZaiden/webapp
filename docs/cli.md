@@ -111,5 +111,6 @@ The defaults are a 30-second acquisition timeout, a five-minute stale threshold
 and a 25-millisecond polling interval. A timeout throws `JsonFileStoreLockError`
 with `code === "timeout"`. Release failures use `code === "release"`. Lock
 metadata contains only ownership information (PID, timestamp and nonce), never
-access or refresh tokens. The credentials directory and file retain `0700` and
-`0600` permissions respectively.
+access or refresh tokens. On platforms and filesystems that support POSIX
+permissions, the credentials directory and file are set to `0700` and `0600`;
+permission changes are best-effort elsewhere.
