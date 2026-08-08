@@ -1739,8 +1739,13 @@ test("mobile sidebar backdrop closes the open sidebar", async () => {
     fireEvent.click(showSidebar);
     await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
 
-    fireEvent.pointerDown(view.getByRole("button", { name: "Close sidebar" }));
+    const backdrop = view.getByRole("button", { name: "Close sidebar" });
+    fireEvent.pointerDown(backdrop, { button: 0 });
 
+    await waitFor(() => {
+      expect(backdrop.getAttribute("aria-hidden")).toBe("true");
+      expect(backdrop.getAttribute("tabindex")).toBe("-1");
+    });
     await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
   } finally {
     restoreFetch();
@@ -1817,15 +1822,20 @@ test("mobile sidebar dismiss does not activate background content", async () => 
     await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
 
     const backdrop = view.getByRole("button", { name: "Close sidebar" });
+    const backgroundAction = view.getByRole("button", { name: "Background action" });
     fireEvent.pointerDown(backdrop, { button: 0, pointerId: 1 });
     fireEvent.pointerUp(backdrop, { button: 0, pointerId: 1 });
-    fireEvent.click(view.getByRole("button", { name: "Background action" }), { detail: 1 });
+    fireEvent.click(backgroundAction, { detail: 1 });
 
     await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
     expect(backgroundPointerDowns).toBe(0);
     expect(backgroundActivations).toBe(0);
 
-    fireEvent.click(view.getByRole("button", { name: "Background action" }));
+    await waitFor(() => expect(backdrop.isConnected).toBe(false));
+    fireEvent.pointerDown(backgroundAction, { button: 0, pointerId: 2 });
+    fireEvent.pointerUp(backgroundAction, { button: 0, pointerId: 2 });
+    fireEvent.click(backgroundAction, { detail: 1 });
+    expect(backgroundPointerDowns).toBe(1);
     expect(backgroundActivations).toBe(1);
   } finally {
     document.removeEventListener("pointerdown", handleBackgroundPointerDown);

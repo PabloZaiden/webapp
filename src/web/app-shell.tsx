@@ -196,7 +196,7 @@ export function AppShell({
           <div
             className={`wapp-mobile-backdrop wapp-motion-${state}`}
             role="button"
-            tabIndex={0}
+            tabIndex={state === "exit" ? -1 : 0}
             aria-label="Close sidebar"
             aria-hidden={state === "exit" ? true : undefined}
             onPointerDown={(event) => {
