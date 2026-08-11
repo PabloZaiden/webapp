@@ -5,6 +5,9 @@ import favicon from "./favicon.svg";
 
 type Event = ResourceRealtimeEvent;
 const log = createLogger("kitchen-sink");
+export const kitchenSinkVersion = typeof WEBAPP_VERSION === "string"
+  ? WEBAPP_VERSION
+  : "0.0.0-development";
 
 function ensureSeedProjects(store: WebAppStore, appStore: KitchenSinkStore, userId: string) {
   if (store.getOwnerUser()?.id !== userId) return;
@@ -101,10 +104,19 @@ export function createKitchenSinkApp(options: {
   store?: WebAppStore;
   appStore?: KitchenSinkStore;
 } = {}) {
+  return createKitchenSinkRuntime(options).app;
+}
+
+export function createKitchenSinkRuntime(options: {
+  dataDir?: string;
+  store?: WebAppStore;
+  appStore?: KitchenSinkStore;
+} = {}) {
   const dataDir = options.dataDir ?? process.env["KITCHEN_SINK_DATA_DIR"] ?? "./data";
   const store = options.store ?? sqliteWebAppStore({ dataDir });
   const appStore = options.appStore ?? createKitchenSinkStore({ dataDir });
-  return createWebAppServer<Event>({
+  const routes = createKitchenSinkRoutes(store, appStore);
+  const app = createWebAppServer<Event>({
     appName: "Kitchen Sink",
     envPrefix: "KITCHEN_SINK",
     web: {
@@ -116,11 +128,12 @@ export function createKitchenSinkApp(options: {
         ],
       },
     },
-    version: typeof WEBAPP_VERSION === "string" ? WEBAPP_VERSION : "0.0.0-development",
+    version: kitchenSinkVersion,
     store,
     auth: { passkeys: true, apiKeys: true, deviceAuth: true },
     realtime: { path: "/api/ws" },
     publicRoutes,
-    routes: createKitchenSinkRoutes(store, appStore),
+    routes,
   });
+  return { app, routes };
 }

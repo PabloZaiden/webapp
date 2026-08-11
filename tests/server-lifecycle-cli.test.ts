@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import type { StoredDeviceCredentials } from "@pablozaiden/webapp/cli";
-import { createWebAppServer, defineRoutes, sqliteWebAppStore } from "@pablozaiden/webapp/server";
+import {
+  createWebAppServer,
+  defineRoutes,
+  sqliteWebAppStore,
+} from "@pablozaiden/webapp/server";
 
 const dataDirs: string[] = [];
+const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
 
 afterEach(() => {
   for (const dataDir of dataDirs.splice(0)) {
@@ -11,62 +15,97 @@ afterEach(() => {
   }
 });
 
-describe("server lifecycle CLI", () => {
-  test("exposes the logs command through runFromCli", async () => {
-    const dataDir = `.cache/tests/server-lifecycle-logs-${crypto.randomUUID()}`;
-    dataDirs.push(dataDir);
-    const storedCredentials = {
-      baseUrl: "https://logs.example.test",
-      clientId: "cli",
-      accessToken: "admin-access",
-      refreshToken: "admin-refresh",
-      tokenType: "Bearer",
-      scope: "*",
-      accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    } satisfies StoredDeviceCredentials;
+function lifecycleApp(
+  envPrefix: string,
+  lifecycle: NonNullable<Parameters<typeof createWebAppServer>[0]["lifecycle"]>,
+) {
+  const dataDir = `.cache/tests/${envPrefix.toLowerCase()}-${crypto.randomUUID()}`;
+  dataDirs.push(dataDir);
+  process.env[`${envPrefix}_HOST`] = "127.0.0.1";
+  process.env[`${envPrefix}_PORT`] = "0";
+  return createWebAppServer({
+    appName: "Lifecycle Test",
+    envPrefix,
+    web: testWeb,
+    store: sqliteWebAppStore({ dataDir }),
+    auth: { passkeys: false },
+    routes: defineRoutes({}),
+    lifecycle,
+  });
+}
 
-    const requests: Array<{ url: string; authorization: string | null }> = [];
-    const previousFetch = globalThis.fetch;
-    const previousLog = console.log;
-    const output: string[] = [];
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      requests.push({
-        url: String(input),
-        authorization: new Headers(init?.headers).get("authorization"),
-      });
-      return Response.json({ enabled: false, logs: [] });
-    }) as typeof fetch;
-    console.log = ((message?: unknown) => {
-      output.push(String(message));
-    }) as typeof console.log;
+describe("server lifecycle hooks", () => {
+  test("orders start and deterministic stop hooks around the Bun server", async () => {
+    const events: string[] = [];
+    const app = lifecycleApp("TEST_LIFECYCLE_ORDER", {
+      beforeStart: () => {
+        events.push("beforeStart");
+      },
+      afterStart: (server) => {
+        expect(server.url).toBeDefined();
+        events.push("afterStart");
+      },
+      beforeStop: () => {
+        events.push("beforeStop");
+      },
+      afterStop: () => {
+        events.push("afterStop");
+      },
+    });
 
-    try {
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix: "TEST_LIFECYCLE_LOGS",
-        store: sqliteWebAppStore({ dataDir }),
-        auth: { passkeys: false },
-        cli: {
-          credentials: {
-            read: async () => storedCredentials,
-            write: async () => undefined,
-          },
-        },
-        routes: defineRoutes({}),
-      });
+    await app.start();
+    await app.stop(true);
 
-      await app.runFromCli(["logs"]);
+    expect(events).toEqual([
+      "beforeStart",
+      "afterStart",
+      "beforeStop",
+      "afterStop",
+    ]);
+  });
 
-      expect(requests).toEqual([{
-        url: "https://logs.example.test/api/server/logs",
-        authorization: "Bearer admin-access",
-      }]);
-      expect(JSON.parse(output[0]!)).toEqual({ enabled: false, logs: [] });
-    } finally {
-      globalThis.fetch = previousFetch;
-      console.log = previousLog;
-    }
+  test("cleans up a started server and surfaces an afterStart failure", async () => {
+    const events: string[] = [];
+    const app = lifecycleApp("TEST_LIFECYCLE_AFTER_START", {
+      beforeStart: () => {
+        events.push("beforeStart");
+      },
+      afterStart: () => {
+        events.push("afterStart");
+        throw new Error("worker startup failed");
+      },
+      beforeStop: () => {
+        events.push("beforeStop");
+      },
+      afterStop: () => {
+        events.push("afterStop");
+      },
+    });
+
+    await expect(app.start()).rejects.toThrow("worker startup failed");
+    expect(events).toEqual([
+      "beforeStart",
+      "afterStart",
+      "beforeStop",
+      "afterStop",
+    ]);
+    await app.stop(true);
+  });
+
+  test("continues cleanup and surfaces stop-hook failures", async () => {
+    const events: string[] = [];
+    const app = lifecycleApp("TEST_LIFECYCLE_STOP_ERROR", {
+      beforeStop: () => {
+        events.push("beforeStop");
+        throw new Error("before stop failed");
+      },
+      afterStop: () => {
+        events.push("afterStop");
+      },
+    });
+
+    await app.start();
+    await expect(app.stop(true)).rejects.toThrow("before stop failed");
+    expect(events).toEqual(["beforeStop", "afterStop"]);
   });
 });

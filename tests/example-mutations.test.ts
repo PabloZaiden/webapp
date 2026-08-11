@@ -5,33 +5,13 @@ import { createApiKey } from "../src/server/auth/api-keys";
 import type { WebAppServer } from "../src/server/create-web-app-server";
 import type { WebSocketData } from "../src/server/realtime/bus";
 import type { UserRecord, WebAppStore } from "../src/server/auth/store";
+import { createKitchenSinkApp } from "../examples/kitchen-sink/src/app";
 import { createNotesTodoApp } from "../examples/notes-todo/src/app";
 
 const kitchenDataDir = `.cache/tests/example-mutations-kitchen-${crypto.randomUUID()}`;
 const notesDataDir = `.cache/tests/example-mutations-notes-${crypto.randomUUID()}`;
-const { kitchen, notesTodo } = await (async () => {
-  const previousKitchenDataDir = process.env["KITCHEN_SINK_DATA_DIR"];
-  const previousNotesDataDir = process.env["NOTES_TODO_DATA_DIR"];
-  try {
-    process.env["KITCHEN_SINK_DATA_DIR"] = kitchenDataDir;
-    process.env["NOTES_TODO_DATA_DIR"] = notesDataDir;
-    return {
-      kitchen: await import("../examples/kitchen-sink/src/index.ts"),
-      notesTodo: await import("../examples/notes-todo/src/index.ts"),
-    };
-  } finally {
-    if (previousKitchenDataDir === undefined) {
-      delete process.env["KITCHEN_SINK_DATA_DIR"];
-    } else {
-      process.env["KITCHEN_SINK_DATA_DIR"] = previousKitchenDataDir;
-    }
-    if (previousNotesDataDir === undefined) {
-      delete process.env["NOTES_TODO_DATA_DIR"];
-    } else {
-      process.env["NOTES_TODO_DATA_DIR"] = previousNotesDataDir;
-    }
-  }
-})();
+const kitchen = { app: createKitchenSinkApp({ dataDir: kitchenDataDir }) };
+const notesTodo = { app: createNotesTodoApp({ dataDir: notesDataDir }) };
 
 function configureApiKey(store: WebAppStore, username: string): { user: UserRecord; token: string } {
   const now = new Date().toISOString();

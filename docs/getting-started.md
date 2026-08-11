@@ -4,7 +4,8 @@ Apps are one Bun application: backend routes, websocket, React UI and static ass
 
 ```ts
 import { z } from "zod";
-import { createLogger, createWebAppServer, defineRoutes, jsonResponse, parseJson } from "@pablozaiden/webapp/server";
+import { createWebAppCli } from "@pablozaiden/webapp/cli";
+import { createLogger, createRouteCatalog, createWebAppServer, defineRoutes, jsonResponse, parseJson } from "@pablozaiden/webapp/server";
 
 const items: Array<{ id: string; userId: string; title: string }> = [];
 const itemCreateSchema = z.object({ title: z.string() });
@@ -38,15 +39,28 @@ const routes = defineRoutes({
   },
 });
 
-const app = createWebAppServer({
+let app: ReturnType<typeof createWebAppServer> | undefined;
+const getApp = () => app ??= createWebAppServer({
+    appName: "My App",
+    envPrefix: "MY_APP",
+    auth: { passkeys: true, apiKeys: true, deviceAuth: true },
+    realtime: { path: "/api/ws" },
+    routes,
+  });
+
+const cli = createWebAppCli({
   appName: "My App",
+  commandName: "my-app",
   envPrefix: "MY_APP",
-  auth: { passkeys: true, apiKeys: true, deviceAuth: true },
-  realtime: { path: "/api/ws" },
-  routes,
+  version: "1.0.0",
+  realtimePath: "/api/ws",
+  routeCatalog: createRouteCatalog(routes),
+  start: async () => {
+    await getApp().start();
+  },
 });
 
-await app.runFromCli();
+process.exitCode = await cli.run();
 ```
 
 The server uses a 255-second request idle timeout by default. Apps can override
@@ -105,8 +119,7 @@ my-app api items
 my-app notify --message "optional app-owned command"
 ```
 
-For a non-interactive authenticated API command, pass the app's `envPrefix`
-to `runApiCliCommand()` and provide the exact environment pair:
+For non-interactive authenticated commands, provide the exact environment pair:
 
 ```bash
 export MY_APP_BASE_URL=https://app.example.test
@@ -114,8 +127,8 @@ export MY_APP_API_KEY='key-from-settings'
 my-app api items
 ```
 
-The pair is used when no stored device credentials are available. A missing
-or partial pair preserves anonymous CLI requests.
+The pair is used when the selected profile has no stored device credentials.
+A missing or partial pair is ignored.
 
 See `docs/cli.md` for framework CLI helpers and generic API command support.
 
