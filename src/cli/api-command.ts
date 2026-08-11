@@ -13,6 +13,7 @@ export interface ApiCliCommandOptions {
   args: string[];
   mode?: "api" | "schema";
   baseUrl?: string;
+  responseFormat?: "envelope" | "body";
   credentials?: ApiCliCredentialsStore;
   envPrefix?: string;
   environment?: CliEnvironment;
@@ -149,8 +150,14 @@ export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<Cli
   } catch {
     parsed = text || null;
   }
+  const output = input.responseFormat === "body"
+    ? text
+    : JSON.stringify({
+      status: { code: response.status, ok: response.ok, text: response.statusText },
+      response: parsed,
+    }, null, 2);
   return {
     exitCode: response.ok ? 0 : 1,
-    output: JSON.stringify({ status: { code: response.status, ok: response.ok, text: response.statusText }, response: parsed }, null, 2),
+    output: output ?? "",
   };
 }

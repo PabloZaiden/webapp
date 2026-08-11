@@ -1,5 +1,7 @@
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import { createLogger } from "./logger";
+import { runServerLogsCliCommand } from "../cli/server-logs-command";
+import type { ApiCliCredentialsStore } from "../cli/api-command";
 import type { RealtimeBus } from "./realtime/bus";
 import type { WebAppWebSocketData, WebAppServerConfig } from "./server-types";
 import type { RuntimeConfig } from "./runtime-config";
@@ -10,6 +12,7 @@ export interface ServerLifecycleDependencies<TEvent = unknown> {
   config: RuntimeConfig;
   version: string;
   deviceAuthEnabled: boolean;
+  cliCredentials?: ApiCliCredentialsStore;
   idleTimeout: number;
   publicRoutes: Readonly<Record<string, unknown>>;
   appWebsockets: NonNullable<WebAppServerConfig["websockets"]>;
@@ -26,6 +29,7 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     config,
     version,
     deviceAuthEnabled,
+    cliCredentials,
     idleTimeout,
     publicRoutes,
     appWebsockets,
@@ -132,6 +136,22 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     }
     if (command === "config") {
       console.log(JSON.stringify(safeRuntimeConfig(config), null, 2));
+      return;
+    }
+    if (command === "logs") {
+      if (argv.length > 1) {
+        throw new Error("The logs command does not accept arguments; use the authenticated CLI instance");
+      }
+      const result = await runServerLogsCliCommand({
+        envPrefix: config.envPrefix,
+        credentials: cliCredentials,
+      });
+      if (result.output !== undefined) {
+        console.log(result.output);
+      }
+      if (result.exitCode !== 0) {
+        throw new Error(result.error ?? "Unable to retrieve server logs");
+      }
       return;
     }
     throw new Error(`Unknown command: ${command}`);

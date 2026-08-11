@@ -216,6 +216,18 @@ describe("generic API CLI command", () => {
       authorization: "Bearer stored-token",
     }]);
   });
+  test("preserves non-JSON response bodies in body format", async () => {
+    const body = "plain text\nwith \"quoted\" content";
+    const result = await runApiCliCommand({
+      catalog,
+      args: ["item/123"],
+      responseFormat: "body",
+      fetchFn: (async (_input: string | URL | Request, _init?: RequestInit) => new Response(body, { status: 200 })) as typeof fetch,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe(body);
+  });
 });
 
 describe("generic API CLI base URL overrides", () => {

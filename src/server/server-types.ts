@@ -1,5 +1,6 @@
 import type { Server, WebSocketHandler } from "bun";
 import type { LogLevelName, WebAppConfigResponse } from "../contracts";
+import type { ApiCliCredentialsStore } from "../cli/api-command";
 import type { RealtimeBus, WebSocketData } from "./realtime/bus";
 import type { WebAppStore } from "./auth/store";
 import type { RuntimeConfig } from "./runtime-config";
@@ -51,6 +52,9 @@ export interface WebAppServerConfig<TEvent = unknown> {
   };
   realtime?: {
     path?: string;
+  };
+  cli?: {
+    credentials?: ApiCliCredentialsStore;
   };
   logLevel?: {
     onChange?: (level: LogLevelName) => void;

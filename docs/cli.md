@@ -54,6 +54,38 @@ default; pass `baseUrl` only to intentionally override that server. Without
 stored credentials, the environment API-key rules below determine the request
 URL.
 
+## Server logs command
+
+The default `runFromCli()` implementation exposes `logs` for retrieving the
+admin-only in-memory server-log snapshot:
+
+```bash
+export MY_APP_BASE_URL=https://app.example.test
+export MY_APP_API_KEY='admin-key-from-settings'
+my-app logs
+```
+
+The command sends `GET /api/server/logs` and prints the endpoint response body.
+It only uses the authenticated instance configured by the CLI; arbitrary target
+URLs are not accepted. To use a stored device session, pass the same
+credential store used by the app's login command:
+
+```ts
+import { createDeviceCredentialsStore } from "@pablozaiden/webapp/cli";
+
+const credentials = createDeviceCredentialsStore({ appDirectoryName: "my-app" });
+
+createWebAppServer({
+  // ...
+  cli: { credentials },
+});
+```
+
+The API key fallback uses the complete `${PREFIX}_BASE_URL` and
+`${PREFIX}_API_KEY` pair. The credential must belong to an administrator, and
+the endpoint still returns `{ enabled: false, logs: [] }` when in-memory capture
+is disabled.
+
 ## Stateless API-key authentication
 
 An app that passes its validated `envPrefix` to `runApiCliCommand` can make

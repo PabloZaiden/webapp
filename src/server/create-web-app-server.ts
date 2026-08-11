@@ -147,6 +147,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     config,
     version,
     deviceAuthEnabled,
+    cliCredentials: input.cli?.credentials,
     idleTimeout,
     publicRoutes,
     appWebsockets,
