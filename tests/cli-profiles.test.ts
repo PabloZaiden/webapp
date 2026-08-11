@@ -29,6 +29,13 @@ function credentials(baseUrl: string): StoredDeviceCredentials {
   };
 }
 
+function expiredCredentials(baseUrl: string): StoredDeviceCredentials {
+  return {
+    ...credentials(baseUrl),
+    accessTokenExpiresAt: new Date(0).toISOString(),
+  };
+}
+
 function emptyInput() {
   return {
     async *[Symbol.asyncIterator]() {
@@ -181,5 +188,51 @@ describe("CLI credential profiles", () => {
 
     expect(status.exitCode).toBe(0);
     expect(authorizations[0]?.startsWith("Bearer ")).toBe(true);
+  });
+
+  test("falls back to environment credentials when a stored token cannot refresh", async () => {
+    const root = `.cache/tests/cli-refresh-fallback-${crypto.randomUUID()}`;
+    roots.push(root);
+    const profiles = createCliProfileStore({
+      appDirectoryName: "state",
+      home: root,
+    });
+    await profiles.credentials("work").write(expiredCredentials("https://stored.example.test"));
+    const requests: Array<{ url: string; authorization: string | null }> = [];
+    const cli = createWebAppCli({
+      appName: "Test App",
+      commandName: "test-app",
+      envPrefix: "TEST_REFRESH_FALLBACK",
+      version: "1.0.0",
+      profileStore: profiles,
+      environment: {
+        TEST_REFRESH_FALLBACK_BASE_URL: "https://env.example.test",
+        TEST_REFRESH_FALLBACK_API_KEY: "env-key",
+      },
+      stdin: emptyInput(),
+      fetchFn: (async (request: string | URL | Request, init?: RequestInit) => {
+        const url = String(request);
+        requests.push({
+          url,
+          authorization: new Headers(init?.headers).get("authorization"),
+        });
+        if (url.endsWith("/api/auth/token")) {
+          return Response.json({ error: "invalid_grant" }, { status: 401 });
+        }
+        return Response.json({
+          authenticated: true,
+          authKind: "api-key",
+        });
+      }) as typeof fetch,
+    });
+
+    const status = await cli.execute(["--profile", "work", "status"]);
+
+    expect(status.exitCode).toBe(0);
+    expect(requests.map((request) => request.url)).toEqual([
+      "https://stored.example.test/api/auth/token",
+      "https://env.example.test/api/auth/status",
+    ]);
+    expect(requests.at(-1)?.authorization?.startsWith("Bearer ")).toBe(true);
   });
 });

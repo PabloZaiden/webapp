@@ -7,11 +7,24 @@ import {
 } from "@pablozaiden/webapp/server";
 
 const dataDirs: string[] = [];
+const originalEnvironment = new Map<string, string | undefined>();
 const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
 
 afterEach(() => {
-  for (const dataDir of dataDirs.splice(0)) {
-    rmSync(dataDir, { recursive: true, force: true });
+  const directories = dataDirs.splice(0);
+  try {
+    for (const dataDir of directories) {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  } finally {
+    for (const [name, value] of originalEnvironment) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+    originalEnvironment.clear();
   }
 });
 
@@ -21,6 +34,11 @@ function lifecycleApp(
 ) {
   const dataDir = `.cache/tests/${envPrefix.toLowerCase()}-${crypto.randomUUID()}`;
   dataDirs.push(dataDir);
+  for (const name of [`${envPrefix}_HOST`, `${envPrefix}_PORT`]) {
+    if (!originalEnvironment.has(name)) {
+      originalEnvironment.set(name, process.env[name]);
+    }
+  }
   process.env[`${envPrefix}_HOST`] = "127.0.0.1";
   process.env[`${envPrefix}_PORT`] = "0";
   return createWebAppServer({

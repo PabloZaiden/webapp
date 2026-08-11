@@ -44,11 +44,13 @@ export async function resolveCliAuth(input: ResolveCliAuthOptions): Promise<Reso
       fetchFn: input.fetchFn,
       now: input.now,
     });
-    return {
-      source: "device",
-      headers: refreshed ? getAuthorizedHeaders(refreshed, headers) : headers,
-      baseUrl: (refreshed ?? stored).baseUrl,
-    };
+    if (refreshed) {
+      return {
+        source: "device",
+        headers: getAuthorizedHeaders(refreshed, headers),
+        baseUrl: refreshed.baseUrl,
+      };
+    }
   }
   if (input.envPrefix) {
     const environmentAuth = resolveEnvironmentApiKeyAuth({
