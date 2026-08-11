@@ -54,6 +54,32 @@ default; pass `baseUrl` only to intentionally override that server. Without
 stored credentials, the environment API-key rules below determine the request
 URL.
 
+## Server logs command
+
+The default `runFromCli()` implementation exposes `logs` for retrieving the
+admin-only in-memory server-log snapshot:
+
+```bash
+export MY_APP_BASE_URL=https://app.example.test
+export MY_APP_API_KEY='admin-key-from-settings'
+my-app logs
+```
+
+The command sends `GET /api/server/logs` and prints the endpoint response body.
+Use `--base-url` to override the configured URL while retaining the
+`${PREFIX}_API_KEY` credential:
+
+```bash
+my-app logs --base-url https://other-app.example.test
+```
+
+Without a remote base URL, the command falls back to the app's configured
+public URL or local host and port. The API key must belong to an administrator;
+the complete environment pair or `--base-url` plus `${PREFIX}_API_KEY` is still
+required for authenticated requests.
+the endpoint still returns `{ enabled: false, logs: [] }` when in-memory
+capture is disabled.
+
 ## Stateless API-key authentication
 
 An app that passes its validated `envPrefix` to `runApiCliCommand` can make

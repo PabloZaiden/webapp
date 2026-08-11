@@ -1,5 +1,6 @@
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import { createLogger } from "./logger";
+import { runServerLogsCliCommand } from "../cli/server-logs-command";
 import type { RealtimeBus } from "./realtime/bus";
 import type { WebAppWebSocketData, WebAppServerConfig } from "./server-types";
 import type { RuntimeConfig } from "./runtime-config";
@@ -20,6 +21,14 @@ export interface ServerLifecycleDependencies<TEvent = unknown> {
 }
 
 const log = createLogger("webapp:server");
+
+function defaultCliBaseUrl(config: Pick<RuntimeConfig, "host" | "port" | "publicBaseUrl">): string {
+  if (config.publicBaseUrl) {
+    return config.publicBaseUrl;
+  }
+  const host = config.host.startsWith("[") || !config.host.includes(":") ? config.host : `[${config.host}]`;
+  return `http://${host}:${String(config.port)}`;
+}
 
 export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLifecycleDependencies<TEvent>) {
   const {
@@ -132,6 +141,20 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     }
     if (command === "config") {
       console.log(JSON.stringify(safeRuntimeConfig(config), null, 2));
+      return;
+    }
+    if (command === "logs") {
+      const result = await runServerLogsCliCommand({
+        envPrefix: config.envPrefix,
+        args: argv.slice(1),
+        fallbackBaseUrl: defaultCliBaseUrl(config),
+      });
+      if (result.output !== undefined) {
+        console.log(result.output);
+      }
+      if (result.exitCode !== 0) {
+        throw new Error(result.error ?? "Unable to retrieve server logs");
+      }
       return;
     }
     throw new Error(`Unknown command: ${command}`);

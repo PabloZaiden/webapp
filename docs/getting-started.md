@@ -100,6 +100,7 @@ Apps should stay one app and one binary. Use subcommands for different modes:
 ```bash
 my-app serve
 my-app version
+my-app logs
 my-app api items
 my-app notify --message "optional app-owned command"
 ```

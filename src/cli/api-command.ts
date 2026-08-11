@@ -13,6 +13,8 @@ export interface ApiCliCommandOptions {
   args: string[];
   mode?: "api" | "schema";
   baseUrl?: string;
+  fallbackBaseUrl?: string;
+  responseFormat?: "envelope" | "body";
   credentials?: ApiCliCredentialsStore;
   envPrefix?: string;
   environment?: CliEnvironment;
@@ -121,7 +123,7 @@ export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<Cli
   }
   const payload = readOption(input.args, ["--payload", "--data", "-d"]);
   const auth = await resolveAuth(input);
-  const baseUrl = (input.baseUrl ?? auth.baseUrl ?? "http://localhost:3000").replace(/\/+$/, "");
+  const baseUrl = (input.baseUrl ?? auth.baseUrl ?? input.fallbackBaseUrl ?? "http://localhost:3000").replace(/\/+$/, "");
   const url = new URL(`${baseUrl}${match.path}`);
   const headers = auth.headers;
   let body: string | undefined;
@@ -149,8 +151,14 @@ export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<Cli
   } catch {
     parsed = text || null;
   }
+  const output = input.responseFormat === "body"
+    ? JSON.stringify(parsed, null, 2)
+    : JSON.stringify({
+      status: { code: response.status, ok: response.ok, text: response.statusText },
+      response: parsed,
+    }, null, 2);
   return {
     exitCode: response.ok ? 0 : 1,
-    output: JSON.stringify({ status: { code: response.status, ok: response.ok, text: response.statusText }, response: parsed }, null, 2),
+    output: output ?? "",
   };
 }
