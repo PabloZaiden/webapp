@@ -1,137 +1,127 @@
-# CLI helpers
+# Composable application CLI
 
-Apps built with the framework should be one app and one binary. The binary can expose subcommands such as `serve`, `version`, `update`, app-specific commands, and optional framework-backed commands like `auth`, `status`, `api` and `schema`.
-
-Use `@pablozaiden/webapp/cli` for small composable helpers, not a mandatory CLI framework:
+`createWebAppCli()` provides one lazy CLI for a one-app/one-binary deployment.
+It owns top-level parsing, global `--profile`, generated help and usage,
+dispatch, output, and exit codes. Server construction remains application-owned
+and only occurs when the application's `start` callback chooses to construct it.
 
 ```ts
-import { dispatchCliCommand, printCliResult } from "@pablozaiden/webapp/cli";
+import { createWebAppCli } from "@pablozaiden/webapp/cli";
+import { createRouteCatalog } from "@pablozaiden/webapp/server";
+import { createAppRuntime } from "./app";
 
-const result = await dispatchCliCommand({
-  args: Bun.argv.slice(2),
-  help: "Usage: my-app <serve|version|notify>",
-  defaultCommand: "serve",
+let runtime: ReturnType<typeof createAppRuntime> | undefined;
+const getRuntime = () => runtime ??= createAppRuntime();
+
+const cli = createWebAppCli({
+  appName: "My App",
+  commandName: "my-app",
+  envPrefix: "MY_APP",
+  version: "1.2.3",
+  realtimePath: "/api/ws",
+  start: async () => {
+    await getRuntime().app.start();
+  },
+  routeCatalog: () => createRouteCatalog(getRuntime().routes),
   commands: {
-    serve: async () => {
-      await app.start();
-      await new Promise(() => undefined);
-      return { exitCode: 0 };
+    notify: {
+      description: "Send an application notification.",
+      usage: "notify --message TEXT",
+      handler: async ({ args, profile }) => {
+        return { exitCode: 0, output: `${profile}: ${args.join(" ")}` };
+      },
     },
-    version: () => ({ exitCode: 0, output: version }),
-    notify: (args) => runNotifyCommand(args),
   },
 });
 
-process.exitCode = printCliResult(result);
+process.exitCode = await cli.run();
 ```
 
-Device-auth and environment API-key helpers can be composed into apps that
-need authenticated CLI calls. Public-token commands, such as webhook
-notification commands, can stay app-owned and do not need framework auth.
+The built-in commands are:
 
-Route metadata can power generic API commands:
+- `help`
+- `serve`
+- `version`
+- `config`
+- `logs`
+- `api`
+- `schema`
+- `auth`
+- `status`
+- `profile`
+- `ws`
 
-```ts
-import { runApiCliCommand } from "@pablozaiden/webapp/cli";
-import { createRouteCatalog } from "@pablozaiden/webapp/server";
+Custom commands use the same typed command map. A custom command may replace a
+built-in only by setting `override: true`; accidental name collisions fail
+during CLI creation.
 
-const catalog = createRouteCatalog(routes);
-const result = await runApiCliCommand({
-  catalog,
-  args,
-  envPrefix: "MY_APP",
-  credentials,
-  // Optional explicit override; stored credentials provide the default URL.
-  // baseUrl: "https://app.example.test",
-});
-```
+## Profiles and authentication
 
-`runApiCliCommand` can list endpoints, print schema metadata, call endpoints
-with `--method` and `--payload`, attach bearer credentials, and refresh stored
-device credentials once on `401`.
-When stored device credentials are available, their `baseUrl` is used by
-default; pass `baseUrl` only to intentionally override that server. Without
-stored credentials, the environment API-key rules below determine the request
-URL.
-
-## Server logs command
-
-The default `runFromCli()` implementation exposes `logs` for retrieving the
-admin-only in-memory server-log snapshot:
+The CLI stores device bearer credentials in named profiles. It does not persist
+cookies or arbitrary headers. `--profile NAME` selects a profile for one
+command; `profile use NAME` changes the saved default.
 
 ```bash
-export MY_APP_BASE_URL=https://app.example.test
-export MY_APP_API_KEY='admin-key-from-settings'
-my-app logs
+my-app --profile production auth --base-url https://app.example.test
+my-app --profile production status
+my-app profile list
+my-app profile use production
+my-app profile remove production
 ```
 
-The command sends `GET /api/server/logs` and prints the endpoint response body.
-It only uses the authenticated instance configured by the CLI; arbitrary target
-URLs are not accepted. To use a stored device session, pass the same
-credential store used by the app's login command:
+`auth` performs the framework device-authorization flow and writes access and
+refresh credentials only to the selected profile. Profile files reuse
+`createJsonFileStore()` and its locking and permissions behavior.
+
+When a selected profile has no credentials, authenticated commands can use the
+exact `${PREFIX}_BASE_URL` and `${PREFIX}_API_KEY` environment pair. A partial
+pair is ignored. Environment API keys remain in memory and are never written to
+profile storage or printed.
+
+`status` calls `GET /api/auth/status` and succeeds only when the server confirms
+that the selected profile or environment credentials are authenticated.
+
+## API, schema, and logs
+
+Pass a route catalog array or lazy catalog callback to expose application
+routes through `api` and `schema`:
 
 ```ts
-import { createDeviceCredentialsStore } from "@pablozaiden/webapp/cli";
-
-const credentials = createDeviceCredentialsStore({ appDirectoryName: "my-app" });
-
-createWebAppServer({
+createWebAppCli({
   // ...
-  cli: { credentials },
+  routeCatalog: () => createRouteCatalog(routes),
 });
 ```
 
-The API key fallback uses the complete `${PREFIX}_BASE_URL` and
-`${PREFIX}_API_KEY` pair. The credential must belong to an administrator, and
-the endpoint still returns `{ enabled: false, logs: [] }` when in-memory capture
-is disabled.
+`api` lists endpoints, calls a selected route with `--method` and `--payload`,
+and refreshes device credentials once after a `401`. `schema` prints route and
+schema metadata. `logs` reuses the same selected profile/environment
+authentication and requests `GET /api/server/logs`.
 
-## Stateless API-key authentication
+## Raw realtime WebSocket command
 
-An app that passes its validated `envPrefix` to `runApiCliCommand` can make
-non-interactive authenticated requests with an API key:
+`ws` connects to the configured realtime path, normally `/api/ws`, using the
+selected profile or environment API-key authentication:
 
 ```bash
-export MY_APP_BASE_URL=https://app.example.test
-export MY_APP_API_KEY='key-from-settings'
-my-app api items
+printf '%s\n' '{"type":"ping"}' | my-app --profile production ws
 ```
 
-The helper derives exactly `${PREFIX}_BASE_URL` and `${PREFIX}_API_KEY` from
-the supplied prefix. When no stored device credentials are available, an
-explicit `baseUrl` plus `${PREFIX}_API_KEY` takes precedence; otherwise the
-complete environment pair supplies the request URL and bearer key. Values are
-trimmed, and the base URL must use `http` or `https`; trailing slashes are
-removed.
+The command accepts JSON lines from stdin, sends each line as an unchanged text
+frame, and writes received text frames unchanged to stdout. It does not accept
+positional base URLs and does not interpret application event types. EOF,
+`SIGINT`, and `SIGTERM` close normally; invalid input, binary frames, connection
+errors, and abnormal closes produce a non-zero result.
 
-If either environment variable is missing or empty, the pair is ignored and
-the request remains anonymous, using an explicit `baseUrl` or
-`http://localhost:3000`. A partial pair is not an error. Stored device
-credentials remain highest priority and continue to use their existing refresh
-and `401` retry behavior.
+## Credential store locking
 
-The environment API-key path does not run interactive login or device
-authorization, refresh tokens, write credential files, or retry rejected
-requests. The key is supplied by the environment and kept in memory for the
-request; it is not printed or persisted by the CLI. The server remains
-responsible for API-key validity, expiry, and route scopes.
-
-## Concurrent credential refreshes
-
-`createJsonFileStore()` and `createDeviceCredentialsStore()` coordinate refreshes for
-the same credential path with an adjacent lock file. When credentials are expired,
-`refreshDeviceCredentials()` acquires that lock before calling the token endpoint,
-reads the store again, and reuses credentials another process may have refreshed.
-The write of newly refreshed credentials happens while the lock is held.
-
-The `JsonFileStore<T>.withLock()` method is optional so existing custom stores that
-only implement `path`, `read`, `write` and `clear` remain source-compatible. A
-custom store must provide `read` and `withLock` to receive the same cross-process
-refresh guarantee; otherwise the legacy refresh path is retained.
+`createJsonFileStore()` coordinates access with an adjacent lock file.
+`createDeviceCredentialsStore()` uses it for refresh-token writes. Lock
+metadata contains only process ownership information, never tokens.
 
 ```ts
 await store.withLock(async () => {
-  // Work serialized for this store path.
+  // Serialized work for this store path.
 }, {
   timeoutMs: 30_000,
   staleAfterMs: 300_000,
@@ -139,10 +129,5 @@ await store.withLock(async () => {
 });
 ```
 
-The defaults are a 30-second acquisition timeout, a five-minute stale threshold
-and a 25-millisecond polling interval. A timeout throws `JsonFileStoreLockError`
-with `code === "timeout"`. Release failures use `code === "release"`. Lock
-metadata contains only ownership information (PID, timestamp and nonce), never
-access or refresh tokens. On platforms and filesystems that support POSIX
-permissions, the credentials directory and file are set to `0700` and `0600`;
-permission changes are best-effort elsewhere.
+On filesystems that support POSIX permissions, credential directories and
+files use `0700` and `0600`; permission changes are best-effort elsewhere.

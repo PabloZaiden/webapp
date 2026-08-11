@@ -1,3 +1,3 @@
-import { app } from "./index";
+import { createNotesTodoCli } from "./index";
 
-await app.runFromCli();
+process.exitCode = await createNotesTodoCli().run();

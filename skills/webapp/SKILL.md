@@ -160,16 +160,30 @@ If any of these paths appear in the repository, ensure they are ignored and remo
 ## Minimum server shape
 
 ```ts
-import { createWebAppServer, defineRoutes } from "@pablozaiden/webapp/server";
+import { createWebAppCli } from "@pablozaiden/webapp/cli";
+import { createRouteCatalog, createWebAppServer, defineRoutes } from "@pablozaiden/webapp/server";
 
-const app = createWebAppServer({
+const routes = defineRoutes({});
+let app: ReturnType<typeof createWebAppServer> | undefined;
+const getApp = () => app ??= createWebAppServer({
   appName: "Example",
   envPrefix: "EXAMPLE",
   auth: { passkeys: true, apiKeys: true, deviceAuth: true },
-  routes: defineRoutes({}),
+  routes,
 });
 
-await app.runFromCli();
+const cli = createWebAppCli({
+  appName: "Example",
+  commandName: "example",
+  envPrefix: "EXAMPLE",
+  version: "1.0.0",
+  routeCatalog: createRouteCatalog(routes),
+  start: async () => {
+    await getApp().start();
+  },
+});
+
+process.exitCode = await cli.run();
 ```
 
 ## Minimum UI shape

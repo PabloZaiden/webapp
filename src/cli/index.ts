@@ -2,5 +2,8 @@ export * from "./runtime";
 export * from "./credentials";
 export * from "./device-auth";
 export * from "./environment-auth";
+export * from "./profiles";
 export * from "./api-command";
 export * from "./server-logs-command";
+export * from "./websocket-command";
+export * from "./create-web-app-cli";

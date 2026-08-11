@@ -1,7 +1,15 @@
 import { z } from "zod";
 import { findRouteCatalogEntry, type RouteCatalogEntry } from "../server/route-catalog";
-import { getAuthorizedHeaders, refreshDeviceCredentials, type DeviceCredentialsStore, type StoredDeviceCredentials } from "./device-auth";
-import { resolveEnvironmentApiKeyAuth, type CliEnvironment } from "./environment-auth";
+import {
+  forceRefreshCliAuth,
+  resolveCliAuth,
+  type CliAuthSource,
+} from "./auth-resolution";
+import type {
+  DeviceCredentialsStore,
+  StoredDeviceCredentials,
+} from "./device-auth";
+import type { CliEnvironment } from "./environment-auth";
 import { readOption, type CliCommandResult } from "./runtime";
 
 export type ApiCliCredentialsStore = DeviceCredentialsStore & {
@@ -57,51 +65,23 @@ function endpointArg(args: string[]): string | undefined {
   return args.find((arg) => !arg.startsWith("--"));
 }
 
-type ApiCliAuthSource = "device" | "environment" | "anonymous";
-
 interface ResolvedApiCliAuth {
   headers: Headers;
-  source: ApiCliAuthSource;
+  source: CliAuthSource;
   baseUrl?: string;
 }
 
-function apiKeyHeaders(apiKey: string, headers: HeadersInit): Headers {
-  const result = new Headers(headers);
-  result.set("authorization", `Bearer ${apiKey}`);
-  return result;
-}
-
 async function resolveAuth(input: ApiCliCommandOptions): Promise<ResolvedApiCliAuth> {
-  const headers = new Headers({ accept: "application/json" });
-  const stored = await input.credentials?.read();
-  if (stored) {
-    const refreshed = await refreshDeviceCredentials({
-      credentials: stored,
-      store: input.credentials,
-      fetchFn: input.fetchFn,
-      now: input.now,
-    });
-    return {
-      headers: refreshed ? getAuthorizedHeaders(refreshed, headers) : headers,
-      source: "device",
-      baseUrl: (refreshed ?? stored).baseUrl,
-    };
-  }
-  if (input.envPrefix) {
-    const environmentAuth = resolveEnvironmentApiKeyAuth({
-      envPrefix: input.envPrefix,
-      explicitBaseUrl: input.baseUrl,
-      environment: input.environment,
-    });
-    if (environmentAuth) {
-      return {
-        headers: apiKeyHeaders(environmentAuth.apiKey, headers),
-        source: "environment",
-        baseUrl: environmentAuth.baseUrl,
-      };
-    }
-  }
-  return { headers, source: "anonymous" };
+  const auth = await resolveCliAuth({
+    credentials: input.credentials,
+    envPrefix: input.envPrefix,
+    environment: input.environment,
+    explicitBaseUrl: input.baseUrl,
+    fetchFn: input.fetchFn,
+    now: input.now,
+  });
+  auth.headers.set("accept", "application/json");
+  return auth;
 }
 
 export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<CliCommandResult> {
@@ -134,12 +114,13 @@ export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<Cli
   const send = () => (input.fetchFn ?? fetch)(url, { method, headers, body });
   let response = await send();
   if (response.status === 401 && auth.source === "device" && input.credentials) {
-    const stored = await input.credentials.read();
-    if (stored) {
-      const refreshed = await refreshDeviceCredentials({ credentials: { ...stored, accessTokenExpiresAt: new Date(0).toISOString() }, store: input.credentials, fetchFn: input.fetchFn, now: input.now });
-      if (refreshed) {
-        headers.set("authorization", `${refreshed.tokenType} ${refreshed.accessToken}`);
-      }
+    const refreshed = await forceRefreshCliAuth({
+      credentials: input.credentials,
+      fetchFn: input.fetchFn,
+      now: input.now,
+    });
+    if (refreshed) {
+      headers.set("authorization", refreshed.headers.get("authorization")!);
       response = await send();
     }
   }

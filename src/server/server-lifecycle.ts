@@ -1,18 +1,18 @@
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import { createLogger } from "./logger";
-import { runServerLogsCliCommand } from "../cli/server-logs-command";
-import type { ApiCliCredentialsStore } from "../cli/api-command";
 import type { RealtimeBus } from "./realtime/bus";
-import type { WebAppWebSocketData, WebAppServerConfig } from "./server-types";
+import type {
+  WebAppServerLifecycleHooks,
+  WebAppWebSocketData,
+  WebAppServerConfig,
+} from "./server-types";
 import type { RuntimeConfig } from "./runtime-config";
-import { safeRuntimeConfig } from "./runtime-config";
 import type { WebDocument, WebDocumentProvider } from "./web-document";
 
 export interface ServerLifecycleDependencies<TEvent = unknown> {
   config: RuntimeConfig;
-  version: string;
   deviceAuthEnabled: boolean;
-  cliCredentials?: ApiCliCredentialsStore;
+  hooks?: WebAppServerLifecycleHooks;
   idleTimeout: number;
   publicRoutes: Readonly<Record<string, unknown>>;
   appWebsockets: NonNullable<WebAppServerConfig["websockets"]>;
@@ -27,9 +27,8 @@ const log = createLogger("webapp:server");
 export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLifecycleDependencies<TEvent>) {
   const {
     config,
-    version,
     deviceAuthEnabled,
-    cliCredentials,
+    hooks,
     idleTimeout,
     publicRoutes,
     appWebsockets,
@@ -38,6 +37,8 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     documentProvider,
     handleRequest,
   } = dependencies;
+  let activeServer: Server<WebAppWebSocketData> | undefined;
+  let stopPromise: Promise<void> | undefined;
 
   function customHandler(socket: ServerWebSocket<WebAppWebSocketData>): Partial<WebSocketHandler<WebAppWebSocketData>> | undefined {
     const handlerName = socket.data.webappSocketHandler;
@@ -45,6 +46,10 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
   }
 
   async function start(): Promise<Server<WebAppWebSocketData>> {
+    if (activeServer) {
+      throw new Error("The web app server is already running");
+    }
+    await hooks?.beforeStart?.();
     const webDocument = await ensureWebDocument();
     const dynamicHandler = (req: Request, server: Server<WebAppWebSocketData>) => handleRequest(req, server);
     const publicRouteHandlers = Object.fromEntries([
@@ -115,47 +120,69 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
       },
       development: config.development,
     });
-    const stop = server.stop.bind(server);
+    const originalStop = server.stop.bind(server);
+    activeServer = server;
     server.stop = ((closeActiveConnections?: boolean) => {
-      stop(closeActiveConnections);
-      documentProvider.dispose(webDocument);
+      if (stopPromise) return stopPromise;
+      stopPromise = (async () => {
+        const errors: unknown[] = [];
+        try {
+          if (hooks?.beforeStop) {
+            try {
+              await hooks.beforeStop(server);
+            } catch (error) {
+              errors.push(error);
+            }
+          }
+          try {
+            await originalStop(closeActiveConnections);
+          } catch (error) {
+            errors.push(error);
+          }
+          try {
+            documentProvider.dispose(webDocument);
+          } catch (error) {
+            errors.push(error);
+          }
+          if (hooks?.afterStop) {
+            try {
+              await hooks.afterStop(server);
+            } catch (error) {
+              errors.push(error);
+            }
+          }
+        } finally {
+          activeServer = undefined;
+          stopPromise = undefined;
+        }
+        if (errors.length === 1) throw errors[0];
+        if (errors.length > 1) {
+          throw new AggregateError(errors, "Web app server cleanup failed");
+        }
+      })();
+      return stopPromise;
     }) as typeof server.stop;
     log.info(`${config.appName} server running`, { url: String(server.url) });
-    return server;
+    try {
+      await hooks?.afterStart?.(server);
+      return server;
+    } catch (error) {
+      try {
+        await server.stop(true);
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          "The afterStart hook failed and server cleanup also failed",
+        );
+      }
+      throw error;
+    }
   }
 
-  async function runFromCli(argv = Bun.argv.slice(2)): Promise<void> {
-    const command = argv[0] ?? "serve";
-    if (command === "serve") {
-      await start();
-      return await new Promise(() => undefined);
-    }
-    if (command === "version") {
-      console.log(version);
-      return;
-    }
-    if (command === "config") {
-      console.log(JSON.stringify(safeRuntimeConfig(config), null, 2));
-      return;
-    }
-    if (command === "logs") {
-      if (argv.length > 1) {
-        throw new Error("The logs command does not accept arguments; use the authenticated CLI instance");
-      }
-      const result = await runServerLogsCliCommand({
-        envPrefix: config.envPrefix,
-        credentials: cliCredentials,
-      });
-      if (result.output !== undefined) {
-        console.log(result.output);
-      }
-      if (result.exitCode !== 0) {
-        throw new Error(result.error ?? "Unable to retrieve server logs");
-      }
-      return;
-    }
-    throw new Error(`Unknown command: ${command}`);
+  async function stop(closeActiveConnections?: boolean): Promise<void> {
+    if (!activeServer) return;
+    await activeServer.stop(closeActiveConnections);
   }
 
-  return { start, runFromCli };
+  return { start, stop };
 }

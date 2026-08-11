@@ -140,6 +140,41 @@ the constructor inputs. Do not mutate `app.config` after construction to
 replace constructor options; omit `runtimeConfig` when the framework should read
 the environment itself.
 
+## Server lifecycle hooks
+
+Applications can coordinate workers and other resources around the actual Bun
+server with async lifecycle hooks:
+
+```ts
+const app = createWebAppServer({
+  appName: "My App",
+  envPrefix: "MY_APP",
+  routes,
+  lifecycle: {
+    beforeStart: async () => {
+      await prepareWorkers();
+    },
+    afterStart: async (server) => {
+      await startWorkers(server.url);
+    },
+    beforeStop: async () => {
+      await drainWorkers();
+    },
+    afterStop: async () => {
+      await closeWorkers();
+    },
+  },
+});
+
+await app.start();
+await app.stop(true);
+```
+
+Start hooks run in declaration order around `Bun.serve()`. Stop hooks run
+deterministically even when a stop hook fails, and their failures are surfaced.
+If `afterStart` fails, WebApp stops the newly started Bun server, runs the stop
+hooks, disposes generated document resources, and rethrows the hook failure.
+
 ## Server logging
 
 WebApp exposes one server-side `tslog` service for the framework and

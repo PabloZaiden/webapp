@@ -5,6 +5,9 @@ import favicon from "./favicon.svg";
 
 type NotesTodoEvent = ResourceRealtimeEvent;
 const log = createLogger("notes-todo");
+export const notesTodoVersion = typeof WEBAPP_VERSION === "string"
+  ? WEBAPP_VERSION
+  : "0.0.0-development";
 
 function nowIso() {
   return new Date().toISOString();
@@ -187,10 +190,19 @@ export function createNotesTodoApp(options: {
   store?: WebAppStore;
   appStore?: NotesTodoStore;
 } = {}) {
+  return createNotesTodoRuntime(options).app;
+}
+
+export function createNotesTodoRuntime(options: {
+  dataDir?: string;
+  store?: WebAppStore;
+  appStore?: NotesTodoStore;
+} = {}) {
   const dataDir = options.dataDir ?? process.env["NOTES_TODO_DATA_DIR"] ?? "./data";
   const store = options.store ?? sqliteWebAppStore({ dataDir });
   const appStore = options.appStore ?? createNotesTodoStore({ dataDir });
-  return createWebAppServer<NotesTodoEvent>({
+  const routes = createNotesTodoRoutes(store, appStore);
+  const app = createWebAppServer<NotesTodoEvent>({
     appName: "Notes TODO",
     envPrefix: "NOTES_TODO",
     web: {
@@ -202,11 +214,12 @@ export function createNotesTodoApp(options: {
         ],
       },
     },
-    version: typeof WEBAPP_VERSION === "string" ? WEBAPP_VERSION : "0.0.0-development",
+    version: notesTodoVersion,
     store,
     auth: { passkeys: true, apiKeys: true, deviceAuth: true },
     realtime: { path: "/api/ws" },
     publicRoutes,
-    routes: createNotesTodoRoutes(store, appStore),
+    routes,
   });
+  return { app, routes };
 }

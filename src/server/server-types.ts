@@ -1,6 +1,5 @@
 import type { Server, WebSocketHandler } from "bun";
 import type { LogLevelName, WebAppConfigResponse } from "../contracts";
-import type { ApiCliCredentialsStore } from "../cli/api-command";
 import type { RealtimeBus, WebSocketData } from "./realtime/bus";
 import type { WebAppStore } from "./auth/store";
 import type { RuntimeConfig } from "./runtime-config";
@@ -34,6 +33,13 @@ export interface WebAppServerOptions {
   idleTimeout?: number;
 }
 
+export interface WebAppServerLifecycleHooks {
+  beforeStart?: () => void | Promise<void>;
+  afterStart?: (server: Server<WebAppWebSocketData>) => void | Promise<void>;
+  beforeStop?: (server: Server<WebAppWebSocketData>) => void | Promise<void>;
+  afterStop?: (server: Server<WebAppWebSocketData>) => void | Promise<void>;
+}
+
 export interface WebAppServerConfig<TEvent = unknown> {
   appName: string;
   envPrefix: string;
@@ -53,9 +59,7 @@ export interface WebAppServerConfig<TEvent = unknown> {
   realtime?: {
     path?: string;
   };
-  cli?: {
-    credentials?: ApiCliCredentialsStore;
-  };
+  lifecycle?: WebAppServerLifecycleHooks;
   logLevel?: {
     onChange?: (level: LogLevelName) => void;
   };
@@ -68,7 +72,7 @@ export interface WebAppServer<TEvent = unknown> {
   realtime: RealtimeBus<TEvent>;
   handleRequest(req: Request, server?: Server<WebSocketData>): Promise<Response | undefined>;
   start(): Promise<Server<WebSocketData>>;
-  runFromCli(argv?: string[]): Promise<void>;
+  stop(closeActiveConnections?: boolean): Promise<void>;
 }
 
 export interface WebAppDocumentConfig {

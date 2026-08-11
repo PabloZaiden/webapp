@@ -45,6 +45,7 @@ export type {
   WebAppPwaConfig,
   WebAppServer,
   WebAppServerConfig,
+  WebAppServerLifecycleHooks,
   WebAppServerOptions,
   WebAppWebSocketData,
 } from "./server-types";
@@ -145,9 +146,8 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
 
   const lifecycle = createServerLifecycle({
     config,
-    version,
     deviceAuthEnabled,
-    cliCredentials: input.cli?.credentials,
+    hooks: input.lifecycle,
     idleTimeout,
     publicRoutes,
     appWebsockets,
