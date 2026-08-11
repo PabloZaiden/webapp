@@ -25,7 +25,7 @@ Each application package must declare `react` and `react-dom`; they are peer dep
 | `@pablozaiden/webapp/server` | `createWebAppServer`, route helpers, responses, request-origin helpers, SQLite store |
 | `@pablozaiden/webapp/web` | `WebAppRoot`, `renderWebApp`, `useToast`, sidebar types, UI controls, realtime hooks |
 | `@pablozaiden/webapp/contracts` | Shared auth/config/device/API-key types |
-| `@pablozaiden/webapp/cli` | Lazy `createWebAppCli`, profiles, device/environment auth, API/schema/logs and raw WebSocket commands |
+| `@pablozaiden/webapp/cli` | Lazy `createWebAppCli`, profiles, device/environment auth, API/schema/logs/update and raw WebSocket commands |
 | `@pablozaiden/webapp/build` | Bun single-binary compile helper |
 
 ## Motion primitives

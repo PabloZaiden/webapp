@@ -1,3 +1,4 @@
+import type { UpdaterConfig } from "@pablozaiden/installer";
 import type { RouteCatalogEntry } from "../server/route-catalog";
 import { createBuiltInCommands } from "./built-in-commands";
 import type { CliEnvironment } from "./environment-auth";
@@ -65,6 +66,7 @@ export interface CreateWebAppCliOptions<TAppContext = undefined> {
   signals?: CliSignalSource;
   start?: () => unknown | Promise<unknown>;
   config?: () => unknown | Promise<unknown>;
+  update?: UpdaterConfig;
   commands?: WebAppCliCommandMap<TAppContext>;
   appContext?: TAppContext;
   clientId?: string;
@@ -183,6 +185,7 @@ export function createWebAppCli<TAppContext = undefined>(
     fetchFn,
     stdin,
     stdout,
+    stderr,
     realtimePath,
     routeCatalog,
     help: (command) => help(command),

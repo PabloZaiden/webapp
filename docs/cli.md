@@ -43,6 +43,7 @@ The built-in commands are:
 - `serve`
 - `version`
 - `config`
+- `update`
 - `logs`
 - `api`
 - `schema`
@@ -97,6 +98,30 @@ createWebAppCli({
 and refreshes device credentials once after a `401`. `schema` prints route and
 schema metadata. `logs` reuses the same selected profile/environment
 authentication and requests `GET /api/server/logs`.
+
+## Updating installed binaries
+
+Configure the framework update command with the application release metadata:
+
+```ts
+createWebAppCli({
+  // ...
+  update: {
+    repository: "my-org/my-app",
+    binaryName: "my-app",
+    currentVersion: "1.2.3",
+    productName: "My App",
+    checksum: { required: true },
+  },
+});
+```
+
+`update --check` checks the latest release and `update --version VERSION`
+installs a specific release. The command delegates release lookup, platform
+selection, checksum verification, staging, replacement, rollback, and
+companion-binary handling to `@pablozaiden/installer`. Applications only
+provide the installer configuration; they do not implement update providers.
+Updating requires an installed release binary, not a Bun source invocation.
 
 ## Raw realtime WebSocket command
 
