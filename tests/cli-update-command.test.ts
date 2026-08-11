@@ -91,6 +91,14 @@ describe("generic update CLI command", () => {
   test("rejects incompatible or unknown update options", async () => {
     const { cli } = createUpdateCli();
 
+    await expect(cli.execute(["update", "--check", "--check"])).resolves.toEqual({
+      exitCode: 1,
+      error: "--check may only be specified once",
+    });
+    await expect(cli.execute(["update", "--version", "1.1.0", "--version", "1.2.0"])).resolves.toEqual({
+      exitCode: 1,
+      error: "--version may only be specified once",
+    });
     await expect(cli.execute(["update", "--check", "--version", "1.1.0"])).resolves.toEqual({
       exitCode: 1,
       error: "Cannot combine --check with --version",
@@ -102,7 +110,6 @@ describe("generic update CLI command", () => {
   });
 
   test("reports when an application has no update configuration", async () => {
-    const { cli } = createUpdateCli("1.0.0", undefined);
     const unconfigured = createWebAppCli({
       appName: "Demo",
       commandName: "demo",
@@ -112,8 +119,8 @@ describe("generic update CLI command", () => {
 
     expect(await unconfigured.execute(["update"])).toEqual({
       exitCode: 1,
-      error: "No application update configuration is configured",
+      error: "Update is not configured for this application",
     });
-    expect(cli.commands["update"]).toBeDefined();
+    expect(unconfigured.commands["update"]).toBeDefined();
   });
 });

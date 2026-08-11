@@ -26,14 +26,14 @@ function parseUpdateArgs(
     const arg = args[index]!;
     if (arg === "--check") {
       if (checkOnly) {
-        return { exitCode: 1, error: "update may only specify --check once" };
+        return { exitCode: 1, error: "--check may only be specified once" };
       }
       checkOnly = true;
       continue;
     }
     if (arg === "--version") {
       if (version !== undefined) {
-        return { exitCode: 1, error: "update may only specify --version once" };
+        return { exitCode: 1, error: "--version may only be specified once" };
       }
       const value = args[index + 1];
       if (!value || value.startsWith("-")) {
@@ -45,7 +45,7 @@ function parseUpdateArgs(
     }
     if (arg.startsWith("--version=")) {
       if (version !== undefined) {
-        return { exitCode: 1, error: "update may only specify --version once" };
+        return { exitCode: 1, error: "--version may only be specified once" };
       }
       const value = arg.slice("--version=".length);
       if (!value) {
@@ -75,7 +75,7 @@ export function updateCommand<TAppContext>(
       if (!dependencies.input.update) {
         return {
           exitCode: 1,
-          error: "No application update configuration is configured",
+          error: "Update is not configured for this application",
         };
       }
 
