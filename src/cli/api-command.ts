@@ -151,7 +151,7 @@ export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<Cli
     parsed = text || null;
   }
   const output = input.responseFormat === "body"
-    ? JSON.stringify(parsed, null, 2)
+    ? text
     : JSON.stringify({
       status: { code: response.status, ok: response.ok, text: response.statusText },
       response: parsed,
