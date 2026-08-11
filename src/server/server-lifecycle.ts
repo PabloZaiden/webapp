@@ -1,6 +1,7 @@
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import { createLogger } from "./logger";
 import { runServerLogsCliCommand } from "../cli/server-logs-command";
+import type { ApiCliCredentialsStore } from "../cli/api-command";
 import type { RealtimeBus } from "./realtime/bus";
 import type { WebAppWebSocketData, WebAppServerConfig } from "./server-types";
 import type { RuntimeConfig } from "./runtime-config";
@@ -11,6 +12,7 @@ export interface ServerLifecycleDependencies<TEvent = unknown> {
   config: RuntimeConfig;
   version: string;
   deviceAuthEnabled: boolean;
+  cliCredentials?: ApiCliCredentialsStore;
   idleTimeout: number;
   publicRoutes: Readonly<Record<string, unknown>>;
   appWebsockets: NonNullable<WebAppServerConfig["websockets"]>;
@@ -22,19 +24,12 @@ export interface ServerLifecycleDependencies<TEvent = unknown> {
 
 const log = createLogger("webapp:server");
 
-function defaultCliBaseUrl(config: Pick<RuntimeConfig, "host" | "port" | "publicBaseUrl">): string {
-  if (config.publicBaseUrl) {
-    return config.publicBaseUrl;
-  }
-  const host = config.host.startsWith("[") || !config.host.includes(":") ? config.host : `[${config.host}]`;
-  return `http://${host}:${String(config.port)}`;
-}
-
 export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLifecycleDependencies<TEvent>) {
   const {
     config,
     version,
     deviceAuthEnabled,
+    cliCredentials,
     idleTimeout,
     publicRoutes,
     appWebsockets,
@@ -144,10 +139,12 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
       return;
     }
     if (command === "logs") {
+      if (argv.length > 1) {
+        throw new Error("The logs command does not accept arguments; use the authenticated CLI instance");
+      }
       const result = await runServerLogsCliCommand({
         envPrefix: config.envPrefix,
-        args: argv.slice(1),
-        fallbackBaseUrl: defaultCliBaseUrl(config),
+        credentials: cliCredentials,
       });
       if (result.output !== undefined) {
         console.log(result.output);

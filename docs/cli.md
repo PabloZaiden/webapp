@@ -66,19 +66,25 @@ my-app logs
 ```
 
 The command sends `GET /api/server/logs` and prints the endpoint response body.
-Use `--base-url` to override the configured URL while retaining the
-`${PREFIX}_API_KEY` credential:
+It only uses the authenticated instance configured by the CLI; arbitrary target
+URLs are not accepted. To use a stored device session, pass the same
+credential store used by the app's login command:
 
-```bash
-my-app logs --base-url https://other-app.example.test
+```ts
+import { createDeviceCredentialsStore } from "@pablozaiden/webapp/cli";
+
+const credentials = createDeviceCredentialsStore({ appDirectoryName: "my-app" });
+
+createWebAppServer({
+  // ...
+  cli: { credentials },
+});
 ```
 
-Without a remote base URL, the command falls back to the app's configured
-public URL or local host and port. The API key must belong to an administrator;
-the complete environment pair or `--base-url` plus `${PREFIX}_API_KEY` is still
-required for authenticated requests.
-the endpoint still returns `{ enabled: false, logs: [] }` when in-memory
-capture is disabled.
+The API key fallback uses the complete `${PREFIX}_BASE_URL` and
+`${PREFIX}_API_KEY` pair. The credential must belong to an administrator, and
+the endpoint still returns `{ enabled: false, logs: [] }` when in-memory capture
+is disabled.
 
 ## Stateless API-key authentication
 

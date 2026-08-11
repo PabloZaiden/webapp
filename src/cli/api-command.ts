@@ -13,7 +13,6 @@ export interface ApiCliCommandOptions {
   args: string[];
   mode?: "api" | "schema";
   baseUrl?: string;
-  fallbackBaseUrl?: string;
   responseFormat?: "envelope" | "body";
   credentials?: ApiCliCredentialsStore;
   envPrefix?: string;
@@ -123,7 +122,7 @@ export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<Cli
   }
   const payload = readOption(input.args, ["--payload", "--data", "-d"]);
   const auth = await resolveAuth(input);
-  const baseUrl = (input.baseUrl ?? auth.baseUrl ?? input.fallbackBaseUrl ?? "http://localhost:3000").replace(/\/+$/, "");
+  const baseUrl = (input.baseUrl ?? auth.baseUrl ?? "http://localhost:3000").replace(/\/+$/, "");
   const url = new URL(`${baseUrl}${match.path}`);
   const headers = auth.headers;
   let body: string | undefined;

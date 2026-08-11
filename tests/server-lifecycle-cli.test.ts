@@ -1,27 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
+import type { StoredDeviceCredentials } from "@pablozaiden/webapp/cli";
 import { createWebAppServer, defineRoutes, sqliteWebAppStore } from "@pablozaiden/webapp/server";
 
-const envNames = ["TEST_LIFECYCLE_LOGS_BASE_URL", "TEST_LIFECYCLE_LOGS_API_KEY"] as const;
 const dataDirs: string[] = [];
-const previousEnv = new Map<string, string | undefined>();
-
-beforeEach(() => {
-  previousEnv.clear();
-  for (const name of envNames) {
-    previousEnv.set(name, process.env[name]);
-  }
-});
 
 afterEach(() => {
-  for (const name of envNames) {
-    const value = previousEnv.get(name);
-    if (value === undefined) {
-      delete process.env[name];
-    } else {
-      process.env[name] = value;
-    }
-  }
   for (const dataDir of dataDirs.splice(0)) {
     rmSync(dataDir, { recursive: true, force: true });
   }
@@ -31,8 +15,17 @@ describe("server lifecycle CLI", () => {
   test("exposes the logs command through runFromCli", async () => {
     const dataDir = `.cache/tests/server-lifecycle-logs-${crypto.randomUUID()}`;
     dataDirs.push(dataDir);
-    process.env["TEST_LIFECYCLE_LOGS_BASE_URL"] = "https://logs.example.test";
-    process.env["TEST_LIFECYCLE_LOGS_API_KEY"] = "admin-key";
+    const storedCredentials = {
+      baseUrl: "https://logs.example.test",
+      clientId: "cli",
+      accessToken: "admin-access",
+      refreshToken: "admin-refresh",
+      tokenType: "Bearer",
+      scope: "*",
+      accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } satisfies StoredDeviceCredentials;
 
     const requests: Array<{ url: string; authorization: string | null }> = [];
     const previousFetch = globalThis.fetch;
@@ -55,6 +48,12 @@ describe("server lifecycle CLI", () => {
         envPrefix: "TEST_LIFECYCLE_LOGS",
         store: sqliteWebAppStore({ dataDir }),
         auth: { passkeys: false },
+        cli: {
+          credentials: {
+            read: async () => storedCredentials,
+            write: async () => undefined,
+          },
+        },
         routes: defineRoutes({}),
       });
 
@@ -62,7 +61,7 @@ describe("server lifecycle CLI", () => {
 
       expect(requests).toEqual([{
         url: "https://logs.example.test/api/server/logs",
-        authorization: "Bearer admin-key",
+        authorization: "Bearer admin-access",
       }]);
       expect(JSON.parse(output[0]!)).toEqual({ enabled: false, logs: [] });
     } finally {

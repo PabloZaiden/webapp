@@ -30,29 +30,19 @@ describe("server logs CLI command", () => {
     });
   });
 
-  test("supports an explicit base URL and preserves failed response bodies", async () => {
-    const requests: Array<{ url: string; authorization: string | null }> = [];
+  test("rejects requests when no authenticated instance is configured", async () => {
+    let requestCount = 0;
     const result = await runServerLogsCliCommand({
       envPrefix: "TEST_LOGS_OVERRIDE",
-      args: ["--base-url", "https://override.example.test///"],
       environment: { TEST_LOGS_OVERRIDE_API_KEY: "admin-key" },
-      fetchFn: (async (input: string | URL | Request, init?: RequestInit) => {
-        requests.push({
-          url: String(input),
-          authorization: new Headers(init?.headers).get("authorization"),
-        });
-        return Response.json({ error: "admin_required", message: "Admin permissions are required" }, { status: 403 });
+      fetchFn: (async (_input: string | URL | Request, _init?: RequestInit) => {
+        requestCount += 1;
+        return Response.json({ enabled: false, logs: [] });
       }) as typeof fetch,
     });
 
     expect(result.exitCode).toBe(1);
-    expect(requests).toEqual([{
-      url: "https://override.example.test/api/server/logs",
-      authorization: "Bearer admin-key",
-    }]);
-    expect(JSON.parse(result.output!)).toEqual({
-      error: "admin_required",
-      message: "Admin permissions are required",
-    });
+    expect(result.error).toBe("No authenticated CLI instance is configured");
+    expect(requestCount).toBe(0);
   });
 });

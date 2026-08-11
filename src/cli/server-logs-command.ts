@@ -1,8 +1,7 @@
 import type { RouteCatalogEntry } from "../server/route-catalog";
-import { normalizeBaseUrl } from "./device-auth";
 import { runApiCliCommand, type ApiCliCredentialsStore } from "./api-command";
-import type { CliEnvironment } from "./environment-auth";
-import { readOption, type CliCommandResult } from "./runtime";
+import { resolveEnvironmentApiKeyAuth, type CliEnvironment } from "./environment-auth";
+import type { CliCommandResult } from "./runtime";
 
 const serverLogsRoute: RouteCatalogEntry = {
   path: "/api/server/logs",
@@ -17,9 +16,6 @@ const serverLogsRoute: RouteCatalogEntry = {
 
 export interface ServerLogsCliCommandOptions {
   envPrefix: string;
-  args?: readonly string[];
-  baseUrl?: string;
-  fallbackBaseUrl?: string;
   credentials?: ApiCliCredentialsStore;
   environment?: CliEnvironment;
   fetchFn?: typeof fetch;
@@ -27,13 +23,20 @@ export interface ServerLogsCliCommandOptions {
 }
 
 export async function runServerLogsCliCommand(input: ServerLogsCliCommandOptions): Promise<CliCommandResult> {
-  const requestedBaseUrl = input.baseUrl ?? readOption(input.args ?? [], ["--base-url"]);
-  const baseUrl = requestedBaseUrl === undefined ? undefined : normalizeBaseUrl(requestedBaseUrl);
+  const storedCredentials = await input.credentials?.read();
+  const environmentAuth = resolveEnvironmentApiKeyAuth({
+    envPrefix: input.envPrefix,
+    environment: input.environment,
+  });
+  if (!storedCredentials && !environmentAuth) {
+    return {
+      exitCode: 1,
+      error: "No authenticated CLI instance is configured",
+    };
+  }
   return await runApiCliCommand({
     catalog: [serverLogsRoute],
     args: ["logs"],
-    baseUrl,
-    fallbackBaseUrl: input.fallbackBaseUrl,
     responseFormat: "body",
     credentials: input.credentials,
     envPrefix: input.envPrefix,
