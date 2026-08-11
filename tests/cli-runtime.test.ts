@@ -65,6 +65,7 @@ describe("composable web app CLI", () => {
       "schema",
       "serve",
       "status",
+      "update",
       "version",
       "ws",
     ]);

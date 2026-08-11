@@ -24,6 +24,7 @@ import {
 import type { CliProfileStore } from "./profiles";
 import { readOption, type CliCommandResult } from "./runtime";
 import { runServerLogsCliCommand } from "./server-logs-command";
+import { updateCommand } from "./update-command";
 import {
   runWebSocketCliCommand,
   type CliInput,
@@ -37,6 +38,7 @@ interface BuiltInCommandDependencies<TAppContext> {
   fetchFn: typeof fetch;
   stdin: CliInput;
   stdout: CliOutput;
+  stderr: CliOutput;
   realtimePath: string;
   routeCatalog(): Promise<readonly RouteCatalogEntry[]>;
   help(command?: string): string;
@@ -384,6 +386,7 @@ export function createBuiltInCommands<TAppContext>(
     serve: serveCommand(dependencies.input),
     version: versionCommand(dependencies.input),
     config: configCommand(dependencies.input),
+    update: updateCommand(dependencies),
     logs: logsCommand(dependencies),
     api: apiCommand(dependencies, "api"),
     schema: apiCommand(dependencies, "schema"),
