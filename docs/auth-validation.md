@@ -51,9 +51,10 @@ Run this checklist before releasing a framework app or cutting a checkpoint.
 3. Enter the key and confirm the application shell loads with the same user and protected permissions as passkey authentication.
 4. Repeat with a server-managed `*` key and confirm key provenance does not change the result.
 5. Try an invalid, expired, disabled-user, or limited-scope key and confirm login fails without revealing the submitted key.
-6. Delete or expire the source key after a successful exchange and confirm the already-issued browser session continues to work.
-7. Confirm the exchange updates the key's `lastUsedAt` but does not add a passkey `user_login` audit event or change `lastLoginAt`.
-8. Confirm the endpoint rejects missing or mismatched `Origin`/`Referer` and that a successful HTTPS/proxied exchange sets `HttpOnly`, `SameSite=Strict`, `Secure`, and the configured cookie path.
+6. Repeat the exchange with the same key and confirm it remains reusable until it is deleted, revoked, or expires.
+7. Delete or expire the source key after a successful exchange and confirm the already-issued browser session continues to work.
+8. Confirm the exchange updates the key's `lastUsedAt` but does not add a passkey `user_login` audit event or change `lastLoginAt`.
+9. Confirm the endpoint rejects missing or mismatched `Origin`/`Referer` and that a successful HTTPS/proxied exchange sets `HttpOnly`, `SameSite=Strict`, `Secure`, and the configured cookie path.
 
 ## CLI API-key authentication
 

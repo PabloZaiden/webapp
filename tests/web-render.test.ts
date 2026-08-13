@@ -473,7 +473,7 @@ test("sidebar keeps two app actions beside its framework actions", async () => {
   }
 });
 
-test("passkey screen offers a masked API-key fallback only when enabled", () => {
+test("passkey screen offers a masked API-key fallback only when enabled", async () => {
   const status = {
     enabled: true,
     passkeyConfigured: true,
@@ -501,6 +501,15 @@ test("passkey screen offers a masked API-key fallback only when enabled", () => 
   }));
   expect(view.queryByRole("button", { name: "Authenticate with API key" })).toBeNull();
   expect(view.container.querySelector("form")).toBeNull();
+  view.rerender(createElement(PasskeyAuthScreen, {
+    status,
+    apiKeysEnabled: true,
+    refresh: async () => undefined,
+  }));
+  await waitFor(() => expect(view.getByRole("button", { name: "Authenticate with API key" })).toBeTruthy());
+  expect(view.container.querySelector("form")).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "Authenticate with API key" }));
+  expect((view.container.querySelector('input[type="password"]') as HTMLInputElement).value).toBe("");
 });
 
 test("sidebar tabs select the first item, update the node context, and persist selection", async () => {

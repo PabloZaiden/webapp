@@ -15,6 +15,13 @@ export function PasskeyAuthScreen({ status, apiKeysEnabled, refresh }: { status:
     && !status.authenticated
     && !status.bootstrapRequired
     && !status.ownerPasskeySetupRequired;
+  useEffect(() => {
+    if (!canAuthenticateWithApiKey) {
+      setApiKeyMode(false);
+      setApiKey("");
+      setError(undefined);
+    }
+  }, [canAuthenticateWithApiKey]);
   const description = status.bootstrapRequired
     ? "Choose the username for the owner"
     : status.ownerPasskeySetupRequired
@@ -56,13 +63,14 @@ export function PasskeyAuthScreen({ status, apiKeysEnabled, refresh }: { status:
 
   async function loginWithApiKey(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!apiKey.trim()) {
+    const normalizedApiKey = apiKey.trim();
+    if (!normalizedApiKey) {
       return;
     }
     setBusy(true);
     setError(undefined);
     try {
-      await appJson("/api/passkey-auth/api-key", { method: "POST", body: JSON.stringify({ apiKey }) });
+      await appJson("/api/passkey-auth/api-key", { method: "POST", body: JSON.stringify({ apiKey: normalizedApiKey }) });
       await refresh();
       window.location.reload();
     } catch (err) {

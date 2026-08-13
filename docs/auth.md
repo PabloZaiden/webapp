@@ -94,8 +94,9 @@ returned or stored by the browser. The key's existing `lastUsedAt` is updated,
 but this flow does not emit a passkey `user_login` audit event or update
 `lastLoginAt`.
 
-The API key is a one-time login credential. Deleting, expiring, or revoking it
-after the browser session is issued does not invalidate that session; normal
+The API key is reusable while it remains valid and can be exchanged repeatedly
+until it is deleted, revoked, or expires. Deleting, expiring, or revoking it
+after a browser session is issued does not invalidate that session; normal
 browser-session expiration, logout, disabled-user checks, and user
 `authVersion` invalidation still apply. The browser login request itself
 retains the normal same-origin protection for cookie issuance.
