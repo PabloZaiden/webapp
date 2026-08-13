@@ -79,6 +79,7 @@ function uniqueSidebarItems(nodeTrees: SidebarNode[][]): SidebarNode[] {
 
 function WebAppRootContent({
   appName,
+  appIcon,
   homeRoute,
   sidebar,
   routes,
@@ -304,6 +305,7 @@ function WebAppRootContent({
   return (
     <AppShell
       appName={appName}
+      appIcon={appIcon}
       homeRoute={homeRoute}
       topActions={sidebar.topActions ?? []}
       nodes={nodes}

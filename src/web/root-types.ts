@@ -48,6 +48,7 @@ export interface WebAppRootController {
 
 export interface WebAppRootProps {
   appName: string;
+  appIcon?: string | URL;
   homeRoute: WebAppRoute;
   sidebar: {
     search?: boolean;

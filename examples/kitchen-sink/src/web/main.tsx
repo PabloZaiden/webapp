@@ -1,6 +1,7 @@
 import { Badge, Button, EmptyState, Page, Panel, TextField, WebAppRoot, appFetch, appPath, appRequest, appWebSocketUrl, renderWebApp, replaceHashRoute, useCallback, useEffect, useMemo, useRealtimeRefresh, useState, useToast, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
+import favicon from "../favicon.svg";
 
 interface Project {
   id: string;
@@ -169,6 +170,7 @@ function KitchenSinkApp() {
   return (
     <WebAppRoot
       appName="Kitchen Sink"
+      appIcon={favicon}
       homeRoute={{ view: "home" }}
       sidebar={{
         topActions: [

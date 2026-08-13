@@ -1,6 +1,7 @@
 import { Badge, Button, DataList, DataListRow, EmptyState, EntityHeader, FormActions, Page, Panel, SelectField, TextAreaField, TextField, WebAppRoot, renderWebApp, replaceHashRoute, useCallback, useEffect, useRealtimeRefresh, useState, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
+import favicon from "../favicon.svg";
 
 interface Section {
   id: string;
@@ -518,6 +519,7 @@ function NotesTodoApp() {
   return (
     <WebAppRoot
       appName="Notes TODO"
+      appIcon={favicon}
       homeRoute={{ view: "home" }}
       sidebar={{
         topActions: [

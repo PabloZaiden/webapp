@@ -301,6 +301,11 @@ createWebAppServer({
 
 PWA metadata is enabled by default. Without `web.icons`, the framework serves `/site.webmanifest`, `/manifest.webmanifest`, and a generated SVG icon at `/webapp-icon.svg` using the app name initials. Apps with product artwork can override favicon, Apple touch icon, and manifest icons through `web.icons` while keeping the document framework-owned. Set `web.pwa: false` only for apps that intentionally should not be installable. The generated document includes the standard `webapp.theme` prepaint script; apps should use that framework preference instead of app-specific theme storage.
 
+The sidebar brand icon is configured separately with `WebAppRoot.appIcon`.
+When the sidebar and PWA should use the same artwork, import the local SVG or
+PNG asset in both the frontend and server entrypoints; the server's `web.icons`
+configuration remains server-owned.
+
 For a functional PWA:
 
 | Field | Default | Use when |

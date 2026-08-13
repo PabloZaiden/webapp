@@ -2,6 +2,29 @@
 
 `WebAppRoot` owns the app shell: fixed sidebar title row, top action buttons, search, scrollable tree, version footer, optional tab bar, main title bar and mobile drawer behavior.
 
+The sidebar home button can use an application icon instead of the visible title:
+
+```tsx
+import appIcon from "./icons/app.png"; // SVG imports are supported too
+
+<WebAppRoot
+  appName="My App"
+  appIcon={appIcon}
+  homeRoute={{ view: "home" }}
+  sidebar={{ getNodes: buildSidebarNodes }}
+  routes={{ home: <Home /> }}
+/>
+```
+
+`appIcon` accepts a browser-resolvable `string` or `URL`. The framework renders
+SVG and PNG sources inside a square rounded tile and keeps `appName` as the
+button's accessible name and tooltip. The image replaces only the visible
+sidebar title; clicking it still navigates to `homeRoute`. If `appIcon` is
+omitted, the text title is used as before. To use the same artwork for the
+sidebar and the PWA, import the local asset in both the frontend and server
+entrypoints and configure the server-side `web.icons` option described in
+[Framework-owned web document and PWA metadata](server.md#framework-owned-web-document-and-pwa-metadata).
+
 ```tsx
 <WebAppRoot
   appName="My App"
