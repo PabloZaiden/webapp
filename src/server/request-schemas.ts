@@ -61,6 +61,10 @@ export const createApiKeyRequestSchema = z.object({
   expiresAt: z.string().refine((value) => Number.isFinite(Date.parse(value)), "expiresAt must be a valid date").optional(),
 });
 
+export const apiKeyAuthenticationRequestSchema = z.object({
+  apiKey: nonEmptyString.max(512),
+});
+
 export const deviceAuthorizationRequestSchema = z.object({
   client_id: optionalClientId,
   clientId: optionalClientId,

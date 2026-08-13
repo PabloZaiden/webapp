@@ -78,6 +78,29 @@ helpers. The built-in SQLite store performs this migration automatically.
 
 Same-origin checks are skipped for API-key and device bearer requests unless a route sets `sameOrigin: "always"`, because non-browser clients usually do not send `Origin`.
 
+### Browser sign-in with an API key
+
+When both passkeys and API keys are enabled, the `Passkey required` screen also
+offers **Authenticate with API key**. The browser submits the key through the
+same-origin `POST /api/passkey-auth/api-key` endpoint. A valid `*`-scoped key
+can be user-owned or server-managed; key provenance does not affect eligibility.
+Limited-scope keys are rejected because the result is an unrestricted
+passkey-equivalent browser session.
+
+Successful exchange issues the same signed `webapp_passkey_session` cookie as
+passkey authentication. It is `HttpOnly`, `SameSite=Strict`, and uses the
+request's configured secure and path attributes. The plaintext key is never
+returned or stored by the browser. The key's existing `lastUsedAt` is updated,
+but this flow does not emit a passkey `user_login` audit event or update
+`lastLoginAt`.
+
+The API key is reusable while it remains valid and can be exchanged repeatedly
+until it is deleted, revoked, or expires. Deleting, expiring, or revoking it
+after a browser session is issued does not invalidate that session; normal
+browser-session expiration, logout, disabled-user checks, and user
+`authVersion` invalidation still apply. The browser login request itself
+retains the normal same-origin protection for cookie issuance.
+
 ## Device auth
 
 Device auth is included in V1:

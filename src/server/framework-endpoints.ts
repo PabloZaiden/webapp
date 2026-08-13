@@ -1,6 +1,7 @@
 import type { Server } from "bun";
 import type { CurrentUser, LogLevelName, WebAppConfigResponse } from "../contracts";
 import {
+  authenticateApiKey,
   createApiKey,
   deleteApiKey,
   listApiKeys,
@@ -23,6 +24,7 @@ import {
   beginBootstrapRegistration,
   beginOwnerPasskeySetup,
   beginSetupRegistration,
+  createBrowserSessionHeaders,
   completeAuthentication,
   completeBootstrapRegistration,
   completeOwnerPasskeySetup,
@@ -44,6 +46,7 @@ import type { WebAppServerConfig } from "./server-types";
 import { htmlResponse, type WebDocument } from "./web-document";
 import {
   authenticationResponseSchema,
+  apiKeyAuthenticationRequestSchema,
   createApiKeyRequestSchema,
   createUserRequestSchema,
   deviceAuthorizationRequestSchema,
@@ -219,6 +222,20 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
       if (passkeysEnabled && path === "/api/passkey-auth/authentication/verify" && req.method === "POST") {
         const headers = await completeAuthentication(req, store, config, await parseJson(req, authenticationResponseSchema));
         return addHeaders(successResponse(), headers);
+      }
+      if (passkeysEnabled && apiKeysEnabled && path === "/api/passkey-auth/api-key" && req.method === "POST") {
+        const originFailure = checkSameOrigin(req, config, { kind: "anonymous" }, "mutations");
+        if (originFailure) return originFailure;
+        const body = await parseJson(req, apiKeyAuthenticationRequestSchema, { maxBytes: 4096 });
+        const apiKey = authenticateApiKey(store, body.apiKey);
+        if (!apiKey || !apiKey.scopes.includes("*")) {
+          return errorResponse(401, "invalid_api_key", "Invalid API key");
+        }
+        const user = store.getUserById(apiKey.user.id);
+        if (!user) {
+          return errorResponse(401, "invalid_api_key", "Invalid API key");
+        }
+        return addHeaders(successResponse(), createBrowserSessionHeaders(req, store, config, user));
       }
       if (passkeysEnabled && path === "/api/passkey-auth/logout" && req.method === "POST") {
         return addHeaders(successResponse(), logoutHeaders(req, config));

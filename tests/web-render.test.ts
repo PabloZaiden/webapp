@@ -11,6 +11,7 @@ import type { SidebarNode } from "../src/web/sidebar/types";
 import { useWebAppConfig } from "../src/web/webapp-config";
 import { useTheme, type WebAppRootController } from "../src/web";
 import { WebAppRoot } from "../src/web/WebAppRoot";
+import { PasskeyAuthScreen } from "../src/web/auth-screens";
 import { configureWebAppRenderer, renderWebApp } from "../src/web/render";
 
 if (!GlobalRegistrator.isRegistered) {
@@ -470,6 +471,45 @@ test("sidebar keeps two app actions beside its framework actions", async () => {
   } finally {
     restoreFetch();
   }
+});
+
+test("passkey screen offers a masked API-key fallback only when enabled", async () => {
+  const status = {
+    enabled: true,
+    passkeyConfigured: true,
+    passkeyDisabled: false,
+    passkeyRequired: true,
+    authenticated: false,
+    bootstrapRequired: false,
+    ownerPasskeySetupRequired: false,
+  };
+  const view = render(createElement(PasskeyAuthScreen, {
+    status,
+    apiKeysEnabled: true,
+    refresh: async () => undefined,
+  }));
+
+  expect(view.container.querySelector('input[type="password"]')).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "Authenticate with API key" }));
+  const input = view.container.querySelector('input[type="password"]') as HTMLInputElement;
+  expect(input).toBeTruthy();
+  expect(input.type).toBe("password");
+  view.rerender(createElement(PasskeyAuthScreen, {
+    status,
+    apiKeysEnabled: false,
+    refresh: async () => undefined,
+  }));
+  expect(view.queryByRole("button", { name: "Authenticate with API key" })).toBeNull();
+  expect(view.container.querySelector("form")).toBeNull();
+  view.rerender(createElement(PasskeyAuthScreen, {
+    status,
+    apiKeysEnabled: true,
+    refresh: async () => undefined,
+  }));
+  await waitFor(() => expect(view.getByRole("button", { name: "Authenticate with API key" })).toBeTruthy());
+  expect(view.container.querySelector("form")).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "Authenticate with API key" }));
+  expect((view.container.querySelector('input[type="password"]') as HTMLInputElement).value).toBe("");
 });
 
 test("sidebar tabs select the first item, update the node context, and persist selection", async () => {

@@ -98,7 +98,7 @@ function expiredCookie(req: Request, config: RuntimeConfig, name: string, secure
   return cookieHeader(req, config, name, "", 0, secure);
 }
 
-function setSessionHeaders(req: Request, store: WebAppStore, config: RuntimeConfig, user: UserRecord): Headers {
+export function createBrowserSessionHeaders(req: Request, store: WebAppStore, config: RuntimeConfig, user: UserRecord): Headers {
   const origin = getRequestOriginInfo(req, config);
   const secret = getSecret(store);
   const payload: SessionPayload = {
@@ -192,7 +192,7 @@ async function verifyAndSavePasskey(req: Request, store: WebAppStore, config: Ru
   });
   store.incrementUserAuthVersion(user.id, timestamp);
   const updatedUser = store.getUserById(user.id) ?? user;
-  return setSessionHeaders(req, store, config, updatedUser);
+  return createBrowserSessionHeaders(req, store, config, updatedUser);
 }
 
 export function getPasskeySessionUser(req: Request, store: WebAppStore, config: RuntimeConfig) {
@@ -376,7 +376,7 @@ export async function completeAuthentication(req: Request, store: WebAppStore, c
   store.updatePasskeyUsage(passkey.credentialId, verification.authenticationInfo.newCounter, timestamp);
   store.markUserLogin(user.id, timestamp);
   audit(store, { eventType: "user_login", actorUserId: user.id });
-  return setSessionHeaders(req, store, config, user);
+  return createBrowserSessionHeaders(req, store, config, user);
 }
 
 export function logoutHeaders(req: Request, config: RuntimeConfig): Headers {
