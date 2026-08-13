@@ -476,7 +476,11 @@ test("sidebar keeps two app actions beside its framework actions", async () => {
 test("sidebar brand renders SVG and PNG sources and navigates home", async () => {
   const restoreFetch = mockConfigFetch();
   try {
-    for (const appIcon of ["/icons/app.svg", new URL("http://localhost/icons/app.png")]) {
+    const appIcons: Array<[string | URL, string]> = [
+      ["  /icons/app.svg  ", "/icons/app.svg"],
+      [new URL("http://localhost/icons/app.png"), "http://localhost/icons/app.png"],
+    ];
+    for (const [appIcon, expectedSource] of appIcons) {
       window.history.replaceState(null, "", "http://localhost/#/details");
       const view = render(createElement(WebAppRoot, {
         appName: "Test App",
@@ -496,12 +500,41 @@ test("sidebar brand renders SVG and PNG sources and navigates home", async () =>
       const brand = await waitFor(() => view.getByRole("button", { name: "Test App" }));
       const image = brand.querySelector("img");
       expect(image).toBeTruthy();
-      expect(image?.getAttribute("src")).toBe(String(appIcon));
+      expect(image?.getAttribute("src")).toBe(expectedSource);
       expect(brand.getAttribute("title")).toBe("Test App");
-      expect(brand.textContent).toBe("");
+      expect(brand.textContent.trim()).toBe("");
 
       fireEvent.click(brand);
       await waitFor(() => expect(view.getByText("Home route")).toBeTruthy());
+      view.unmount();
+    }
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar brand ignores invalid runtime app icon values", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    for (const appIcon of [null, {}, 42]) {
+      const view = render(createElement(WebAppRoot, {
+        appName: "Test App",
+        // Deliberately bypass the TypeScript prop contract to exercise runtime callers.
+        appIcon: appIcon as string | URL,
+        homeRoute: { view: "home" },
+        sidebar: {
+          search: false,
+          pinning: false,
+          getNodes: () => [],
+        },
+        routes: {
+          home: createElement("p", null, "Home route"),
+        },
+      }));
+
+      const brand = await waitFor(() => view.getByRole("button", { name: "Test App" }));
+      expect(brand.querySelector("img")).toBeNull();
+      expect(brand.textContent).toContain("Test App");
       view.unmount();
     }
   } finally {

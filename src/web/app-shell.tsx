@@ -42,6 +42,17 @@ function sidebarTabInitial(title: string): string {
   return Array.from(title.trim())[0]?.toUpperCase() ?? "?";
 }
 
+function normalizeAppIconSource(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  }
+  if (typeof URL !== "undefined" && value instanceof URL) {
+    return value.href;
+  }
+  return undefined;
+}
+
 export interface AppShellProps {
   appName: string;
   appIcon?: string | URL;
@@ -131,7 +142,7 @@ export function AppShell({
 
   const topSidebarActions = topActions.slice(0, 2);
   const sidebarToggleLabel = sidebarCollapsed ? "Show sidebar" : "Collapse sidebar";
-  const appIconSource = appIcon === undefined ? undefined : String(appIcon);
+  const appIconSource = normalizeAppIconSource(appIcon);
   const hasAppIcon = Boolean(appIconSource);
   const sidebarTabRefs = useRef(new Map<string, HTMLButtonElement>());
   const closeSidebar = () => setSidebarOpen(false);
