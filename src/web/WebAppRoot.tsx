@@ -272,7 +272,7 @@ function WebAppRootContent({
     return <UserSetupScreen refresh={refresh} />;
   }
   if (config.passkeyAuth.enabled && (config.passkeyAuth.bootstrapRequired || config.passkeyAuth.ownerPasskeySetupRequired || (!config.passkeyAuth.passkeyDisabled && config.passkeyAuth.passkeyRequired && !config.passkeyAuth.authenticated))) {
-    return <PasskeyAuthScreen status={config.passkeyAuth} refresh={refresh} />;
+    return <PasskeyAuthScreen status={config.passkeyAuth} apiKeysEnabled={config.apiKeys.enabled} refresh={refresh} />;
   }
   if (config.deviceAuth.enabled && window.location.pathname === "/device") {
     return <DeviceVerificationScreen />;

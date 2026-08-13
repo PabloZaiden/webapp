@@ -60,6 +60,15 @@ async function responseJson<T>(response: Response | undefined): Promise<T> {
   return await response!.json() as T;
 }
 
+function cookieValue(response: Response | undefined, name: string): string {
+  const header = response?.headers.get("set-cookie") ?? "";
+  const match = new RegExp(`(?:^|,\\s*)${name}=([^;]+)`).exec(header);
+  if (!match?.[1]) {
+    throw new Error(`Expected ${name} cookie`);
+  }
+  return `${name}=${match[1]}`;
+}
+
 async function withEnv<T>(values: Record<string, string>, callback: () => T | Promise<T>): Promise<T> {
   const previous = new Map<string, string | undefined>();
   for (const [key, value] of Object.entries(values)) {
@@ -1484,6 +1493,130 @@ describe("server security defaults", () => {
 
     const response = await app.handleRequest(new Request("http://localhost/api/protected"));
     expect(response?.status).toBe(401);
+  });
+
+  test("API-key browser sign-in accepts full-scope user and managed keys and issues a passkey session", async () => {
+    const store = testStore("api-key-browser-session");
+    store.initialize();
+    const user = configuredUser(store);
+    store.savePasskey(configuredPasskey(user.id));
+    const userKey = createApiKey(store, currentUser(user), { name: "browser key", scopes: ["*"] });
+    const managedKey = createManagedApiKey(store, currentUser(user), { name: "managed browser key", managedBy: "browser-test", scopes: ["*"] });
+    const limitedKey = createApiKey(store, currentUser(user), { name: "limited key", scopes: ["read"] });
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_API_KEY_BROWSER_SESSION",
+      store,
+      auth: { passkeys: true, apiKeys: true },
+      routes: defineRoutes({
+        "/api/protected": {
+          GET: (_req, ctx) => jsonResponse({ authKind: ctx.auth.kind, userId: ctx.requireUser().id }),
+        },
+      }),
+    });
+
+    const exchange = (token: string, url = "http://localhost/api/passkey-auth/api-key", headers: HeadersInit = {}) => app.handleRequest(new Request(url, {
+      method: "POST",
+      headers: { origin: new URL(url).origin, "content-type": "application/json", ...headers },
+      body: JSON.stringify({ apiKey: token }),
+    }));
+
+    const missingOrigin = await app.handleRequest(new Request("http://localhost/api/passkey-auth/api-key", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ apiKey: userKey.token }),
+    }));
+    expect(missingOrigin?.status).toBe(403);
+    expect(store.getApiKeyByHash(sha256(userKey.token))?.lastUsedAt).toBeUndefined();
+    const crossOrigin = await app.handleRequest(new Request("http://localhost/api/passkey-auth/api-key", {
+      method: "POST",
+      headers: { origin: "https://evil.example", "content-type": "application/json" },
+      body: JSON.stringify({ apiKey: userKey.token }),
+    }));
+    expect(crossOrigin?.status).toBe(403);
+    expect(store.getApiKeyByHash(sha256(userKey.token))?.lastUsedAt).toBeUndefined();
+
+    const userExchange = await exchange(userKey.token);
+    expect(userExchange?.status).toBe(200);
+    const userSetCookie = userExchange?.headers.get("set-cookie") ?? "";
+    expect(userSetCookie).toContain("HttpOnly");
+    expect(userSetCookie).toContain("SameSite=Strict");
+    expect(userSetCookie).toContain("Max-Age=2592000");
+    expect(userSetCookie).not.toContain("Secure");
+    expect(store.getApiKeyByHash(sha256(userKey.token))?.lastUsedAt).toBeTruthy();
+    expect(store.getUserById(user.id)?.lastLoginAt).toBeUndefined();
+    expect(store.listAuditEvents()).toEqual([]);
+
+    const sessionCookie = cookieValue(userExchange, "webapp_passkey_session");
+    const protectedResponse = await app.handleRequest(new Request("http://localhost/api/protected", {
+      headers: { cookie: sessionCookie },
+    }));
+    expect(await responseJson<{ authKind: string; userId: string }>(protectedResponse)).toEqual({ authKind: "passkey", userId: user.id });
+
+    expect(store.deleteApiKey(userKey.key.id, user.id)).toBe(true);
+    const afterSourceDeletion = await app.handleRequest(new Request("http://localhost/api/protected", {
+      headers: { cookie: sessionCookie },
+    }));
+    expect(afterSourceDeletion?.status).toBe(200);
+    store.incrementUserAuthVersion(user.id, isoOffset(0));
+    const afterAuthVersionChange = await app.handleRequest(new Request("http://localhost/api/protected", {
+      headers: { cookie: sessionCookie },
+    }));
+    expect(afterAuthVersionChange?.status).toBe(401);
+
+    const managedExchange = await exchange(managedKey.token, "https://secure.example.test/api/passkey-auth/api-key");
+    expect(managedExchange?.status).toBe(200);
+    expect(managedExchange?.headers.get("set-cookie")).toMatch(/(?:^|; )Secure(?:;|$)/);
+    expect(cookieValue(managedExchange, "webapp_passkey_session")).not.toBe(sessionCookie);
+
+    const limitedExchange = await exchange(limitedKey.token);
+    expect(limitedExchange?.status).toBe(401);
+    expect((await responseJson<{ error: string; message: string }>(limitedExchange))).toEqual({
+      error: "invalid_api_key",
+      message: "Invalid API key",
+    });
+  });
+
+  test("API-key browser sign-in rejects malformed, invalid, expired, and disabled credentials", async () => {
+    const store = testStore("api-key-browser-session-invalid");
+    store.initialize();
+    const user = configuredUser(store);
+    const expiredKey = createApiKey(store, currentUser(user), { name: "expired key", scopes: ["*"], expiresAt: isoOffset(-3600) });
+    const disabledUser: UserRecord = {
+      id: crypto.randomUUID(),
+      username: "disabled-user",
+      role: "user",
+      authVersion: 1,
+      passkeyConfigured: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      disabledAt: new Date().toISOString(),
+    };
+    store.createUser(disabledUser);
+    const disabledKey = createApiKey(store, currentUser(disabledUser), { name: "disabled key", scopes: ["*"] });
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_API_KEY_BROWSER_SESSION_INVALID",
+      store,
+      auth: { passkeys: true, apiKeys: true },
+      routes: defineRoutes({}),
+    });
+
+    const request = (body: string) => app.handleRequest(new Request("http://localhost/api/passkey-auth/api-key", {
+      method: "POST",
+      headers: { origin: "http://localhost", "content-type": "application/json" },
+      body,
+    }));
+
+    expect((await request("{}"))?.status).toBe(400);
+    const invalidResponse = await request(JSON.stringify({ apiKey: "not-a-real-key" }));
+    expect(invalidResponse?.status).toBe(401);
+    const invalidBody = await responseJson<{ error: string; message: string }>(invalidResponse);
+    expect(invalidBody).toEqual({ error: "invalid_api_key", message: "Invalid API key" });
+    expect(JSON.stringify(invalidBody)).not.toContain("not-a-real-key");
+    expect((await request(JSON.stringify({ apiKey: expiredKey.token })))?.status).toBe(401);
+    expect((await request(JSON.stringify({ apiKey: disabledKey.token })))?.status).toBe(401);
+    expect(store.listApiKeys(user.id).map((key) => key.id)).not.toContain(expiredKey.key.id);
   });
 
   test("invalid bearer tokens return a stable error without echoing the token", async () => {

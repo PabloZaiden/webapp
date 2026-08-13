@@ -1,13 +1,20 @@
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { DeviceVerificationDetails, PasskeyAuthStatusResponse, UserSetupDetails } from "../contracts";
 import { appJson } from "./api-client";
 import { Badge, Button, Dialog, Panel, TextField } from "./components";
 
-export function PasskeyAuthScreen({ status, refresh }: { status: PasskeyAuthStatusResponse; refresh: () => Promise<void> }) {
+export function PasskeyAuthScreen({ status, apiKeysEnabled, refresh }: { status: PasskeyAuthStatusResponse; apiKeysEnabled: boolean; refresh: () => Promise<void> }) {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [username, setUsername] = useState("");
+  const [apiKeyMode, setApiKeyMode] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const canAuthenticateWithApiKey = apiKeysEnabled
+    && status.passkeyRequired
+    && !status.authenticated
+    && !status.bootstrapRequired
+    && !status.ownerPasskeySetupRequired;
   const description = status.bootstrapRequired
     ? "Choose the username for the owner"
     : status.ownerPasskeySetupRequired
@@ -47,6 +54,36 @@ export function PasskeyAuthScreen({ status, refresh }: { status: PasskeyAuthStat
     }
   }
 
+  async function loginWithApiKey(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!apiKey.trim()) {
+      return;
+    }
+    setBusy(true);
+    setError(undefined);
+    try {
+      await appJson("/api/passkey-auth/api-key", { method: "POST", body: JSON.stringify({ apiKey }) });
+      await refresh();
+      window.location.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function chooseApiKeyMode() {
+    setApiKeyMode(true);
+    setApiKey("");
+    setError(undefined);
+  }
+
+  function choosePasskeyMode() {
+    setApiKeyMode(false);
+    setApiKey("");
+    setError(undefined);
+  }
+
   return (
     <main className="wapp-auth-screen">
       <Dialog
@@ -56,6 +93,11 @@ export function PasskeyAuthScreen({ status, refresh }: { status: PasskeyAuthStat
           <Button type="button" variant="primary" disabled={busy || !username.trim()} onClick={() => void register("bootstrap")}>Create owner</Button>
         ) : status.ownerPasskeySetupRequired ? (
           <Button type="button" variant="primary" disabled={busy} onClick={() => void register("owner-setup")}>Set up owner passkey</Button>
+        ) : canAuthenticateWithApiKey && apiKeyMode ? (
+          <>
+            <Button type="button" variant="ghost" disabled={busy} onClick={choosePasskeyMode}>Use passkey</Button>
+            <Button type="submit" form="wapp-api-key-auth-form" variant="primary" disabled={busy || !apiKey.trim()}>Authenticate with API key</Button>
+          </>
         ) : (
           <Button type="button" variant="primary" disabled={busy} onClick={() => void login()}>Authenticate</Button>
         )}
@@ -63,6 +105,22 @@ export function PasskeyAuthScreen({ status, refresh }: { status: PasskeyAuthStat
         <p>{description}</p>
         {error ? <p className="wapp-error">{error}</p> : null}
         {status.bootstrapRequired ? <><br /><TextField label="Username" value={username} onChange={(event) => setUsername(event.currentTarget.value)} placeholder="owner" /></> : null}
+        {canAuthenticateWithApiKey && apiKeyMode ? (
+          <form id="wapp-api-key-auth-form" onSubmit={(event) => void loginWithApiKey(event)}>
+            <TextField
+              label="API key"
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.currentTarget.value)}
+              autoComplete="off"
+              autoFocus
+              spellCheck={false}
+            />
+          </form>
+        ) : null}
+        {canAuthenticateWithApiKey && !apiKeyMode ? (
+          <Button type="button" variant="ghost" onClick={chooseApiKeyMode}>Authenticate with API key</Button>
+        ) : null}
       </Dialog>
     </main>
   );

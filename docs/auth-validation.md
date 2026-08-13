@@ -44,6 +44,17 @@ Run this checklist before releasing a framework app or cutting a checkpoint.
 8. Restart against the same data directory and confirm a non-expired managed key still authenticates.
 9. Revoke the managed key through the server-only helper and confirm it no longer authenticates.
 
+## Browser API-key sign-in
+
+1. Use an app with `auth: { passkeys: true, apiKeys: true }`, a configured user/passkey, and a user-owned `*` API key.
+2. Log out, confirm the `Passkey required` screen offers **Authenticate with API key**, and confirm the API-key field is masked.
+3. Enter the key and confirm the application shell loads with the same user and protected permissions as passkey authentication.
+4. Repeat with a server-managed `*` key and confirm key provenance does not change the result.
+5. Try an invalid, expired, disabled-user, or limited-scope key and confirm login fails without revealing the submitted key.
+6. Delete or expire the source key after a successful exchange and confirm the already-issued browser session continues to work.
+7. Confirm the exchange updates the key's `lastUsedAt` but does not add a passkey `user_login` audit event or change `lastLoginAt`.
+8. Confirm the endpoint rejects missing or mismatched `Origin`/`Referer` and that a successful HTTPS/proxied exchange sets `HttpOnly`, `SameSite=Strict`, `Secure`, and the configured cookie path.
+
 ## CLI API-key authentication
 
 1. Set `${PREFIX}_BASE_URL` and `${PREFIX}_API_KEY` for an app whose CLI passes
