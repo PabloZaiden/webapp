@@ -240,6 +240,37 @@ textarea::placeholder {
   color: var(--wapp-text);
 }
 
+.wapp-brand-with-icon {
+  display: inline-flex;
+  flex: 0 0 2.25rem;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  min-width: 2.25rem;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border: 1px solid var(--wapp-border-soft);
+  border-radius: 0.75rem;
+  background: var(--wapp-surface);
+  box-shadow: var(--wapp-shadow);
+  padding: 0.1875rem;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.wapp-brand-with-icon:hover {
+  border-color: var(--wapp-border);
+  background: var(--wapp-surface-muted);
+}
+
+.wapp-brand-with-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 0.5625rem;
+  object-fit: contain;
+}
+
 .wapp-sidebar-actions {
   display: flex;
   align-items: center;

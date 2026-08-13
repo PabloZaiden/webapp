@@ -473,6 +473,71 @@ test("sidebar keeps two app actions beside its framework actions", async () => {
   }
 });
 
+test("sidebar brand renders SVG and PNG sources and navigates home", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    for (const appIcon of ["/icons/app.svg", new URL("http://localhost/icons/app.png")]) {
+      window.history.replaceState(null, "", "http://localhost/#/details");
+      const view = render(createElement(WebAppRoot, {
+        appName: "Test App",
+        appIcon,
+        homeRoute: { view: "home" },
+        sidebar: {
+          search: false,
+          pinning: false,
+          getNodes: () => [],
+        },
+        routes: {
+          home: createElement("p", null, "Home route"),
+          details: createElement("p", null, "Details route"),
+        },
+      }));
+
+      const brand = await waitFor(() => view.getByRole("button", { name: "Test App" }));
+      const image = brand.querySelector("img");
+      expect(image).toBeTruthy();
+      expect(image?.getAttribute("src")).toBe(String(appIcon));
+      expect(brand.getAttribute("title")).toBe("Test App");
+      expect(brand.textContent).toBe("");
+
+      fireEvent.click(brand);
+      await waitFor(() => expect(view.getByText("Home route")).toBeTruthy());
+      view.unmount();
+    }
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar brand keeps the application title when no icon is configured", async () => {
+  const restoreFetch = mockConfigFetch();
+  try {
+    window.history.replaceState(null, "", "http://localhost/#/details");
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        getNodes: () => [],
+      },
+      routes: {
+        home: createElement("p", null, "Home route"),
+        details: createElement("p", null, "Details route"),
+      },
+    }));
+
+    const brand = await waitFor(() => view.getByRole("button", { name: "Test App" }));
+    expect(brand.textContent).toBe("Test App");
+    expect(brand.querySelector("img")).toBeNull();
+
+    fireEvent.click(brand);
+    await waitFor(() => expect(view.getByText("Home route")).toBeTruthy());
+  } finally {
+    restoreFetch();
+  }
+});
+
 test("passkey screen offers a masked API-key fallback only when enabled", async () => {
   const status = {
     enabled: true,
