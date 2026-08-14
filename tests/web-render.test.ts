@@ -588,25 +588,29 @@ test("passkey screen offers a masked API-key fallback only when enabled", async 
   }));
 
   expect(view.container.querySelector('input[type="password"]')).toBeNull();
-  fireEvent.click(view.getByRole("button", { name: "Authenticate with API key" }));
+  expect(view.getByRole("button", { name: "Authenticate" })).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Use API Key instead" }));
   const input = view.container.querySelector('input[type="password"]') as HTMLInputElement;
   expect(input).toBeTruthy();
   expect(input.type).toBe("password");
+  expect(view.getByRole("button", { name: "Use Passkey instead" })).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Use Passkey instead" }));
+  expect(view.container.querySelector('input[type="password"]')).toBeNull();
   view.rerender(createElement(PasskeyAuthScreen, {
     status,
     apiKeysEnabled: false,
     refresh: async () => undefined,
   }));
-  expect(view.queryByRole("button", { name: "Authenticate with API key" })).toBeNull();
+  expect(view.queryByRole("button", { name: "Use API Key instead" })).toBeNull();
   expect(view.container.querySelector("form")).toBeNull();
   view.rerender(createElement(PasskeyAuthScreen, {
     status,
     apiKeysEnabled: true,
     refresh: async () => undefined,
   }));
-  await waitFor(() => expect(view.getByRole("button", { name: "Authenticate with API key" })).toBeTruthy());
+  await waitFor(() => expect(view.getByRole("button", { name: "Use API Key instead" })).toBeTruthy());
   expect(view.container.querySelector("form")).toBeNull();
-  fireEvent.click(view.getByRole("button", { name: "Authenticate with API key" }));
+  fireEvent.click(view.getByRole("button", { name: "Use API Key instead" }));
   expect((view.container.querySelector('input[type="password"]') as HTMLInputElement).value).toBe("");
 });
 

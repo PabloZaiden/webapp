@@ -103,31 +103,34 @@ export function PasskeyAuthScreen({ status, apiKeysEnabled, refresh }: { status:
           <Button type="button" variant="primary" disabled={busy} onClick={() => void register("owner-setup")}>Set up owner passkey</Button>
         ) : canAuthenticateWithApiKey && apiKeyMode ? (
           <>
-            <Button type="button" variant="ghost" disabled={busy} onClick={choosePasskeyMode}>Use passkey</Button>
+            <Button type="button" variant="ghost" disabled={busy} onClick={choosePasskeyMode}>Use Passkey instead</Button>
             <Button type="submit" form="wapp-api-key-auth-form" variant="primary" disabled={busy || !apiKey.trim()}>Authenticate with API key</Button>
           </>
         ) : (
-          <Button type="button" variant="primary" disabled={busy} onClick={() => void login()}>Authenticate</Button>
+          <>
+            {canAuthenticateWithApiKey ? <Button type="button" variant="ghost" disabled={busy} onClick={chooseApiKeyMode}>Use API Key instead</Button> : null}
+            <Button type="button" variant="primary" disabled={busy} onClick={() => void login()}>Authenticate</Button>
+          </>
         )}
       >
         <p>{description}</p>
         {error ? <p className="wapp-error">{error}</p> : null}
         {status.bootstrapRequired ? <><br /><TextField label="Username" value={username} onChange={(event) => setUsername(event.currentTarget.value)} placeholder="owner" /></> : null}
         {canAuthenticateWithApiKey && apiKeyMode ? (
-          <form id="wapp-api-key-auth-form" onSubmit={(event) => void loginWithApiKey(event)}>
-            <TextField
-              label="API key"
-              type="password"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.currentTarget.value)}
-              autoComplete="off"
-              autoFocus
-              spellCheck={false}
-            />
-          </form>
-        ) : null}
-        {canAuthenticateWithApiKey && !apiKeyMode ? (
-          <Button type="button" variant="ghost" onClick={chooseApiKeyMode}>Authenticate with API key</Button>
+          <>
+            <br />
+            <form id="wapp-api-key-auth-form" onSubmit={(event) => void loginWithApiKey(event)}>
+              <TextField
+                label="API key"
+                type="password"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.currentTarget.value)}
+                autoComplete="off"
+                autoFocus
+                spellCheck={false}
+              />
+            </form>
+          </>
         ) : null}
       </Dialog>
     </main>
