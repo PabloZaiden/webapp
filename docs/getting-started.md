@@ -1,5 +1,8 @@
 # Getting started
 
+Use Bun `1.4.0` for development and builds. The repository records the
+canonical version in `.bun-version`.
+
 Apps are one Bun application: backend routes, websocket, React UI and static assets are served by the same server. The framework does not support or require a standalone client dist directory.
 
 ```ts

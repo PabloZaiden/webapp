@@ -4,6 +4,9 @@ Opinionated Bun + React framework for single-server TypeScript webapps: one Bun 
 
 ## Quick start
 
+The repository targets Bun `1.4.0`; use the version recorded in `.bun-version`
+for local development and keep CI/deployment environments on the same release.
+
 Use one of the examples during framework development:
 
 ```bash

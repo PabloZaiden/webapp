@@ -267,7 +267,7 @@ Run targeted tests, `bun run typecheck`, example binary builds, and app health c
 
 Use `docs/github-actions.md` as the source of truth. At minimum, generated apps should include:
 
-- A root `Dockerfile` that builds with `oven/bun`, copies the standalone binary into a slim runtime image, runs as a non-root user, and healthchecks `/api/health`.
+- A root `Dockerfile` that builds with `oven/bun:1.4.0`, copies the standalone binary into a slim runtime image, runs as a non-root user, and healthchecks `/api/health`.
 - `.github/workflows/pr.yml` with install, build, test, Bun dev-server smoke checks, and Docker image smoke checks.
 - `.github/workflows/docker-main.yml` to publish `ghcr.io/<owner>/<repo>:main` on pushes to `main` and smoke-test the container.
 - `.github/workflows/binary-release.yml` using `pablozaiden/installer/.github/workflows/reusable-binary-release.yml`.

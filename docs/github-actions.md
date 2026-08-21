@@ -43,7 +43,7 @@ them; otherwise add a deliberate public smoke endpoint.
 Place this at `Dockerfile` in the app repository root. It builds the app inside Docker, copies only the standalone Bun binary into a slim runtime image, runs as a non-root user, and exposes `/api/health` as the container healthcheck.
 
 ```dockerfile
-FROM oven/bun:1 AS builder
+FROM oven/bun:1.4.0 AS builder
 WORKDIR /app
 COPY . .
 RUN bun install --frozen-lockfile
@@ -138,7 +138,10 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: latest
+          bun-version: "1.4.0"
+
+      - name: Verify Bun version
+        run: test "$(bun --version)" = "1.4.0"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -160,7 +163,10 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: latest
+          bun-version: "1.4.0"
+
+      - name: Verify Bun version
+        run: test "$(bun --version)" = "1.4.0"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
