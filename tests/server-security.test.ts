@@ -606,6 +606,46 @@ describe("server security defaults", () => {
     expect(await spaPost?.json()).toMatchObject({ error: "not_found" });
   });
 
+  test("app-owned HEAD routes preserve response headers without sending a streamed body", async () => {
+    const payload = new TextEncoder().encode("streamed response");
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_APP_HEAD",
+      store: testStore("app-head"),
+      auth: { passkeys: false },
+      routes: defineRoutes({
+        "/api/streamed": {
+          auth: "public",
+          sameOrigin: "never",
+          GET: () => new Response(new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(payload);
+              controller.close();
+            },
+          }), {
+            status: 206,
+            statusText: "Partial Content",
+            headers: {
+              "content-length": String(payload.byteLength),
+              "x-test-header": "preserved",
+            },
+          }),
+        },
+      }),
+    });
+
+    const head = await app.handleRequest(new Request("http://localhost/api/streamed", { method: "HEAD" }));
+    expect(head?.status).toBe(206);
+    expect(head?.statusText).toBe("Partial Content");
+    expect(head?.headers.get("content-length")).toBe(String(payload.byteLength));
+    expect(head?.headers.get("x-test-header")).toBe("preserved");
+    expect(head?.body).toBeNull();
+    expect(await head?.text()).toBe("");
+
+    const get = await app.handleRequest(new Request("http://localhost/api/streamed"));
+    expect(await get?.bytes()).toEqual(payload);
+  });
+
   test("builds and serves app-owned public assets through a typed entrypoint", async () => {
     const path = `/public-asset-${crypto.randomUUID()}.js`;
     const app = createWebAppServer({
