@@ -8,7 +8,7 @@ import { checkSameOrigin } from "./same-origin";
 import type { RealtimeBus } from "./realtime/bus";
 import { matchRoute, type HttpMethod, type RouteTable, type UserScopedRealtimePublisher } from "./routes";
 import type { WebAppWebSocketData } from "./server-types";
-import { errorResponse, requestBodyErrorResponse, withSecurityHeaders, methodNotAllowed } from "./responses";
+import { errorResponse, requestBodyErrorResponse, methodNotAllowed, responseForRequest, withSecurityHeaders } from "./responses";
 
 export interface RouteDispatchResult {
   matched: boolean;
@@ -41,6 +41,10 @@ function routeHandlerErrorResponse(error: unknown): Response {
   return errorResponse(500, "request_failed", "Request failed");
 }
 
+function routeResponse(req: Request, response: Response): Response {
+  return responseForRequest(req, withSecurityHeaders(response));
+}
+
 export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispatcherDependencies<TEvent>) {
   const { config, routes, authentication, realtime } = dependencies;
 
@@ -52,12 +56,12 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
       }
       const handler = matched.route[method(req) ?? "GET"];
       if (!handler) {
-        return { matched: true, response: withSecurityHeaders(methodNotAllowed()) };
+        return { matched: true, response: routeResponse(req, methodNotAllowed()) };
       }
       const routeAuth = matched.route.auth ?? "required";
       const auth = await authentication.authorize(req, requiresAuth(routeAuth));
       if (auth instanceof Response) {
-        return { matched: true, response: withSecurityHeaders(auth) };
+        return { matched: true, response: routeResponse(req, auth) };
       }
       try {
         enforceRouteAuth(routeAuth, auth, authentication);
@@ -72,7 +76,7 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
           assertScopes(auth.kind === "api-key" ? auth.scopes : scopesFromBearer(auth.claims), matched.route.scopes ?? []);
         }
       } catch (error) {
-        return { matched: true, response: withSecurityHeaders(authErrorResponse(error)) };
+        return { matched: true, response: routeResponse(req, authErrorResponse(error)) };
       }
       const current = () => authentication.requireUser(auth);
       const userRealtime = {
@@ -83,7 +87,7 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
       } satisfies UserScopedRealtimePublisher<TEvent>;
       const originFailure = checkSameOrigin(req, config, auth, matched.route.sameOrigin ?? "mutations");
       if (originFailure) {
-        return { matched: true, response: withSecurityHeaders(originFailure) };
+        return { matched: true, response: routeResponse(req, originFailure) };
       }
       try {
         const response = await handler(req, {
@@ -100,9 +104,9 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
           userRealtime,
           server,
         });
-        return { matched: true, response: response ? withSecurityHeaders(response) : undefined };
+        return { matched: true, response: response ? routeResponse(req, response) : undefined };
       } catch (error) {
-        return { matched: true, response: withSecurityHeaders(routeHandlerErrorResponse(error)) };
+        return { matched: true, response: routeResponse(req, routeHandlerErrorResponse(error)) };
       }
     },
   };

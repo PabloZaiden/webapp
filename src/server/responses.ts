@@ -252,3 +252,15 @@ export function withSecurityHeaders(response: Response): Response {
   applySecurityHeaders(response.headers);
   return response;
 }
+
+export function withoutResponseBody(response: Response): Response {
+  return new Response(null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+export function responseForRequest(req: Request, response: Response): Response {
+  return req.method === "HEAD" ? withoutResponseBody(response) : response;
+}

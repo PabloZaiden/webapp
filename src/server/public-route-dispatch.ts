@@ -4,7 +4,7 @@ import type {
   PublicRouteValue,
 } from "./server-types";
 import type { WebDocument } from "./web-document";
-import { methodNotAllowed, notFound, withSecurityHeaders } from "./responses";
+import { methodNotAllowed, notFound, responseForRequest, withSecurityHeaders } from "./responses";
 
 export interface PublicRouteDispatcherDependencies {
   publicRoutes: Readonly<Record<string, PublicRouteDefinition>>;
@@ -33,7 +33,7 @@ function publicAssetResponse(asset: PublicRouteAsset, extraHeaders?: HeadersInit
 async function handlePublicRouteValue(req: Request, route: PublicRouteDefinition): Promise<Response> {
   const methodName = req.method === "HEAD" ? "HEAD" : req.method === "GET" ? "GET" : undefined;
   if (!methodName) {
-    return withSecurityHeaders(methodNotAllowed());
+    return responseForRequest(req, withSecurityHeaders(methodNotAllowed()));
   }
   const definition = typeof route === "object"
     && route !== null
@@ -48,17 +48,14 @@ async function handlePublicRouteValue(req: Request, route: PublicRouteDefinition
     ? definition[methodName] ?? (methodName === "HEAD" ? definition.GET : undefined)
     : route as PublicRouteValue;
   if (!value) {
-    return withSecurityHeaders(methodNotAllowed());
+    return responseForRequest(req, withSecurityHeaders(methodNotAllowed()));
   }
   const asset = typeof value === "function" ? await value(req) : value;
   if (!asset) {
-    return withSecurityHeaders(notFound());
+    return responseForRequest(req, withSecurityHeaders(notFound()));
   }
   const response = publicAssetResponse(asset, definition?.headers);
-  if (req.method === "HEAD") {
-    return new Response(null, { status: response.status, statusText: response.statusText, headers: response.headers });
-  }
-  return response;
+  return responseForRequest(req, response);
 }
 
 export function createPublicRouteDispatcher(dependencies: PublicRouteDispatcherDependencies): (req: Request) => Promise<Response | undefined> {
