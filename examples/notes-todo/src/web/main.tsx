@@ -1,4 +1,4 @@
-import { Badge, Button, DataList, DataListRow, EmptyState, EntityHeader, FormActions, Page, Panel, SelectField, TextAreaField, TextField, WebAppRoot, renderWebApp, replaceHashRoute, useCallback, useEffect, useRealtimeRefresh, useState, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
+import { Badge, Button, DataList, DataListRow, EmptyState, EntityHeader, FormActions, Page, Panel, SelectField, TextAreaField, TextField, WebAppRoot, renderWebApp, replaceHashRoute, useCallback, useEffect, useRealtimeRefresh, useState, type ActionMenuItem, type SidebarNode, type SidebarNodeSnapshot, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
 import favicon from "../favicon.svg";
@@ -340,8 +340,10 @@ function NotesTodoApp() {
   const [sections, setSections] = useState<Section[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [sidebarSnapshotReady, setSidebarSnapshotReady] = useState(false);
 
   const refresh = useCallback(async () => {
+    setSidebarSnapshotReady(false);
     const config = await api<{ passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }>("/api/config");
     if (needsAuthentication(config)) return;
     const [nextSections, nextNotes, nextTodos] = await Promise.all([
@@ -352,6 +354,7 @@ function NotesTodoApp() {
     setSections(nextSections);
     setNotes(nextNotes);
     setTodos(nextTodos);
+    setSidebarSnapshotReady(true);
   }, []);
 
   useEffect(() => void refresh().catch(() => undefined), [refresh]);
@@ -389,7 +392,7 @@ function NotesTodoApp() {
     { id: "delete-task", label: "Delete task", destructive: true, onAction: () => void deleteTodo(todo) },
   ], [deleteTodo, patchTodo]);
 
-  const sidebarNodes = useCallback(({ search, activeTab }: { search: string; activeTab?: string }): SidebarNode[] => {
+  const sidebarNodes = useCallback(({ search, activeTab }: { search: string; activeTab?: string }): SidebarNodeSnapshot => {
     const query = search.trim().toLowerCase();
     const matches = (value: string | undefined) => !query || (value ?? "").toLowerCase().includes(query);
     const sectionsByParent = new Map<string, Section[]>();
@@ -484,8 +487,11 @@ function NotesTodoApp() {
         ],
       },
     ];
-    return activeTab ? nodes.filter((node) => node.id === activeTab) : nodes;
-  }, [noteActions, notes, sectionActions, sections, todoActions, todos]);
+    return {
+      nodes: activeTab ? nodes.filter((node) => node.id === activeTab) : nodes,
+      ready: sidebarSnapshotReady,
+    };
+  }, [noteActions, notes, sectionActions, sections, sidebarSnapshotReady, todoActions, todos]);
 
   const headerActions = useCallback(({ route }: { route: WebAppRoute; defaultTitle: string }): ActionMenuItem[] => {
     if (route.view === "home") {

@@ -109,11 +109,14 @@ function ActivityView({ projects, publicPing }: { projects: Project[]; publicPin
 
 function KitchenSinkApp() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [sidebarSnapshotReady, setSidebarSnapshotReady] = useState(false);
   const [publicPing, setPublicPing] = useState<"checking" | "ok" | "failed">("checking");
   const refresh = useCallback(async () => {
+    setSidebarSnapshotReady(false);
     const config = await api<{ passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }>("/api/config");
     if (needsAuthentication(config)) return;
     setProjects(await api<Project[]>("/api/projects"));
+    setSidebarSnapshotReady(true);
   }, []);
   useEffect(() => void refresh().catch(() => undefined), [refresh]);
   useEffect(() => {
@@ -182,12 +185,15 @@ function KitchenSinkApp() {
         ],
         getNodes: ({ search, activeTab }) => {
           const selectedNodes = sidebarNodes.filter((section) => section.id === (activeTab === "diagnostics" ? "diagnostics" : "projects"));
-          if (!search.trim()) return selectedNodes;
+          if (!search.trim()) return { nodes: selectedNodes, ready: sidebarSnapshotReady };
           const q = search.toLowerCase();
-          return selectedNodes.map((section) => ({
-            ...section,
-            children: section.children?.filter((child) => child.title.toLowerCase().includes(q)),
-          }));
+          return {
+            nodes: selectedNodes.map((section) => ({
+              ...section,
+              children: section.children?.filter((child) => child.title.toLowerCase().includes(q)),
+            })),
+            ready: sidebarSnapshotReady,
+          };
         },
       }}
       routes={{

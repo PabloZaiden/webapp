@@ -82,6 +82,21 @@ Sidebar nodes support:
 
 Search is intentionally app-defined: `getNodes({ search, activeTab })` receives trimmed search text (an empty string for a blank or whitespace-only query) and the selected tab id, and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
 
+`getNodes` can return either the node array or an explicit snapshot:
+
+```tsx
+getNodes: ({ search, activeTab }) => ({
+  nodes: buildSidebarNodes({ search, activeTab, records }),
+  ready: !loading && !refreshing && !error,
+})
+```
+
+An array is treated as a ready snapshot for backwards compatibility. For
+async data, set `ready` to `false` while loading, refreshing, or handling an
+error, and set it to `true` only when the returned tree is authoritative.
+Native pinning does not expose Pin/Unpin actions or reconcile storage until the
+base snapshots for every configured tab are ready.
+
 ### Custom item rendering
 
 For an application-owned layout on an item node, provide `render`. The callback
@@ -187,6 +202,13 @@ return {
 ## Native pinning
 
 Pinning is framework-owned and persisted in browser `localStorage`. Mark route-backed items as `pinnable`; `WebAppRoot` injects `Pin to sidebar` / `Unpin from sidebar` into both the sidebar context menu and the title-bar action menu for the active route. Pinned entries reuse the original sidebar node actions, so right-clicking a pinned item shows the same contextual menu as the source item.
+
+When a ready snapshot is received, pins whose current `SidebarNode` still
+exists are retained and their title, subtitle, badge, layout, and route
+metadata are refreshed. Pins absent from the complete ready snapshot are
+removed from both React state and `localStorage`. While the snapshot is not
+ready, persisted pins are left untouched so a temporary loading, refresh, or
+error state cannot delete valid pins.
 
 ```tsx
 {

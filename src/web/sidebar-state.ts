@@ -14,6 +14,27 @@ export type StoredSidebarPin = {
 
 export type SidebarCollapsedState = Record<string, boolean>;
 
+type SidebarBadgeVariant = Exclude<SidebarNode["badgeVariant"], undefined>;
+
+const SIDEBAR_BADGE_VARIANTS: readonly SidebarBadgeVariant[] = [
+  "default",
+  "success",
+  "warning",
+  "error",
+  "info",
+  "disabled",
+  "idle",
+  "planning",
+  "running",
+  "completed",
+  "stopped",
+  "failed",
+  "merged",
+  "pushed",
+  "deleted",
+  "plan_ready",
+];
+
 export function flattenSidebarItems(nodes: SidebarNode[]): SidebarNode[] {
   return nodes.flatMap((node) => [
     node,
@@ -36,8 +57,56 @@ function isSidebarCollapsedState(value: unknown): value is SidebarCollapsedState
   return Object.values(value).every((entry) => typeof entry === "boolean");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isWebAppRoute(value: unknown): value is WebAppRoute {
+  return isRecord(value)
+    && typeof value["view"] === "string"
+    && Object.values(value).every((entry) => entry === undefined || ["string", "number", "boolean"].includes(typeof entry));
+}
+
+function isSidebarBadgeVariant(value: unknown): value is SidebarBadgeVariant {
+  return typeof value === "string" && SIDEBAR_BADGE_VARIANTS.includes(value as SidebarBadgeVariant);
+}
+
+function parseStoredPin(value: unknown): StoredSidebarPin | undefined {
+  if (!isRecord(value) || typeof value["id"] !== "string" || typeof value["title"] !== "string" || !isWebAppRoute(value["route"])) {
+    return undefined;
+  }
+
+  const pin: StoredSidebarPin = {
+    id: value["id"],
+    title: value["title"],
+    route: value["route"],
+  };
+  if (typeof value["subtitle"] === "string") pin.subtitle = value["subtitle"];
+  if (typeof value["badge"] === "string") pin.badge = value["badge"];
+  if (isSidebarBadgeVariant(value["badgeVariant"])) pin.badgeVariant = value["badgeVariant"];
+  if (value["badgeAppearance"] === "dot" || value["badgeAppearance"] === "text") pin.badgeAppearance = value["badgeAppearance"];
+  if (value["itemLayout"] === "default" || value["itemLayout"] === "subtitle-above-title") pin.itemLayout = value["itemLayout"];
+  return pin;
+}
+
+function readStoredPins(key: string): StoredSidebarPin[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      return [];
+    }
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.flatMap((value) => {
+      const pin = parseStoredPin(value);
+      return pin ? [pin] : [];
+    }) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function toStoredPin(node: SidebarNode): StoredSidebarPin | undefined {
-  if (!node.route) {
+  if (node.type !== "item" || !node.route) {
     return undefined;
   }
   return {
@@ -52,34 +121,90 @@ export function toStoredPin(node: SidebarNode): StoredSidebarPin | undefined {
   };
 }
 
-export function useSidebarPins(appName: string, storageKey?: string) {
-  const key = pinStorageKey(appName, storageKey);
-  const [pins, setPins] = useState<StoredSidebarPin[]>(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) as StoredSidebarPin[] : [];
-    } catch {
-      return [];
+function storedPinsEqual(left: StoredSidebarPin, right: StoredSidebarPin): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function reconcileStoredPins(pins: StoredSidebarPin[], nodes: SidebarNode[]): StoredSidebarPin[] {
+  const currentById = new Map<string, StoredSidebarPin>();
+  for (const node of nodes) {
+    if (!node.pinnable) {
+      continue;
     }
-  });
+    const current = toStoredPin(node);
+    if (current) {
+      currentById.set(current.id, current);
+    }
+  }
+
+  const seen = new Set<string>();
+  const reconciled: StoredSidebarPin[] = [];
+  let changed = false;
+  for (const pin of pins) {
+    if (seen.has(pin.id)) {
+      changed = true;
+      continue;
+    }
+    seen.add(pin.id);
+    const current = currentById.get(pin.id);
+    if (!current) {
+      changed = true;
+      continue;
+    }
+    if (!storedPinsEqual(pin, current)) {
+      changed = true;
+      reconciled.push(current);
+    } else {
+      reconciled.push(pin);
+    }
+  }
+  return changed ? reconciled : pins;
+}
+
+type SidebarPinsOptions = {
+  enabled: boolean;
+  ready: boolean;
+  nodes: SidebarNode[];
+};
+
+export function useSidebarPins(appName: string, storageKey: string | undefined, options: SidebarPinsOptions) {
+  const key = pinStorageKey(appName, storageKey);
+  const [pins, setPins] = useState<StoredSidebarPin[]>(() => readStoredPins(key));
+  const ready = options.enabled && options.ready;
+  const currentPins = useMemo(
+    () => ready ? reconcileStoredPins(pins, options.nodes) : pins,
+    [options.nodes, pins, ready],
+  );
 
   useEffect(() => {
-    localStorage.setItem(key, JSON.stringify(pins));
-  }, [key, pins]);
+    if (!ready) {
+      return;
+    }
+    if (currentPins !== pins) {
+      setPins(currentPins);
+    }
+    localStorage.setItem(key, JSON.stringify(currentPins));
+  }, [currentPins, key, pins, ready]);
 
-  const pinIds = useMemo(() => new Set(pins.map((pin) => pin.id)), [pins]);
+  const pinIds = useMemo(() => new Set(currentPins.map((pin) => pin.id)), [currentPins]);
   const pin = useCallback((node: SidebarNode) => {
+    if (!ready) {
+      return;
+    }
     const stored = toStoredPin(node);
     if (!stored) {
       return;
     }
     setPins((current) => [...current.filter((item) => item.id !== stored.id), stored]);
-  }, []);
+  }, [ready]);
   const unpin = useCallback((id: string) => {
+    if (!ready) {
+      return;
+    }
     setPins((current) => current.filter((item) => item.id !== id));
-  }, []);
+  }, [ready]);
 
-  return { pins, pinIds, pin, unpin };
+  return { pins: currentPins, pinIds, pin, unpin };
 }
 
 export function useSidebarCollapsedState(appName: string) {

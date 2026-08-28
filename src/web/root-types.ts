@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { ActionMenuItem, SidebarAction, SidebarBuildContext, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
+import type { ActionMenuItem, SidebarAction, SidebarBuildContext, SidebarNode, SidebarNodeSnapshot, SidebarTab, WebAppRoute } from "./sidebar/types";
 
 export type SettingsScope = "user" | "admin" | "owner";
 
@@ -58,7 +58,7 @@ export interface WebAppRootProps {
       sectionTitle?: string;
       storageKey?: string;
     };
-    getNodes: (ctx: SidebarBuildContext) => SidebarNode[];
+    getNodes: (ctx: SidebarBuildContext) => SidebarNode[] | SidebarNodeSnapshot;
   };
   routes: Record<string, ReactNode | ((route: WebAppRoute) => ReactNode)>;
   header?: {
