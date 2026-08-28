@@ -2,10 +2,18 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import type {
+  AccountDisableResult,
   ApiKeyRecord,
   AuditEventRecord,
+  DeviceAuthExchangeCandidate,
+  DeviceAuthApprovalResult,
+  DeviceAuthDenialResult,
+  DeviceAuthExchangeResult,
   DeviceAuthRequestRecord,
+  PasskeyPersistenceResult,
   RefreshSessionRecord,
+  RefreshSessionRotationResult,
+  SetupLinkCompletionResult,
   StoredPasskey,
   UserRecord,
   UserSetupLinkRecord,
@@ -44,6 +52,10 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
   const dbPath = join(dataDir, options.fileName ?? "webapp.sqlite");
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
+
+  function immediateTransaction<T>(callback: () => T): T {
+    return db.transaction(callback).immediate();
+  }
 
   function tableExists(table: string): boolean {
     const row = db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) as Row | null;
@@ -153,7 +165,8 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
         alg TEXT NOT NULL,
         public_jwk TEXT NOT NULL,
         private_jwk TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1
       );
       CREATE TABLE IF NOT EXISTS webapp_refresh_sessions (
         id TEXT PRIMARY KEY,
@@ -188,6 +201,28 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
       db.exec("ALTER TABLE webapp_api_keys ADD COLUMN managed_by TEXT;");
     }
     db.exec("CREATE INDEX IF NOT EXISTS idx_webapp_api_keys_managed ON webapp_api_keys(user_id, kind, managed_by);");
+  }
+
+  function migrateSigningKeySchema(): void {
+    if (!tableExists("webapp_signing_keys")) {
+      return;
+    }
+    immediateTransaction(() => {
+      if (!hasColumn("webapp_signing_keys", "active")) {
+        db.exec("ALTER TABLE webapp_signing_keys ADD COLUMN active INTEGER NOT NULL DEFAULT 1;");
+      }
+      db.query("UPDATE webapp_signing_keys SET active = 0").run();
+      const winner = db.query(`
+        SELECT kid
+        FROM webapp_signing_keys
+        ORDER BY created_at DESC, rowid ASC
+        LIMIT 1
+      `).get() as Row | null;
+      if (winner) {
+        db.query("UPDATE webapp_signing_keys SET active = 1 WHERE kid = ?").run(text(winner["kid"]));
+      }
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_webapp_signing_keys_active ON webapp_signing_keys(active) WHERE active = 1;");
+    });
   }
 
   function migrateSingleUserSchema(): void {
@@ -293,6 +328,7 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
     migrateSingleUserSchema();
     createSchema();
     migrateApiKeySchema();
+    migrateSigningKeySchema();
     db.exec("PRAGMA foreign_keys = ON;");
   }
 
@@ -418,6 +454,16 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
     };
   }
 
+  function mapSigningKey(row: Row) {
+    return {
+      alg: text(row["alg"]),
+      kid: text(row["kid"]),
+      publicJwk: json<Record<string, unknown>>(row["public_jwk"], {}),
+      privateJwk: json<Record<string, unknown>>(row["private_jwk"], {}),
+      createdAt: text(row["created_at"]),
+    };
+  }
+
   function userSelect(): string {
     return `
       SELECT u.*,
@@ -425,6 +471,344 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
       FROM webapp_users u
       LEFT JOIN webapp_passkeys p ON p.user_id = u.id
     `;
+  }
+
+  function readUserById(id: string): UserRecord | undefined {
+    const row = db.query(`${userSelect()} WHERE u.id = ?`).get(id) as Row | null;
+    return row ? mapUser(row) : undefined;
+  }
+
+  function savePasskeyRecord(passkey: StoredPasskey): void {
+    db.query(`
+      INSERT INTO webapp_passkeys
+      (id, user_id, name, credential_id, public_key, counter, device_type, backed_up, transports, created_at, updated_at, last_used_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET
+        id = excluded.id,
+        name = excluded.name,
+        credential_id = excluded.credential_id,
+        public_key = excluded.public_key,
+        counter = excluded.counter,
+        device_type = excluded.device_type,
+        backed_up = excluded.backed_up,
+        transports = excluded.transports,
+        updated_at = excluded.updated_at,
+        last_used_at = excluded.last_used_at
+    `).run(
+      passkey.id,
+      passkey.userId,
+      passkey.name,
+      passkey.credentialId,
+      passkey.publicKey,
+      passkey.counter,
+      passkey.deviceType,
+      passkey.backedUp ? 1 : 0,
+      JSON.stringify(passkey.transports),
+      passkey.createdAt,
+      passkey.updatedAt,
+      passkey.lastUsedAt ?? null,
+    );
+  }
+
+  function passkeyCredentialOwner(credentialId: string): string | undefined {
+    const row = db.query("SELECT user_id FROM webapp_passkeys WHERE credential_id = ?").get(credentialId) as Row | null;
+    return optionalText(row?.["user_id"]);
+  }
+
+  function savePasskeyAndIncrementUserAuthVersion(passkey: StoredPasskey, updatedAt: string): PasskeyPersistenceResult {
+    return immediateTransaction(() => {
+      if (!readUserById(passkey.userId)) {
+        return { kind: "missing_user" };
+      }
+      const credentialOwner = passkeyCredentialOwner(passkey.credentialId);
+      if (credentialOwner && credentialOwner !== passkey.userId) {
+        return { kind: "credential_conflict" };
+      }
+      savePasskeyRecord(passkey);
+      const result = db.query("UPDATE webapp_users SET auth_version = auth_version + 1, updated_at = ? WHERE id = ?")
+        .run(updatedAt, passkey.userId);
+      if (result.changes === 0) {
+        return { kind: "conflict" };
+      }
+      const user = readUserById(passkey.userId);
+      return user ? { kind: "saved", user } : { kind: "conflict" };
+    });
+  }
+
+  function completeSetupLink(
+    tokenHash: string,
+    userId: string,
+    passkey: StoredPasskey,
+    completedAt: string,
+  ): SetupLinkCompletionResult {
+    return immediateTransaction(() => {
+      const linkRow = db.query("SELECT * FROM webapp_user_setup_links WHERE token_hash = ?").get(tokenHash) as Row | null;
+      if (!linkRow) {
+        return { kind: "not_found" };
+      }
+      const link = mapSetupLink(linkRow);
+      if (link.consumedAt) {
+        return { kind: "consumed" };
+      }
+      if (link.expiresAt <= completedAt) {
+        return { kind: "expired" };
+      }
+      if (link.userId !== userId || passkey.userId !== link.userId) {
+        return { kind: "user_mismatch" };
+      }
+      if (!readUserById(link.userId)) {
+        return { kind: "not_found" };
+      }
+      const credentialOwner = passkeyCredentialOwner(passkey.credentialId);
+      if (credentialOwner && credentialOwner !== passkey.userId) {
+        return { kind: "conflict" };
+      }
+      const claimed = db.query(`
+        UPDATE webapp_user_setup_links
+        SET consumed_at = ?
+        WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?
+      `).run(completedAt, tokenHash, completedAt);
+      if (claimed.changes === 0) {
+        const current = db.query("SELECT * FROM webapp_user_setup_links WHERE token_hash = ?").get(tokenHash) as Row | null;
+        if (!current) {
+          return { kind: "not_found" };
+        }
+        const currentLink = mapSetupLink(current);
+        return currentLink.consumedAt
+          ? { kind: "consumed" }
+          : currentLink.expiresAt <= completedAt
+            ? { kind: "expired" }
+            : { kind: "conflict" };
+      }
+      savePasskeyRecord(passkey);
+      const authVersionUpdate = db.query("UPDATE webapp_users SET auth_version = auth_version + 1, updated_at = ? WHERE id = ?")
+        .run(completedAt, link.userId);
+      if (authVersionUpdate.changes === 0) {
+        return { kind: "conflict" };
+      }
+      const user = readUserById(link.userId);
+      if (!user) {
+        return { kind: "conflict" };
+      }
+      return {
+        kind: "completed",
+        link: { ...link, consumedAt: completedAt },
+        user,
+      };
+    });
+  }
+
+  function approveDeviceAuth(userCode: string, userId: string, updatedAt: string): DeviceAuthApprovalResult {
+    return immediateTransaction(() => {
+      const row = db.query("SELECT * FROM webapp_device_auth_requests WHERE user_code = ?").get(userCode) as Row | null;
+      if (!row) {
+        return { kind: "not_found" };
+      }
+      const record = mapDevice(row);
+      if (record.expiresAt <= updatedAt) {
+        return { kind: "expired" };
+      }
+      if (record.status === "approved") {
+        return record.approvedByUserId === userId
+          ? { kind: "already_approved", record }
+          : { kind: "conflict" };
+      }
+      if (record.status !== "pending") {
+        return { kind: record.status };
+      }
+      const result = db.query(`
+        UPDATE webapp_device_auth_requests
+        SET status = 'approved', approved_by_user_id = ?, updated_at = ?
+        WHERE user_code = ? AND status = 'pending' AND expires_at > ?
+      `).run(userId, updatedAt, userCode, updatedAt);
+      if (result.changes === 0) {
+        return { kind: "conflict" };
+      }
+      return {
+        kind: "approved",
+        record: { ...record, status: "approved", approvedByUserId: userId, updatedAt },
+      };
+    });
+  }
+
+  function denyDeviceAuth(userCode: string, updatedAt: string): DeviceAuthDenialResult {
+    return immediateTransaction(() => {
+      const row = db.query("SELECT * FROM webapp_device_auth_requests WHERE user_code = ?").get(userCode) as Row | null;
+      if (!row) {
+        return { kind: "not_found" };
+      }
+      const record = mapDevice(row);
+      if (record.expiresAt <= updatedAt) {
+        return { kind: "expired" };
+      }
+      if (record.status === "denied") {
+        return { kind: "already_denied", record };
+      }
+      if (record.status !== "pending") {
+        return { kind: record.status };
+      }
+      const result = db.query(`
+        UPDATE webapp_device_auth_requests
+        SET status = 'denied', updated_at = ?
+        WHERE user_code = ? AND status = 'pending' AND expires_at > ?
+      `).run(updatedAt, userCode, updatedAt);
+      if (result.changes === 0) {
+        return { kind: "conflict" };
+      }
+      return { kind: "denied", record: { ...record, status: "denied", updatedAt } };
+    });
+  }
+
+  function exchangeDeviceAuth(
+    deviceCodeHash: string,
+    clientId: string | undefined,
+    next: DeviceAuthExchangeCandidate,
+    now: string,
+  ): DeviceAuthExchangeResult {
+    return immediateTransaction(() => {
+      const row = db.query("SELECT * FROM webapp_device_auth_requests WHERE device_code_hash = ?").get(deviceCodeHash) as Row | null;
+      if (!row) {
+        return { kind: "not_found" };
+      }
+      const record = mapDevice(row);
+      if (record.expiresAt <= now) {
+        return { kind: "expired" };
+      }
+      if (clientId && record.clientId !== clientId) {
+        return { kind: "client_mismatch" };
+      }
+      if (record.status !== "approved") {
+        return { kind: record.status === "pending" ? "pending" : record.status };
+      }
+      if (!record.approvedByUserId) {
+        return { kind: "conflict" };
+      }
+      const user = readUserById(record.approvedByUserId);
+      if (!user) {
+        return { kind: "missing_user" };
+      }
+      if (user.disabledAt) {
+        return { kind: "disabled_user" };
+      }
+      if ((next.userId && next.userId !== user.id) || next.clientId !== record.clientId || next.scope !== record.scope) {
+        return { kind: "conflict" };
+      }
+      const session: RefreshSessionRecord = { ...next, userId: user.id };
+      const claimed = db.query(`
+        UPDATE webapp_device_auth_requests
+        SET status = 'consumed', updated_at = ?
+        WHERE device_code_hash = ? AND status = 'approved' AND expires_at > ?
+      `).run(now, deviceCodeHash, now);
+      if (claimed.changes === 0) {
+        return { kind: "conflict" };
+      }
+      db.query(`
+        UPDATE webapp_refresh_sessions
+        SET revoked_at = ?, updated_at = ?
+        WHERE user_id = ? AND client_id = ? AND revoked_at IS NULL AND expires_at > ?
+      `).run(now, now, user.id, record.clientId, now);
+      db.query(`
+        INSERT INTO webapp_refresh_sessions
+        (id, user_id, family_id, client_id, scope, refresh_token_hash, created_at, updated_at, expires_at, last_used_at, revoked_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(session.id, session.userId, session.familyId, session.clientId, session.scope, session.refreshTokenHash, session.createdAt, session.updatedAt, session.expiresAt, session.lastUsedAt ?? null, session.revokedAt ?? null);
+      return {
+        kind: "exchanged",
+        request: { ...record, status: "consumed", updatedAt: now },
+        user,
+        session,
+      };
+    });
+  }
+
+  function rotateRefreshSession(
+    oldHash: string,
+    next: RefreshSessionRecord,
+    now: string,
+    clientId?: string,
+  ): RefreshSessionRotationResult {
+    return immediateTransaction(() => {
+      const row = db.query("SELECT * FROM webapp_refresh_sessions WHERE refresh_token_hash = ?").get(oldHash) as Row | null;
+      if (!row) {
+        return { kind: "not_found" };
+      }
+      const previous = mapRefresh(row);
+      if (previous.revokedAt) {
+        db.query("UPDATE webapp_refresh_sessions SET revoked_at = ?, updated_at = ? WHERE family_id = ? AND revoked_at IS NULL")
+          .run(now, now, previous.familyId);
+        return { kind: "replayed", familyId: previous.familyId, userId: previous.userId };
+      }
+      if (previous.expiresAt <= now) {
+        return { kind: "expired" };
+      }
+      if (clientId && previous.clientId !== clientId) {
+        return { kind: "client_mismatch" };
+      }
+      const user = readUserById(previous.userId);
+      if (!user) {
+        db.query("UPDATE webapp_refresh_sessions SET revoked_at = ?, updated_at = ? WHERE family_id = ? AND revoked_at IS NULL")
+          .run(now, now, previous.familyId);
+        return { kind: "missing_user", familyId: previous.familyId, userId: previous.userId };
+      }
+      if (user.disabledAt) {
+        db.query("UPDATE webapp_refresh_sessions SET revoked_at = ?, updated_at = ? WHERE family_id = ? AND revoked_at IS NULL")
+          .run(now, now, previous.familyId);
+        return { kind: "disabled_user", familyId: previous.familyId, userId: previous.userId };
+      }
+      if (next.userId !== previous.userId || next.familyId !== previous.familyId || next.clientId !== previous.clientId || next.scope !== previous.scope) {
+        return { kind: "conflict" };
+      }
+      const conflicting = db.query(`
+        SELECT 1
+        FROM webapp_refresh_sessions
+        WHERE id = ? OR refresh_token_hash = ?
+        LIMIT 1
+      `).get(next.id, next.refreshTokenHash) as Row | null;
+      if (conflicting) {
+        return { kind: "conflict" };
+      }
+      const revoked = db.query(`
+        UPDATE webapp_refresh_sessions
+        SET revoked_at = ?, updated_at = ?
+        WHERE refresh_token_hash = ? AND revoked_at IS NULL AND expires_at > ?
+      `).run(now, now, oldHash, now);
+      if (revoked.changes === 0) {
+        return { kind: "conflict" };
+      }
+      db.query(`
+        INSERT INTO webapp_refresh_sessions
+        (id, user_id, family_id, client_id, scope, refresh_token_hash, created_at, updated_at, expires_at, last_used_at, revoked_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(next.id, next.userId, next.familyId, next.clientId, next.scope, next.refreshTokenHash, next.createdAt, next.updatedAt, next.expiresAt, next.lastUsedAt ?? null, next.revokedAt ?? null);
+      return { kind: "rotated", previous, session: next, user };
+    });
+  }
+
+  function disableUser(id: string, disabledAt: string): AccountDisableResult {
+    return immediateTransaction(() => {
+      const existing = readUserById(id);
+      if (!existing) {
+        return { kind: "not_found" };
+      }
+      if (existing.role === "owner") {
+        return { kind: "owner_immutable" };
+      }
+      if (existing.disabledAt) {
+        return { kind: "already_disabled", user: existing };
+      }
+      const result = db.query(`
+        UPDATE webapp_users
+        SET disabled_at = ?, auth_version = auth_version + 1, updated_at = ?
+        WHERE id = ? AND disabled_at IS NULL AND role != 'owner'
+      `).run(disabledAt, disabledAt, id);
+      if (result.changes === 0) {
+        return { kind: "conflict" };
+      }
+      db.query("UPDATE webapp_refresh_sessions SET revoked_at = ?, updated_at = ? WHERE user_id = ? AND revoked_at IS NULL")
+        .run(disabledAt, disabledAt, id);
+      const user = readUserById(id);
+      return user ? { kind: "disabled", user } : { kind: "conflict" };
+    });
   }
 
   return {
@@ -445,10 +829,7 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(user.id, user.username, user.role, user.authVersion, user.createdAt, user.updatedAt, user.lastLoginAt ?? null, user.disabledAt ?? null);
     },
-    getUserById: (id) => {
-      const row = db.query(`${userSelect()} WHERE u.id = ?`).get(id) as Row | null;
-      return row ? mapUser(row) : undefined;
-    },
+    getUserById: readUserById,
     getUserByUsername: (username) => {
       const row = db.query(`${userSelect()} WHERE lower(u.username) = lower(?)`).get(username) as Row | null;
       return row ? mapUser(row) : undefined;
@@ -483,9 +864,7 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
       const row = db.query("SELECT * FROM webapp_user_setup_links WHERE token_hash = ?").get(tokenHash) as Row | null;
       return row ? mapSetupLink(row) : undefined;
     },
-    consumeSetupLink: (id, consumedAt) => {
-      db.query("UPDATE webapp_user_setup_links SET consumed_at = ? WHERE id = ?").run(consumedAt, id);
-    },
+    completeSetupLink,
     deletePendingSetupLinksForUser: (userId, now) => {
       db.query("UPDATE webapp_user_setup_links SET consumed_at = ? WHERE user_id = ? AND consumed_at IS NULL").run(now, userId);
     },
@@ -512,37 +891,8 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
       const row = db.query("SELECT * FROM webapp_passkeys WHERE credential_id = ?").get(credentialId) as Row | null;
       return row ? mapPasskey(row) : undefined;
     },
-    savePasskey: (passkey) => {
-      db.query(`
-        INSERT INTO webapp_passkeys
-        (id, user_id, name, credential_id, public_key, counter, device_type, backed_up, transports, created_at, updated_at, last_used_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET
-          id = excluded.id,
-          name = excluded.name,
-          credential_id = excluded.credential_id,
-          public_key = excluded.public_key,
-          counter = excluded.counter,
-          device_type = excluded.device_type,
-          backed_up = excluded.backed_up,
-          transports = excluded.transports,
-          updated_at = excluded.updated_at,
-          last_used_at = excluded.last_used_at
-      `).run(
-        passkey.id,
-        passkey.userId,
-        passkey.name,
-        passkey.credentialId,
-        passkey.publicKey,
-        passkey.counter,
-        passkey.deviceType,
-        passkey.backedUp ? 1 : 0,
-        JSON.stringify(passkey.transports),
-        passkey.createdAt,
-        passkey.updatedAt,
-        passkey.lastUsedAt ?? null,
-      );
-    },
+    savePasskey: savePasskeyRecord,
+    savePasskeyAndIncrementUserAuthVersion,
     updatePasskeyUsage: (credentialId, counter, lastUsedAt) => {
       db.query("UPDATE webapp_passkeys SET counter = ?, last_used_at = ?, updated_at = ? WHERE credential_id = ?")
         .run(counter, lastUsedAt, lastUsedAt, credentialId);
@@ -612,30 +962,33 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
       const row = db.query("SELECT * FROM webapp_device_auth_requests WHERE device_code_hash = ?").get(deviceCodeHash) as Row | null;
       return row ? mapDevice(row) : undefined;
     },
-    updateDeviceAuthStatus: (userCode, status, updatedAt, approvedByUserId) => {
-      db.query("UPDATE webapp_device_auth_requests SET status = ?, approved_by_user_id = COALESCE(?, approved_by_user_id), updated_at = ? WHERE user_code = ?")
-        .run(status, approvedByUserId ?? null, updatedAt, userCode);
-    },
+    approveDeviceAuth,
+    denyDeviceAuth,
+    exchangeDeviceAuth,
     deleteExpiredDeviceAuthRequests: (now) => {
       db.query("DELETE FROM webapp_device_auth_requests WHERE expires_at <= ?").run(now);
     },
 
     getSigningKey: () => {
-      const row = db.query("SELECT * FROM webapp_signing_keys ORDER BY created_at DESC LIMIT 1").get() as Row | null;
-      return row
-        ? {
-            alg: text(row["alg"]),
-            kid: text(row["kid"]),
-            publicJwk: json<Record<string, unknown>>(row["public_jwk"], {}),
-            privateJwk: json<Record<string, unknown>>(row["private_jwk"], {}),
-            createdAt: text(row["created_at"]),
-          }
-        : undefined;
+      const row = db.query("SELECT * FROM webapp_signing_keys WHERE active = 1 ORDER BY created_at DESC, rowid ASC LIMIT 1").get() as Row | null;
+      return row ? mapSigningKey(row) : undefined;
     },
-    saveSigningKey: (record) => {
-      db.query("INSERT INTO webapp_signing_keys (kid, alg, public_jwk, private_jwk, created_at) VALUES (?, ?, ?, ?, ?)")
-        .run(record.kid, record.alg, JSON.stringify(record.publicJwk), JSON.stringify(record.privateJwk), record.createdAt);
-    },
+    getOrCreateSigningKey: (candidate) => immediateTransaction(() => {
+      const existing = db.query("SELECT * FROM webapp_signing_keys WHERE active = 1 ORDER BY created_at DESC, rowid ASC LIMIT 1").get() as Row | null;
+      if (existing) {
+        return mapSigningKey(existing);
+      }
+      db.query(`
+        INSERT INTO webapp_signing_keys (kid, alg, public_jwk, private_jwk, created_at, active)
+        VALUES (?, ?, ?, ?, ?, 1)
+        ON CONFLICT DO NOTHING
+      `).run(candidate.kid, candidate.alg, JSON.stringify(candidate.publicJwk), JSON.stringify(candidate.privateJwk), candidate.createdAt);
+      const winner = db.query("SELECT * FROM webapp_signing_keys WHERE active = 1 ORDER BY created_at DESC, rowid ASC LIMIT 1").get() as Row | null;
+      if (!winner) {
+        throw new Error("Signing-key initialization did not produce an active key");
+      }
+      return mapSigningKey(winner);
+    }),
 
     saveRefreshSession: (record) => {
       db.query(`
@@ -654,22 +1007,7 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
         : (db.query("SELECT * FROM webapp_refresh_sessions ORDER BY created_at DESC").all() as Row[]);
       return rows.map(mapRefresh);
     },
-    rotateRefreshSession: (oldHash, next, now) => {
-      const transaction = db.transaction(() => {
-        const old = db.query("SELECT * FROM webapp_refresh_sessions WHERE refresh_token_hash = ?").get(oldHash) as Row | null;
-        if (!old) {
-          return undefined;
-        }
-        db.query("UPDATE webapp_refresh_sessions SET revoked_at = ?, updated_at = ? WHERE refresh_token_hash = ?").run(now, now, oldHash);
-        db.query(`
-          INSERT INTO webapp_refresh_sessions
-          (id, user_id, family_id, client_id, scope, refresh_token_hash, created_at, updated_at, expires_at, last_used_at, revoked_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(next.id, next.userId, next.familyId, next.clientId, next.scope, next.refreshTokenHash, next.createdAt, next.updatedAt, next.expiresAt, next.lastUsedAt ?? null, next.revokedAt ?? null);
-        return mapRefresh(old);
-      });
-      return transaction();
-    },
+    rotateRefreshSession,
     revokeRefreshSession: (id, revokedAt, userId) => {
       const result = userId
         ? db.query("UPDATE webapp_refresh_sessions SET revoked_at = ?, updated_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL").run(revokedAt, revokedAt, id, userId)
@@ -685,5 +1023,6 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
     deleteExpiredRefreshSessions: (now) => {
       db.query("DELETE FROM webapp_refresh_sessions WHERE expires_at <= ?").run(now);
     },
+    disableUser,
   };
 }

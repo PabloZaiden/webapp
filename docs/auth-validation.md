@@ -78,3 +78,13 @@ Run this checklist before releasing a framework app or cutting a checkpoint.
 7. Reuse the old refresh token and confirm `invalid_grant`.
 8. Reuse the consumed device code and confirm `invalid_grant`.
 9. Revoke the active device session from Settings and confirm refresh fails.
+
+## Atomic credential transitions
+
+1. Open one device verification link in two browser contexts, approve it with different users, and confirm the first approval remains the approver.
+2. Submit the same approved device code from two clients at once and confirm only one receives tokens, the request becomes consumed, and only one active same-client session remains.
+3. Submit the same setup link from two fresh contexts with valid passkeys and confirm only one completion succeeds; the other cannot replace the stored passkey.
+4. Present one refresh token from two clients at once and confirm only one successor is created. Confirm the replay response is `invalid_grant` and the refresh family is revoked according to the documented policy.
+5. Start two first-use signing-key callers against the same data directory and confirm both use the same `kid`; restart the app and confirm the `kid` is unchanged.
+6. Disable a non-owner user through the account lifecycle operation and confirm all active refresh sessions are revoked, device exchange and refresh return intentional 4xx errors, and a previously-issued bearer token no longer authenticates.
+7. Confirm successful transitions create their existing audit events only after the durable state change; losing, expired, consumed, replayed, and disabled requests create no success-shaped event.
