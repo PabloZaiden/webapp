@@ -144,6 +144,7 @@ function tokenSet(accessToken: string, refreshToken: string, scope: string): Tok
 }
 
 export function createDeviceAuthorization(req: Request, store: WebAppStore, config: RuntimeConfig, input: { clientId?: string; scope?: string } = {}): DeviceAuthorizationResponse {
+  store.deleteExpiredDeviceAuthRequests(nowIso());
   const deviceCode = randomToken(32);
   let userCode = generateUserCode();
   while (store.getDeviceAuthByUserCode(userCode)) {

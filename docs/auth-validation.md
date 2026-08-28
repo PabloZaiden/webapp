@@ -78,6 +78,7 @@ Run this checklist before releasing a framework app or cutting a checkpoint.
 7. Reuse the old refresh token and confirm `invalid_grant`.
 8. Reuse the consumed device code and confirm `invalid_grant`.
 9. Revoke the active device session from Settings and confirm refresh fails.
+10. Create a new authorization request after an older request expires and confirm expired device requests are cleaned up without removing active requests.
 
 ## Atomic credential transitions
 

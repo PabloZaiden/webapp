@@ -136,10 +136,11 @@ one token set at most.
 
 Device codes are one-use. Device sessions are self-only in Settings, and only
 active refresh-token sessions are listed. Revoked or expired sessions are
-hidden; expired sessions are purged by an explicit cleanup operation, while
-consumed device requests and revoked session records remain available long
-enough to classify replays. Reusing a consumed device code or stale refresh
-token returns `invalid_grant`.
+hidden; expired device-auth requests are purged when a new authorization
+request is created, before user-code collision checks. Verification and
+exchange paths do not delete requests, so consumed or revoked state remains
+available long enough to classify replays until the next creation cleanup.
+Reusing a consumed device code or stale refresh token returns `invalid_grant`.
 
 Refresh rotation also uses a conditional SQLite transition. The old row must
 match the presented hash, be unrevoked, unexpired, and belong to the requested

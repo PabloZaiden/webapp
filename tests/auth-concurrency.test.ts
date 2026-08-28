@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { exchangeDeviceCode, exchangeRefreshToken } from "../src/server/auth/device-auth";
+import { createDeviceAuthorization, exchangeDeviceCode, exchangeRefreshToken } from "../src/server/auth/device-auth";
 import { addSeconds, nowIso, sha256 } from "../src/server/auth/crypto";
 import { AuthError } from "../src/server/auth/types";
 import { sqliteWebAppStore } from "../src/server/auth/sqlite-store";
@@ -65,6 +65,43 @@ function createRefreshSession(userId: string, clientId: string, familyId: string
     expiresAt: addSeconds(600),
   };
 }
+
+test("new device authorizations clean up expired requests and preserve active requests", () => {
+  const dataDir = createDataDir("device-cleanup");
+  try {
+    const store = createStore(dataDir);
+    const expiredAt = new Date(Date.now() - 1_000).toISOString();
+    const activeAt = addSeconds(600);
+    store.saveDeviceAuthRequest({
+      deviceCodeHash: "expired-device-code",
+      userCode: "EXPR-2345",
+      clientId: "test-cli",
+      scope: "todos:read",
+      status: "consumed",
+      createdAt: expiredAt,
+      updatedAt: expiredAt,
+      expiresAt: expiredAt,
+    });
+    store.saveDeviceAuthRequest({
+      deviceCodeHash: "active-device-code",
+      userCode: "ACTV-2345",
+      clientId: "test-cli",
+      scope: "todos:read",
+      status: "pending",
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      expiresAt: activeAt,
+    });
+
+    const config = readRuntimeConfig({ appName: "Auth concurrency", envPrefix: "AUTH_CONCURRENCY" });
+    createDeviceAuthorization(new Request("http://localhost"), store, config, { clientId: "test-cli" });
+
+    expect(store.getDeviceAuthByDeviceCodeHash("expired-device-code")).toBeUndefined();
+    expect(store.getDeviceAuthByDeviceCodeHash("active-device-code")?.status).toBe("pending");
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
 
 async function concurrently<T>(operations: Array<() => T>): Promise<T[]> {
   return Promise.all(operations.map(async (operation) => {

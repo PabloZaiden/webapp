@@ -23,6 +23,7 @@ import type { ApiKeyKind, LogLevelName, ThemePreference, WebAppUserRole } from "
 import { createUserRecord } from "./users";
 
 type Row = Record<string, unknown>;
+const SQLITE_BUSY_TIMEOUT_MS = 5_000;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -52,6 +53,7 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
   const dbPath = join(dataDir, options.fileName ?? "webapp.sqlite");
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
+  db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};`);
 
   function immediateTransaction<T>(callback: () => T): T {
     return db.transaction(callback).immediate();
