@@ -765,11 +765,78 @@ test("pinned routes retain their header actions across sidebar tabs", async () =
       },
     }));
 
-    await waitFor(() => expect(view.getByRole("button", { name: "Stored note" })).toBeTruthy());
-    fireEvent.click(view.getByRole("button", { name: "Stored note" }));
+    await waitFor(() => expect(view.getByRole("button", { name: "Live note" })).toBeTruthy());
+    fireEvent.click(view.getByRole("button", { name: "Live note" }));
     await waitFor(() => expect(view.getByText("Note")).toBeTruthy());
     fireEvent.click(await waitFor(() => view.getByLabelText("Actions for note")));
     await waitFor(() => expect(view.getAllByRole("menuitem", { name: "Inspect note" })).toHaveLength(1));
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("native pinning waits for a ready snapshot and reconciles current node metadata", async () => {
+  const restoreFetch = mockConfigFetch();
+  const storedPins = [
+    { id: "valid", title: "Old title", route: { view: "valid" } },
+    { id: "missing", title: "Missing item", route: { view: "missing" } },
+  ];
+  const storedValue = JSON.stringify(storedPins);
+  localStorage.setItem("webapp.test-app.sidebar.pins", storedValue);
+  let snapshotReady = false;
+
+  const renderApp = () => createElement(WebAppRoot, {
+    appName: "Test App",
+    homeRoute: { view: "home" },
+    sidebar: {
+      search: false,
+      getNodes: () => ({
+        nodes: snapshotReady
+          ? [
+            { type: "item" as const, id: "valid", title: "Current title", route: { view: "valid" }, pinnable: true, actions: [{ id: "inspect-valid", label: "Inspect valid", onAction: () => undefined }] },
+            { type: "item" as const, id: "candidate", title: "Candidate", route: { view: "candidate" }, pinnable: true, actions: [{ id: "inspect-candidate", label: "Inspect candidate", onAction: () => undefined }] },
+          ]
+          : [
+            { type: "item" as const, id: "valid", title: "Loading title", route: { view: "valid" }, pinnable: true, actions: [{ id: "inspect-valid", label: "Inspect valid", onAction: () => undefined }] },
+            { type: "item" as const, id: "candidate", title: "Candidate", route: { view: "candidate" }, pinnable: true, actions: [{ id: "inspect-candidate", label: "Inspect candidate", onAction: () => undefined }] },
+          ],
+        ready: snapshotReady,
+      }),
+    },
+    routes: {
+      home: createElement("p", null, "Home"),
+      valid: createElement("p", null, "Valid"),
+      candidate: createElement("p", null, "Candidate"),
+      missing: createElement("p", null, "Missing"),
+    },
+  });
+
+  try {
+    const view = render(renderApp());
+    await waitFor(() => expect(view.getByRole("button", { name: "Old title" })).toBeTruthy());
+    expect(view.getByRole("button", { name: "Missing item" })).toBeTruthy();
+    expect(localStorage.getItem("webapp.test-app.sidebar.pins")).toBe(storedValue);
+    fireEvent.contextMenu(view.getByRole("button", { name: "Candidate" }));
+    await waitFor(() => expect(view.getByRole("menuitem", { name: "Inspect candidate" })).toBeTruthy());
+    expect(view.queryByRole("menuitem", { name: "Pin to sidebar" })).toBeNull();
+    fireEvent.contextMenu(view.getByRole("button", { name: "Old title" }));
+    await waitFor(() => expect(view.getByRole("menuitem", { name: "Inspect valid" })).toBeTruthy());
+    expect(view.queryByRole("menuitem", { name: "Unpin from sidebar" })).toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    snapshotReady = true;
+    view.rerender(renderApp());
+
+    await waitFor(() => expect(view.getAllByRole("button", { name: "Current title" })).toHaveLength(2));
+    expect(view.queryByRole("button", { name: "Old title" })).toBeNull();
+    expect(view.queryByRole("button", { name: "Missing item" })).toBeNull();
+    expect(JSON.parse(localStorage.getItem("webapp.test-app.sidebar.pins") ?? "null")).toEqual([{
+      id: "valid",
+      title: "Current title",
+      route: { view: "valid" },
+    }]);
+    fireEvent.contextMenu(view.getByRole("button", { name: "Candidate" }));
+    await waitFor(() => expect(view.getByRole("menuitem", { name: "Pin to sidebar" })).toBeTruthy());
   } finally {
     restoreFetch();
   }

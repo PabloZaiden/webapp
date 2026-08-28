@@ -5,10 +5,10 @@ import { DeviceVerificationScreen, PasskeyAuthScreen, UserSetupScreen } from "./
 import { EmptyState, Panel } from "./components";
 import { useMobileBreakpoint, useMobileSidebarSwipe, useMobileViewportHeight } from "./mobile-hooks";
 import { routeToHash, supportsViewTransitions, useRoute } from "./routing";
-import { flattenSidebarItems, toStoredPin, useSidebarCollapsedState, useSidebarPins, useSidebarTab } from "./sidebar-state";
+import { flattenSidebarItems, useSidebarCollapsedState, useSidebarPins, useSidebarTab } from "./sidebar-state";
 import { SettingsView } from "./settings/settings-view";
 import type { HeaderContext, WebAppRootController, WebAppRootProps } from "./root-types";
-import type { ActionMenuItem, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
+import type { ActionMenuItem, SidebarNode, SidebarNodeSnapshot, SidebarTab, WebAppRoute } from "./sidebar/types";
 import { ThemeProvider } from "./theme";
 import { WebAppConfigProvider, useWebAppConfig } from "./webapp-config";
 import { setLogLevel } from "./logger";
@@ -77,6 +77,26 @@ function uniqueSidebarItems(nodeTrees: SidebarNode[][]): SidebarNode[] {
   return [...itemsById.values()];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSidebarNodeSnapshot(value: unknown): value is SidebarNodeSnapshot {
+  return isRecord(value)
+    && Array.isArray(value["nodes"])
+    && typeof value["ready"] === "boolean";
+}
+
+function normalizeSidebarNodeSnapshot(value: SidebarNode[] | SidebarNodeSnapshot): SidebarNodeSnapshot {
+  if (Array.isArray(value)) {
+    return { nodes: value, ready: true };
+  }
+  if (isSidebarNodeSnapshot(value)) {
+    return value;
+  }
+  throw new TypeError("sidebar.getNodes must return SidebarNode[] or { nodes, ready }.");
+}
+
 function WebAppRootContent({
   appName,
   appIcon,
@@ -88,11 +108,13 @@ function WebAppRootContent({
   settings,
   version,
   config,
+  loading,
   error,
   refresh,
   controllerRef,
 }: WebAppRootProps & {
   config?: WebAppConfigResponse;
+  loading: boolean;
   error?: Error;
   refresh: () => Promise<void>;
   controllerRef: ForwardedRef<WebAppRootController>;
@@ -131,10 +153,42 @@ function WebAppRootContent({
   const normalizedSidebarSearch = sidebarSearchEnabled ? search.trim() : "";
   const sidebarSearchActive = normalizedSidebarSearch.length > 0;
   const pinningEnabled = sidebar.pinning !== false;
-  const sidebarPins = useSidebarPins(appName, sidebar.pinning ? sidebar.pinning.storageKey : undefined);
-  const baseNodes = useMemo(() => sidebar.getNodes({ search: "", activeTab }), [activeTab, sidebar]);
-  const filteredNodes = useMemo(() => sidebar.getNodes({ search: normalizedSidebarSearch, activeTab }), [activeTab, normalizedSidebarSearch, sidebar]);
+  const baseSnapshot = useMemo(
+    () => normalizeSidebarNodeSnapshot(sidebar.getNodes({ search: "", activeTab })),
+    [activeTab, sidebar],
+  );
+  const filteredSnapshot = useMemo(
+    () => normalizeSidebarNodeSnapshot(sidebar.getNodes({ search: normalizedSidebarSearch, activeTab })),
+    [activeTab, normalizedSidebarSearch, sidebar],
+  );
+  const baseNodes = baseSnapshot.nodes;
+  const filteredNodes = filteredSnapshot.nodes;
+  const baseSnapshots = useMemo(() => {
+    if (!pinningEnabled || sidebarTabs.length === 0) {
+      return [baseSnapshot];
+    }
+    return sidebarTabs.map((tab) => tab.id === activeTab
+      ? baseSnapshot
+      : normalizeSidebarNodeSnapshot(sidebar.getNodes({ search: "", activeTab: tab.id })));
+  }, [activeTab, baseSnapshot, pinningEnabled, sidebar, sidebarTabs]);
   const baseItems = useMemo(() => uniqueSidebarItems([baseNodes]), [baseNodes]);
+  const allBaseItems = useMemo(
+    () => uniqueSidebarItems(baseSnapshots.map((snapshot) => snapshot.nodes)),
+    [baseSnapshots],
+  );
+  const allPinnableItems = useMemo(
+    () => allBaseItems.filter((node) => node.pinnable && node.route),
+    [allBaseItems],
+  );
+  const frameworkReady = Boolean(config) && !loading && !error;
+  const pinningSnapshotReady = pinningEnabled
+    && frameworkReady
+    && baseSnapshots.every((snapshot) => snapshot.ready);
+  const sidebarPins = useSidebarPins(
+    appName,
+    sidebar.pinning ? sidebar.pinning.storageKey : undefined,
+    { enabled: pinningEnabled, ready: pinningSnapshotReady, nodes: allPinnableItems },
+  );
   const activeRouteIsInBaseNodes = useMemo(
     () => baseItems.some((node) => routeMatches(node.route, route)),
     [baseItems, route],
@@ -147,51 +201,49 @@ function WebAppRootContent({
     if (sidebarTabs.length === 0 || (activeRouteIsInBaseNodes && !hasPinOutsideActiveTab)) {
       return [baseNodes];
     }
+    if (pinningEnabled) {
+      return baseSnapshots.map((snapshot) => snapshot.nodes);
+    }
     // Header actions and pinned items must resolve nodes outside the selected tab.
     return [
       baseNodes,
       ...sidebarTabs
         .filter((tab) => tab.id !== activeTab)
-        .map((tab) => sidebar.getNodes({ search: "", activeTab: tab.id })),
+        .map((tab) => normalizeSidebarNodeSnapshot(sidebar.getNodes({ search: "", activeTab: tab.id })).nodes),
     ];
-  }, [activeRouteIsInBaseNodes, activeTab, baseNodes, hasPinOutsideActiveTab, sidebar, sidebarTabs]);
+  }, [activeRouteIsInBaseNodes, activeTab, baseNodes, baseSnapshots, hasPinOutsideActiveTab, pinningEnabled, sidebar, sidebarTabs]);
   const actionLookupItems = useMemo(() => uniqueSidebarItems(actionLookupTrees), [actionLookupTrees]);
-  const allPinnableItems = useMemo(() => flattenSidebarItems(baseNodes).filter((node) => node.pinnable && node.route), [baseNodes]);
-  const currentPins = useMemo(() => {
-    const byId = new Map(allPinnableItems.map((node) => [sidebarNodeKey(node), node]));
-    return sidebarPins.pins.map((pin) => {
-      const current = byId.get(pin.id);
-      return current ? toStoredPin(current) ?? pin : pin;
-    });
-  }, [allPinnableItems, sidebarPins.pins]);
-  const pinningActionFor = useCallback((node: SidebarNode): ActionMenuItem | undefined => {
-    if (!pinningEnabled || !node.pinnable || !node.route) return undefined;
+  const pinningActionFor = useCallback((node: SidebarNode, snapshotReady = pinningSnapshotReady): ActionMenuItem | undefined => {
+    if (!snapshotReady || !pinningEnabled || !node.pinnable || !node.route) return undefined;
     const id = node.pinId ?? node.id;
     const pinned = sidebarPins.pinIds.has(id);
     return pinned
       ? { id: "unpin", label: "Unpin from sidebar", onAction: () => sidebarPins.unpin(id) }
       : { id: "pin", label: "Pin to sidebar", onAction: () => sidebarPins.pin(node) };
-  }, [pinningEnabled, sidebarPins]);
-  const addPinningAction = useCallback((node: SidebarNode): SidebarNode => {
-    const pinAction = pinningActionFor(node);
+  }, [pinningEnabled, pinningSnapshotReady, sidebarPins]);
+  const addPinningAction = useCallback((node: SidebarNode, snapshotReady: boolean): SidebarNode => {
+    const pinAction = pinningActionFor(node, snapshotReady);
     return {
       ...node,
       ...(pinAction ? { actions: [...(node.actions ?? []).filter((action) => action.id !== "pin" && action.id !== "unpin"), pinAction] } : {}),
     };
   }, [pinningActionFor]);
-  const augmentPinningActions = useCallback((inputNodes: SidebarNode[]): SidebarNode[] => inputNodes.map((node) => {
-    const children = node.children ? augmentPinningActions(node.children) : undefined;
+  const augmentPinningActions = useCallback((inputNodes: SidebarNode[], snapshotReady: boolean): SidebarNode[] => inputNodes.map((node) => {
+    const children = node.children ? augmentPinningActions(node.children, snapshotReady) : undefined;
     return addPinningAction({
       ...node,
       ...(children ? { children } : {}),
-    });
+    }, snapshotReady);
   }), [addPinningAction]);
-  const actionItemsWithPinning = useMemo(() => actionLookupItems.map(addPinningAction), [actionLookupItems, addPinningAction]);
+  const actionItemsWithPinning = useMemo(
+    () => actionLookupItems.map((node) => addPinningAction(node, pinningSnapshotReady)),
+    [actionLookupItems, addPinningAction, pinningSnapshotReady],
+  );
   const nodes = useMemo(() => {
-    const augmented = augmentPinningActions(filteredNodes);
-    if (!pinningEnabled || sidebarSearchActive || currentPins.length === 0) return augmented;
+    const augmented = augmentPinningActions(filteredNodes, pinningSnapshotReady && filteredSnapshot.ready);
+    if (!pinningEnabled || sidebarSearchActive || sidebarPins.pins.length === 0) return augmented;
     const augmentedByPinId = new Map(actionItemsWithPinning.map((node) => [sidebarNodeKey(node), node]));
-    const pinnedChildren = currentPins.map((pin) => {
+    const pinnedChildren = sidebarPins.pins.map((pin) => {
       const actionNode = augmentedByPinId.get(pin.id);
       return {
         ...(actionNode ?? {
@@ -223,7 +275,7 @@ function WebAppRootContent({
       { type: "section" as const, id: "framework:pinned", title: sidebar.pinning ? sidebar.pinning.sectionTitle ?? "Pinned" : "Pinned", children: pinnedChildren },
       ...augmented,
     ];
-  }, [actionItemsWithPinning, augmentPinningActions, currentPins, filteredNodes, pinningEnabled, sidebar.pinning, sidebarSearchActive]);
+  }, [actionItemsWithPinning, augmentPinningActions, filteredNodes, filteredSnapshot.ready, pinningEnabled, pinningSnapshotReady, sidebar.pinning, sidebarPins.pins, sidebarSearchActive]);
 
   useEffect(() => {
     onRouteChange?.(route);
@@ -344,7 +396,7 @@ function WebAppRootWithConfig({
 }: WebAppRootProps & {
   controllerRef: ForwardedRef<WebAppRootController>;
 }) {
-  const { config, error, refresh } = useWebAppConfig();
+  const { config, error, loading, refresh } = useWebAppConfig();
 
   useEffect(() => {
     if (config) {
@@ -354,7 +406,7 @@ function WebAppRootWithConfig({
 
   return (
     <ThemeProvider userId={config?.currentUser?.id}>
-      <WebAppRootContent {...props} config={config} error={error} refresh={refresh} controllerRef={controllerRef} />
+      <WebAppRootContent {...props} config={config} loading={loading} error={error} refresh={refresh} controllerRef={controllerRef} />
     </ThemeProvider>
   );
 }

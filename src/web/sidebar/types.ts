@@ -83,6 +83,11 @@ export interface SidebarNode {
   children?: SidebarNode[];
 }
 
+export interface SidebarNodeSnapshot {
+  nodes: SidebarNode[];
+  ready: boolean;
+}
+
 export interface SidebarBuildContext {
   search: string;
   activeTab?: string;
