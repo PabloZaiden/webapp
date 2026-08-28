@@ -792,14 +792,21 @@ test("native pinning waits for a ready snapshot and reconciles current node meta
       search: false,
       getNodes: () => ({
         nodes: snapshotReady
-          ? [{ type: "item" as const, id: "valid", title: "Current title", route: { view: "valid" }, pinnable: true }]
-          : [],
+          ? [
+            { type: "item" as const, id: "valid", title: "Current title", route: { view: "valid" }, pinnable: true, actions: [{ id: "inspect-valid", label: "Inspect valid", onAction: () => undefined }] },
+            { type: "item" as const, id: "candidate", title: "Candidate", route: { view: "candidate" }, pinnable: true, actions: [{ id: "inspect-candidate", label: "Inspect candidate", onAction: () => undefined }] },
+          ]
+          : [
+            { type: "item" as const, id: "valid", title: "Loading title", route: { view: "valid" }, pinnable: true, actions: [{ id: "inspect-valid", label: "Inspect valid", onAction: () => undefined }] },
+            { type: "item" as const, id: "candidate", title: "Candidate", route: { view: "candidate" }, pinnable: true, actions: [{ id: "inspect-candidate", label: "Inspect candidate", onAction: () => undefined }] },
+          ],
         ready: snapshotReady,
       }),
     },
     routes: {
       home: createElement("p", null, "Home"),
       valid: createElement("p", null, "Valid"),
+      candidate: createElement("p", null, "Candidate"),
       missing: createElement("p", null, "Missing"),
     },
   });
@@ -809,7 +816,13 @@ test("native pinning waits for a ready snapshot and reconciles current node meta
     await waitFor(() => expect(view.getByRole("button", { name: "Old title" })).toBeTruthy());
     expect(view.getByRole("button", { name: "Missing item" })).toBeTruthy();
     expect(localStorage.getItem("webapp.test-app.sidebar.pins")).toBe(storedValue);
+    fireEvent.contextMenu(view.getByRole("button", { name: "Candidate" }));
+    await waitFor(() => expect(view.getByRole("menuitem", { name: "Inspect candidate" })).toBeTruthy());
     expect(view.queryByRole("menuitem", { name: "Pin to sidebar" })).toBeNull();
+    fireEvent.contextMenu(view.getByRole("button", { name: "Old title" }));
+    await waitFor(() => expect(view.getByRole("menuitem", { name: "Inspect valid" })).toBeTruthy());
+    expect(view.queryByRole("menuitem", { name: "Unpin from sidebar" })).toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
 
     snapshotReady = true;
     view.rerender(renderApp());
@@ -822,6 +835,8 @@ test("native pinning waits for a ready snapshot and reconciles current node meta
       title: "Current title",
       route: { view: "valid" },
     }]);
+    fireEvent.contextMenu(view.getByRole("button", { name: "Candidate" }));
+    await waitFor(() => expect(view.getByRole("menuitem", { name: "Pin to sidebar" })).toBeTruthy());
   } finally {
     restoreFetch();
   }

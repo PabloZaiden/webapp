@@ -121,8 +121,20 @@ export function toStoredPin(node: SidebarNode): StoredSidebarPin | undefined {
   };
 }
 
+function routesEqual(left: WebAppRoute, right: WebAppRoute): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  return [...keys].every((key) => left[key] === right[key]);
+}
+
 function storedPinsEqual(left: StoredSidebarPin, right: StoredSidebarPin): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return left.id === right.id
+    && left.title === right.title
+    && left.subtitle === right.subtitle
+    && left.badge === right.badge
+    && left.badgeVariant === right.badgeVariant
+    && left.badgeAppearance === right.badgeAppearance
+    && left.itemLayout === right.itemLayout
+    && routesEqual(left.route, right.route);
 }
 
 function reconcileStoredPins(pins: StoredSidebarPin[], nodes: SidebarNode[]): StoredSidebarPin[] {
