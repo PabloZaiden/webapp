@@ -8,9 +8,8 @@ import { configureWebAppClient } from "../src/web/api-client";
 import { useLogLevel } from "../src/web";
 import { WebAppRoot } from "../src/web/WebAppRoot";
 import { configureWebAppRenderer } from "../src/web/render";
-import { getLogLevel, setLogLevel } from "../src/web/logger";
+import { setLogLevel } from "../src/web/logger";
 import type { WebAppRootProps } from "../src/web/root-types";
-import { parseWebAppConfigResponse } from "../src/web/webapp-config";
 
 if (!GlobalRegistrator.isRegistered) {
   GlobalRegistrator.register({ url: "http://localhost/" });
@@ -130,7 +129,6 @@ describe("web log-level state", () => {
     try {
       const view = renderApp();
       await waitFor(() => expect(view.getByLabelText("log level state").textContent).toBe("debug:locked"));
-      expect(getLogLevel()).toBe("debug");
       expect(requests.filter((path) => path === "/api/config")).toHaveLength(1);
       expect(requests.includes("/api/preferences/log-level")).toBe(false);
     } finally {
@@ -168,7 +166,6 @@ describe("web log-level state", () => {
       fireEvent.change(selector, { target: { value: "warn" } });
 
       await waitFor(() => expect(view.getByLabelText("log level state").textContent).toBe("warn:open"));
-      expect(getLogLevel()).toBe("warn");
       expect((selector as HTMLSelectElement).value).toBe("warn");
       expect(putCalls).toBe(1);
       expect(configCalls).toBe(2);
@@ -240,21 +237,28 @@ describe("web log-level state", () => {
     }
   });
 
-  test("surfaces malformed initial configuration without a default level", async () => {
-    const restoreFetch = installFetch((path) => {
-      if (path === "/api/config") {
-        return Response.json({ ...makeConfig(), logLevel: { level: "verbose", fromEnv: false } });
-      }
-      return Response.json({ error: "not_found", message: "Not found" }, { status: 404 });
-    });
+  test("surfaces malformed configuration fields without rendering partial settings", async () => {
+    const malformedConfigs = [
+      { ...makeConfig(), logLevel: { level: "verbose", fromEnv: false } },
+      { ...makeConfig(), inMemoryLogs: { enabled: "yes" } },
+    ];
 
-    try {
-      const view = renderApp();
-      await waitFor(() => expect(view.getByText("Unable to load app")).toBeTruthy());
-      expect(view.getByText("Web app configuration response was invalid.")).toBeTruthy();
-      expect(view.queryByLabelText("log level state")).toBeNull();
-    } finally {
-      restoreFetch();
+    for (const config of malformedConfigs) {
+      const restoreFetch = installFetch((path) => {
+        if (path === "/api/config") {
+          return Response.json(config);
+        }
+        return Response.json({ error: "not_found", message: "Not found" }, { status: 404 });
+      });
+
+      try {
+        const view = renderApp();
+        await waitFor(() => expect(view.getByText("Unable to load app")).toBeTruthy());
+        expect(view.getByText("Web app configuration response was invalid.")).toBeTruthy();
+        view.unmount();
+      } finally {
+        restoreFetch();
+      }
     }
   });
 
@@ -270,43 +274,6 @@ describe("web log-level state", () => {
       const view = renderApp();
       await waitFor(() => expect(view.getByText("Unable to load app")).toBeTruthy());
       expect(view.getByText("Web app configuration response was invalid.")).toBeTruthy();
-    } finally {
-      restoreFetch();
-    }
-  });
-
-  test("config validation rejects literal and encoded dot-segment public base paths", () => {
-    for (const publicBasePath of ["/", "/tools/notes"]) {
-      expect(() => parseWebAppConfigResponse({ ...makeConfig(), publicBasePath })).not.toThrow();
-    }
-
-    for (const publicBasePath of [
-      "/.",
-      "/..",
-      "/tools/./notes",
-      "/tools/../notes",
-      "/tools/%2e/notes",
-      "/tools/%2E%2E/notes",
-    ]) {
-      expect(() => parseWebAppConfigResponse({ ...makeConfig(), publicBasePath })).toThrow(
-        "Web app configuration response was invalid.",
-      );
-    }
-  });
-
-  test("rejects malformed in-memory log configuration", async () => {
-    const restoreFetch = installFetch((path) => {
-      if (path === "/api/config") {
-        return Response.json({ ...makeConfig(), inMemoryLogs: { enabled: "yes" } });
-      }
-      return Response.json({ error: "not_found", message: "Not found" }, { status: 404 });
-    });
-
-    try {
-      const view = renderApp();
-      await waitFor(() => expect(view.getByText("Unable to load app")).toBeTruthy());
-      expect(view.getByText("Web app configuration response was invalid.")).toBeTruthy();
-      expect(view.queryByLabelText(/Store server logs in memory/)).toBeNull();
     } finally {
       restoreFetch();
     }

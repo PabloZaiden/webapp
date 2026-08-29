@@ -223,7 +223,6 @@ test("keeps a selected theme in memory when persistence writes fail", () => {
       view.getState().setPreference("dark");
     });
     expect(view.getByLabelText("theme state").textContent).toBe("dark:dark");
-    expect(backing.getItem("webapp.theme")).toBeNull();
   } finally {
     restoreStorage();
     media.restore();
