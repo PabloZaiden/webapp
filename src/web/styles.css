@@ -2779,10 +2779,9 @@ textarea::placeholder {
   padding: 0.5rem 0.75rem;
 }
 
-/* Keep the mobile sidebar toggle at the drawer layer while its backdrop exits. */
+/* Allow the mounted drawer stack to position the mobile sidebar toggle inline. */
 :root[data-wapp-mobile] .wapp-main-header-title > .wapp-sidebar-top-button {
   position: relative;
-  z-index: 80;
 }
 
 :root[data-wapp-mobile] .wapp-sidebar-header {
