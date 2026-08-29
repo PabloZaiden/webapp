@@ -58,21 +58,27 @@ function installDom(url = "https://example.test/", baseHref?: string): void {
 }
 
 describe("web API client", () => {
-  test("builds app-relative URLs from the current document path by default", () => {
-    configureWebAppClient();
-    installDom("https://example.test/prefix/workspaces");
+  test("builds app-relative URLs from the current document or base href", () => {
+    const cases = [
+      {
+        url: "https://example.test/prefix/workspaces",
+        expectedBase: "https://example.test/prefix/",
+      },
+      {
+        url: "https://example.test/prefix/",
+        baseHref: "https://example.test/prefix/",
+        expectedBase: "https://example.test/prefix/",
+      },
+    ];
 
-    expect(appPath("/api/items")).toBe("https://example.test/prefix/api/items");
-    expect(appAbsoluteUrl("/#/workspace")).toBe("https://example.test/prefix/#/workspace");
-    expect(appWebSocketUrl("/api/ws")).toBe("wss://example.test/prefix/api/ws");
-  });
+    for (const testCase of cases) {
+      configureWebAppClient();
+      installDom(testCase.url, testCase.baseHref);
 
-  test("builds app-relative HTTP and websocket URLs", () => {
-    configureWebAppClient();
-    installDom("https://example.test/prefix/", "https://example.test/prefix/");
-
-    expect(appPath("/api/items")).toBe("https://example.test/prefix/api/items");
-    expect(appWebSocketUrl("/api/ws")).toBe("wss://example.test/prefix/api/ws");
+      expect(appPath("/api/items")).toBe(`${testCase.expectedBase}api/items`);
+      expect(appAbsoluteUrl("/#/workspace")).toBe(`${testCase.expectedBase}#/workspace`);
+      expect(appWebSocketUrl("/api/ws")).toBe("wss://example.test/prefix/api/ws");
+    }
   });
 
   test("resolves public page, API, and websocket paths under root and prefixes", () => {
