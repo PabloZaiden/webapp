@@ -54,7 +54,11 @@ async function preparePublicAssetRoutes(
       if (generatedRoutePaths.has(artifact.path)) {
         throw new Error(`Public asset path ${artifact.path} collides with a framework-owned web route`);
       }
-      if (hasOwnPublicRoute(publicRoutes, artifact.path) && artifact.path !== registeredPath) {
+      if (
+        artifact.path !== registeredPath
+        && hasOwnPublicRoute(publicRoutes, artifact.path)
+        && publicRoutes[artifact.path] !== undefined
+      ) {
         throw new Error(`Public asset path ${artifact.path} collides with public route ${artifact.path}`);
       }
       const existing = claims.get(artifact.path);
@@ -129,10 +133,9 @@ export function createPublicRouteDispatcher(dependencies: PublicRouteDispatcherD
     }
     if (hasOwnPublicRoute(publicRoutes, url.pathname)) {
       const route = publicRoutes[url.pathname];
-      if (route === undefined) {
-        return undefined;
+      if (route !== undefined) {
+        return handlePublicRouteValue(req, route);
       }
-      return handlePublicRouteValue(req, route);
     }
     const publicAssetRoute = publicAssetRoutes.get(url.pathname);
     if (!publicAssetRoute) {

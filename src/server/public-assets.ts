@@ -219,9 +219,11 @@ export function createWebAppPublicAsset(options: WebAppPublicAssetOptions): Publ
       if (!artifact) {
         return undefined;
       }
-      return new Response(artifact.content.slice(), {
-        headers: { "content-type": artifact.contentType },
-      });
+      const headers = { "content-type": artifact.contentType };
+      if (req.method === "HEAD") {
+        return new Response(null, { headers });
+      }
+      return new Response(artifact.content.slice(), { headers });
     },
   };
   return route;

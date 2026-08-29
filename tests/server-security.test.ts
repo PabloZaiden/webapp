@@ -790,6 +790,7 @@ describe("server security defaults", () => {
 
     const head = await app.handleRequest(new Request(`http://localhost${path}`, { method: "HEAD" }));
     expect(head?.status).toBe(200);
+    expect(head?.body).toBeNull();
     expect(await head?.text()).toBe("");
   });
 
@@ -885,6 +886,43 @@ describe("server security defaults", () => {
     await expect(app.handleRequest(new Request(`http://localhost${path}`))).rejects.toThrow(
       `Public asset path ${sidecar!.path} collides with public route ${sidecar!.path}`,
     );
+  });
+
+  test("allows public asset sidecars to claim undefined routes", async () => {
+    const path = "/public-bundle-undefined/entry.js";
+    const entrypoint = new URL("./fixtures/public-asset-with-sidecar.ts", import.meta.url);
+    const bundle = await compileWebAppPublicAsset({
+      path,
+      entrypoint,
+      contentType: "text/javascript; charset=utf-8",
+    });
+    const sidecar = bundle.artifacts.find((artifact) => artifact.kind !== "entry-point");
+    expect(sidecar).toBeDefined();
+
+    const route = createWebAppPublicAsset({
+      path,
+      entrypoint,
+      contentType: "text/javascript; charset=utf-8",
+    });
+    const publicRoutes: Record<string, NonNullable<typeof route>> = { [path]: route };
+    Object.defineProperty(publicRoutes, sidecar!.path, {
+      configurable: true,
+      enumerable: true,
+      value: undefined,
+    });
+    const app = createWebAppServer({
+      appName: "Public Asset Undefined Route",
+      envPrefix: "TEST_PUBLIC_ASSET_UNDEFINED",
+      store: testStore("public-asset-undefined"),
+      auth: { passkeys: false },
+      publicRoutes,
+      routes: defineRoutes({}),
+    });
+
+    const response = await app.handleRequest(new Request(`http://localhost${sidecar!.path}`));
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("content-type")).toContain("text/css");
+    expect(await response?.text()).toContain("display");
   });
 
   test("generates framework-owned manifest routes and HTML metadata", async () => {
