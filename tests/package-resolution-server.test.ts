@@ -79,18 +79,11 @@ test("native server documents load an application-local react-dom export", async
       const scriptPaths = Array.from(
         html.matchAll(/<script[^>]+type="module"[^>]+src="([^"]+)"/g),
         (match) => match[1],
-      );
+      ).filter((path): path is string => path !== undefined);
       expect(scriptPaths.length).toBeGreaterThan(0);
 
-      const scriptNames = scriptPaths.map((path) => {
-        const name = path?.split("/").pop();
-        if (!name) {
-          throw new Error(`Generated module path has no filename: ${String(path)}`);
-        }
-        return name;
-      });
       const scriptResponses = await Promise.all(
-        scriptNames.map(async (name) => await fetch(new URL(`/${name}`, server.url), {
+        scriptPaths.map(async (path) => await fetch(new URL(path, server.url), {
           headers: { accept: "text/javascript" },
         })),
       );

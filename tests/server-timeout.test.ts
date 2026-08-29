@@ -88,6 +88,7 @@ test("passes the resolved idle timeout to Bun.serve when the server starts", asy
       120,
     ]);
   } finally {
+    Bun.serve = originalServe;
     await defaultServer?.stop(true);
     await configuredServer?.stop(true);
   }

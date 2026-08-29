@@ -126,15 +126,38 @@ describe("in-memory server logs", () => {
       setInMemoryLogStorageEnabled(true);
       const payload = "x".repeat(Math.floor(MAX_IN_MEMORY_LOG_BYTES / 3));
       const byteBoundMessages = [0, 1, 2].map((index) => `byte-entry-${index}:${payload}`);
+      const emittedEntries: ReturnType<typeof getInMemoryLogEntries> = [];
       for (const message of byteBoundMessages) {
         logger.info(message);
+        const entry = getInMemoryLogEntries().at(-1);
+        if (!entry) {
+          throw new Error(`Expected log entry for ${message}`);
+        }
+        emittedEntries.push(entry);
       }
+
+      const expectedEntries: typeof emittedEntries = [];
+      let expectedBytes = 0;
+      const encoder = new TextEncoder();
+      for (const entry of emittedEntries) {
+        expectedEntries.push(entry);
+        expectedBytes += encoder.encode(entry.line).byteLength;
+        while (expectedEntries.length > MAX_IN_MEMORY_LOG_ENTRIES || expectedBytes > MAX_IN_MEMORY_LOG_BYTES) {
+          const removed = expectedEntries.shift();
+          if (!removed) {
+            throw new Error("Expected an entry to evict");
+          }
+          expectedBytes -= encoder.encode(removed.line).byteLength;
+        }
+      }
+
       const byteBoundEntries = getInMemoryLogEntries();
       const retainedBytes = byteBoundEntries.reduce(
-        (total, entry) => total + new TextEncoder().encode(entry.line).byteLength,
+        (total, entry) => total + encoder.encode(entry.line).byteLength,
         0,
       );
-      expect(byteBoundEntries.map((entry) => entry.message)).toEqual(byteBoundMessages.slice(1));
+      expect(byteBoundEntries.map((entry) => entry.message)).toEqual(expectedEntries.map((entry) => entry.message));
+      expect(byteBoundEntries.length).toBeGreaterThan(0);
       expect(retainedBytes).toBeLessThanOrEqual(MAX_IN_MEMORY_LOG_BYTES);
       expect(byteBoundEntries.every((entry) => byteBoundMessages.includes(entry.message))).toBe(true);
 
