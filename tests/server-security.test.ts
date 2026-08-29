@@ -865,6 +865,43 @@ describe("server security defaults", () => {
     expect(html).toContain(`resolved === "dark" ? ${JSON.stringify(themeMarker)} :`);
   });
 
+  test("theme boot script survives unavailable browser storage", async () => {
+    const app = createWebAppServer({
+      appName: "Theme Storage Test",
+      envPrefix: "TEST_THEME_STORAGE",
+      web: testWeb,
+      store: testStore("theme-storage"),
+      auth: { passkeys: false },
+      routes: defineRoutes({}),
+    });
+
+    const htmlResponse = await app.handleRequest(new Request("http://localhost/", { headers: { accept: "text/html" } }));
+    const html = await htmlResponse?.text();
+    const themeScript = Array.from(html?.matchAll(/<script>([\s\S]*?)<\/script>/g) ?? [])
+      .map((match) => match[1])
+      .find((script) => script?.includes('const key = "webapp.theme";'));
+    if (!themeScript) {
+      throw new Error("Expected the generated theme boot script.");
+    }
+
+    const themeRoot = {
+      classList: { toggle: () => undefined },
+      style: {} as Record<string, string>,
+      dataset: {} as Record<string, string>,
+    };
+    const fakeDocument = { documentElement: themeRoot };
+    const fakeWindow = {
+      get localStorage(): never {
+        throw new Error("storage blocked");
+      },
+      matchMedia: () => ({ matches: false }),
+    };
+
+    expect(() => new Function("window", "document", themeScript)(fakeWindow, fakeDocument)).not.toThrow();
+    expect(themeRoot.dataset["theme"]).toBe("system");
+    expect(themeRoot.dataset["resolvedTheme"]).toBe("light");
+  });
+
   test("uses a sanitized temp cache path for generated documents", async () => {
     expect(() => createWebAppServer({
       appName: "Bad Cache Test",

@@ -456,6 +456,18 @@ function typeSearch(input: HTMLElement, value: string) {
   });
 }
 
+function installLocalStorage(descriptor: PropertyDescriptor): () => void {
+  const previous = Object.getOwnPropertyDescriptor(window, "localStorage");
+  Object.defineProperty(window, "localStorage", { configurable: true, ...descriptor });
+  return () => {
+    if (previous) {
+      Object.defineProperty(window, "localStorage", previous);
+    } else {
+      Reflect.deleteProperty(window, "localStorage");
+    }
+  };
+}
+
 test("sidebar keeps two app actions beside its framework actions", async () => {
   const restoreFetch = mockConfigFetch();
   try {
@@ -1688,6 +1700,168 @@ test("sidebar tree honors default and persisted initialization state", async () 
       expect(projectsToggle.getAttribute("aria-expanded")).toBe(String(scenario.expectedExpanded));
       view.unmount();
     }
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar remains usable when browser storage reads are unavailable", async () => {
+  const restoreFetch = mockConfigFetch();
+  const restoreStorage = installLocalStorage({
+    get() {
+      throw new Error("storage blocked");
+    },
+  });
+  try {
+    const view = await renderSearchableCollapsibleSidebarWebApp();
+    expect(view.getByText("Home")).toBeTruthy();
+    expect(view.getByRole("button", { name: /Projects/ })).toBeTruthy();
+  } finally {
+    restoreStorage();
+    restoreFetch();
+  }
+});
+
+test("sidebar keeps collapse, tab, and pin changes in memory when writes fail", async () => {
+  const restoreFetch = mockConfigFetch();
+  const backing = window.localStorage;
+  const restoreStorage = installLocalStorage({
+    value: {
+      getItem: (key: string) => backing.getItem(key),
+      setItem: () => {
+        throw new Error("storage full");
+      },
+      removeItem: (key: string) => backing.removeItem(key),
+    },
+  });
+  try {
+    const collapseView = await renderCollapsibleSidebarWebApp();
+    const projectsToggle = await waitFor(() => collapseView.getByRole("button", { name: /Projects/ }));
+    fireEvent.click(projectsToggle);
+    await waitFor(() => expect(projectsToggle.getAttribute("aria-expanded")).toBe("false"));
+    collapseView.unmount();
+
+    const tabView = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        tabs: [
+          { id: "work", title: "Work" },
+          { id: "notes", title: "Notes" },
+        ],
+        getNodes: ({ activeTab }) => [{
+          type: "item" as const,
+          id: `${activeTab ?? "none"}-item`,
+          title: `${activeTab === "notes" ? "Notes" : "Work"} item`,
+          route: { view: "home" },
+        }],
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+      },
+    }));
+    await waitFor(() => expect(tabView.getByText("Work item")).toBeTruthy());
+    fireEvent.click(tabView.getByRole("tab", { name: "Notes" }));
+    await waitFor(() => expect(tabView.getByText("Notes item")).toBeTruthy());
+    tabView.unmount();
+
+    const pinView = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        getNodes: () => [{
+          type: "item" as const,
+          id: "pin-target",
+          title: "Pin target",
+          route: { view: "target" },
+          pinnable: true,
+        }],
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+        target: createElement("p", null, "Target"),
+      },
+    }));
+    const pinTarget = await waitFor(() => pinView.getByRole("button", { name: "Pin target" }));
+    fireEvent.contextMenu(pinTarget);
+    fireEvent.click(await waitFor(() => pinView.getByRole("menuitem", { name: "Pin to sidebar" })));
+    await waitFor(() => expect(pinView.getAllByRole("button", { name: "Pin target" })).toHaveLength(2));
+  } finally {
+    restoreStorage();
+    restoreFetch();
+  }
+});
+
+test("sidebar rejects wrong-shaped persisted pins and stale tabs", async () => {
+  const restoreFetch = mockConfigFetch();
+  localStorage.setItem("webapp.test-app.sidebar.pins", JSON.stringify({ pin: "invalid" }));
+  localStorage.setItem("webapp.test-app.sidebar.tab", "missing");
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        tabs: [
+          { id: "work", title: "Work" },
+          { id: "notes", title: "Notes" },
+        ],
+        getNodes: ({ activeTab }) => [{
+          type: "item" as const,
+          id: `${activeTab ?? "none"}-item`,
+          title: `${activeTab === "notes" ? "Notes" : "Work"} item`,
+          route: { view: "home" },
+        }],
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+      },
+    }));
+
+    await waitFor(() => expect(view.getByText("Work item")).toBeTruthy());
+    expect(view.getByRole("tab", { name: "Work" }).getAttribute("aria-selected")).toBe("true");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("sidebar ignores malformed pin entries while retaining valid pins", async () => {
+  const restoreFetch = mockConfigFetch();
+  localStorage.setItem("webapp.test-app.sidebar.pins", JSON.stringify([
+    { id: "valid", title: "Stored target", route: { view: "target" } },
+    null,
+    { id: "invalid-optional", title: "Invalid optional", route: { view: "target" }, badge: 42 },
+  ]));
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        getNodes: () => [{
+          type: "item" as const,
+          id: "valid",
+          title: "Target",
+          route: { view: "target" },
+          pinnable: true,
+        }],
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+        target: createElement("p", null, "Target"),
+      },
+    }));
+
+    await waitFor(() => expect(view.getAllByRole("button", { name: "Target" })).toHaveLength(2));
+    expect(view.queryByRole("button", { name: "Invalid optional" })).toBeNull();
+    expect(JSON.parse(localStorage.getItem("webapp.test-app.sidebar.pins") ?? "null")).toEqual([{
+      id: "valid",
+      title: "Target",
+      route: { view: "target" },
+    }]);
   } finally {
     restoreFetch();
   }

@@ -15,25 +15,47 @@ import {
   setWebAppPublicBasePath,
 } from "../src/web/api-client";
 
+const domRestorers: Array<() => void> = [];
+
 afterEach(() => {
+  while (domRestorers.length > 0) {
+    domRestorers.pop()?.();
+  }
   configureWebAppClient();
 });
 
 function installDom(url = "https://example.test/", baseHref?: string): void {
-  Object.defineProperty(globalThis, "window", { value: { location: { href: url } }, configurable: true });
-  Object.defineProperty(globalThis, "document", {
-    value: {
-      querySelector: (selector: string) => selector === "base" && baseHref
-        ? { getAttribute: (name: string) => name === "href" ? baseHref : null }
-        : null,
-    },
-    configurable: true,
-  });
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const restore = () => {
+    if (previousDocument) {
+      Object.defineProperty(globalThis, "document", previousDocument);
+    } else {
+      Reflect.deleteProperty(globalThis, "document");
+    }
+    if (previousWindow) {
+      Object.defineProperty(globalThis, "window", previousWindow);
+    } else {
+      Reflect.deleteProperty(globalThis, "window");
+    }
+  };
+  domRestorers.push(restore);
+  try {
+    Object.defineProperty(globalThis, "window", { value: { location: { href: url } }, configurable: true });
+    Object.defineProperty(globalThis, "document", {
+      value: {
+        querySelector: (selector: string) => selector === "base" && baseHref
+          ? { getAttribute: (name: string) => name === "href" ? baseHref : null }
+          : null,
+      },
+      configurable: true,
+    });
+  } catch (error) {
+    domRestorers.pop();
+    restore();
+    throw error;
+  }
 }
-
-afterEach(() => {
-  configureWebAppClient();
-});
 
 describe("web API client", () => {
   test("builds app-relative URLs from the current document path by default", () => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SidebarNode, WebAppRoute } from "./sidebar/types";
+import { readStorage, warnStorageIssue, writeStorage } from "./storage";
 
 export type StoredSidebarPin = {
   id: string;
@@ -35,6 +36,11 @@ const SIDEBAR_BADGE_VARIANTS: readonly SidebarBadgeVariant[] = [
   "plan_ready",
 ];
 
+type StorageDecode<T> = {
+  value: T;
+  valid: boolean;
+};
+
 export function flattenSidebarItems(nodes: SidebarNode[]): SidebarNode[] {
   return nodes.flatMap((node) => [
     node,
@@ -57,6 +63,31 @@ function isSidebarCollapsedState(value: unknown): value is SidebarCollapsedState
   return Object.values(value).every((entry) => typeof entry === "boolean");
 }
 
+function decodeStoredCollapsedState(raw: string | null): StorageDecode<SidebarCollapsedState> {
+  if (raw === null) {
+    return { value: {}, valid: true };
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isSidebarCollapsedState(parsed)
+      ? { value: parsed, valid: true }
+      : { value: {}, valid: false };
+  } catch {
+    return { value: {}, valid: false };
+  }
+}
+
+function encodeStoredCollapsedState(value: SidebarCollapsedState): string | undefined {
+  if (!isSidebarCollapsedState(value)) {
+    return undefined;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return undefined;
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -76,7 +107,7 @@ function parseStoredRoute(value: unknown): WebAppRoute | undefined {
 }
 
 function isSidebarBadgeVariant(value: unknown): value is SidebarBadgeVariant {
-  return typeof value === "string" && SIDEBAR_BADGE_VARIANTS.includes(value as SidebarBadgeVariant);
+  return typeof value === "string" && SIDEBAR_BADGE_VARIANTS.some((variant) => variant === value);
 }
 
 function parseStoredPin(value: unknown): StoredSidebarPin | undefined {
@@ -88,33 +119,80 @@ function parseStoredPin(value: unknown): StoredSidebarPin | undefined {
     return undefined;
   }
 
+  const subtitle = value["subtitle"];
+  const badge = value["badge"];
+  const badgeVariant = value["badgeVariant"];
+  const badgeAppearance = value["badgeAppearance"];
+  const itemLayout = value["itemLayout"];
+  if (subtitle !== undefined && typeof subtitle !== "string") return undefined;
+  if (badge !== undefined && typeof badge !== "string") return undefined;
+  if (badgeVariant !== undefined && !isSidebarBadgeVariant(badgeVariant)) return undefined;
+  if (badgeAppearance !== undefined && badgeAppearance !== "dot" && badgeAppearance !== "text") return undefined;
+  if (itemLayout !== undefined && itemLayout !== "default" && itemLayout !== "subtitle-above-title") return undefined;
+
   const pin: StoredSidebarPin = {
     id: value["id"],
     title: value["title"],
     route,
   };
-  if (typeof value["subtitle"] === "string") pin.subtitle = value["subtitle"];
-  if (typeof value["badge"] === "string") pin.badge = value["badge"];
-  if (isSidebarBadgeVariant(value["badgeVariant"])) pin.badgeVariant = value["badgeVariant"];
-  if (value["badgeAppearance"] === "dot" || value["badgeAppearance"] === "text") pin.badgeAppearance = value["badgeAppearance"];
-  if (value["itemLayout"] === "default" || value["itemLayout"] === "subtitle-above-title") pin.itemLayout = value["itemLayout"];
+  if (typeof subtitle === "string") pin.subtitle = subtitle;
+  if (typeof badge === "string") pin.badge = badge;
+  if (isSidebarBadgeVariant(badgeVariant)) pin.badgeVariant = badgeVariant;
+  if (badgeAppearance === "dot" || badgeAppearance === "text") pin.badgeAppearance = badgeAppearance;
+  if (itemLayout === "default" || itemLayout === "subtitle-above-title") pin.itemLayout = itemLayout;
   return pin;
 }
 
-function readStoredPins(key: string): StoredSidebarPin[] {
+function decodeStoredPins(raw: string | null): StorageDecode<StoredSidebarPin[]> {
+  if (raw === null) {
+    return { value: [], valid: true };
+  }
+
+  let parsed: unknown;
   try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      return [];
-    }
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.flatMap((value) => {
-      const pin = parseStoredPin(value);
-      return pin ? [pin] : [];
-    }) : [];
+    parsed = JSON.parse(raw);
   } catch {
+    return { value: [], valid: false };
+  }
+  if (!Array.isArray(parsed)) {
+    return { value: [], valid: false };
+  }
+
+  let valid = true;
+  const pins: StoredSidebarPin[] = [];
+  for (const value of parsed) {
+    const pin = parseStoredPin(value);
+    if (!pin) {
+      valid = false;
+      continue;
+    }
+    pins.push(pin);
+  }
+  return { value: pins, valid };
+}
+
+function encodeStoredPins(pins: StoredSidebarPin[]): string | undefined {
+  try {
+    const canonicalPins = pins.map((pin) => parseStoredPin(pin));
+    if (canonicalPins.some((pin) => !pin)) {
+      return undefined;
+    }
+    return JSON.stringify(canonicalPins);
+  } catch {
+    return undefined;
+  }
+}
+
+function readStoredPins(key: string): StoredSidebarPin[] {
+  const result = readStorage(key);
+  if (!result.ok) {
     return [];
   }
+  const decoded = decodeStoredPins(result.value);
+  if (!decoded.valid) {
+    warnStorageIssue(key, "invalid-value");
+  }
+  return decoded.value;
 }
 
 export function toStoredPin(node: SidebarNode): StoredSidebarPin | undefined {
@@ -207,7 +285,12 @@ export function useSidebarPins(appName: string, storageKey: string | undefined, 
     if (currentPins !== pins) {
       setPins(currentPins);
     }
-    localStorage.setItem(key, JSON.stringify(currentPins));
+    const encoded = encodeStoredPins(currentPins);
+    if (encoded === undefined) {
+      warnStorageIssue(key, "encoding-failed");
+      return;
+    }
+    writeStorage(key, encoded);
   }, [currentPins, key, pins, ready]);
 
   const pinIds = useMemo(() => new Set(currentPins.map((pin) => pin.id)), [currentPins]);
@@ -234,20 +317,24 @@ export function useSidebarPins(appName: string, storageKey: string | undefined, 
 export function useSidebarCollapsedState(appName: string) {
   const key = sidebarCollapsedStorageKey(appName);
   const [collapsed, setCollapsed] = useState<SidebarCollapsedState>(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) {
-        return {};
-      }
-      const parsed: unknown = JSON.parse(raw);
-      return isSidebarCollapsedState(parsed) ? parsed : {};
-    } catch {
+    const result = readStorage(key);
+    if (!result.ok) {
       return {};
     }
+    const decoded = decodeStoredCollapsedState(result.value);
+    if (!decoded.valid) {
+      warnStorageIssue(key, "invalid-value");
+    }
+    return decoded.value;
   });
 
   useEffect(() => {
-    localStorage.setItem(key, JSON.stringify(collapsed));
+    const encoded = encodeStoredCollapsedState(collapsed);
+    if (encoded === undefined) {
+      warnStorageIssue(key, "encoding-failed");
+      return;
+    }
+    writeStorage(key, encoded);
   }, [key, collapsed]);
 
   const toggleCollapsed = useCallback((id: string, isCollapsed: boolean) => {
@@ -264,15 +351,27 @@ function sidebarTabStorageKey(appName: string): string {
   return `webapp.${appName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.sidebar.tab`;
 }
 
+function decodeStoredTab(raw: string | null, tabs: Array<{ id: string }>): StorageDecode<string | undefined> {
+  if (raw === null) {
+    return { value: undefined, valid: true };
+  }
+  return raw.length > 0 && tabs.some((tab) => tab.id === raw)
+    ? { value: raw, valid: true }
+    : { value: undefined, valid: false };
+}
+
 export function useSidebarTab(appName: string, tabs: Array<{ id: string }>) {
   const key = sidebarTabStorageKey(appName);
   const [selectedTabId, setSelectedTabId] = useState<string | undefined>(() => {
-    try {
-      const stored = localStorage.getItem(key);
-      return stored || undefined;
-    } catch {
+    const result = readStorage(key);
+    if (!result.ok) {
       return undefined;
     }
+    const decoded = decodeStoredTab(result.value, tabs);
+    if (!decoded.valid) {
+      warnStorageIssue(key, "invalid-value");
+    }
+    return decoded.value;
   });
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === selectedTabId)?.id ?? tabs[0]?.id,
@@ -281,7 +380,7 @@ export function useSidebarTab(appName: string, tabs: Array<{ id: string }>) {
 
   useEffect(() => {
     if (activeTab) {
-      localStorage.setItem(key, activeTab);
+      writeStorage(key, activeTab);
     }
   }, [activeTab, key]);
 

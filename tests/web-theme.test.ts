@@ -95,6 +95,18 @@ function installThemeMediaQuery(initialMatches: boolean) {
   };
 }
 
+function installLocalStorage(descriptor: PropertyDescriptor): () => void {
+  const previous = Object.getOwnPropertyDescriptor(window, "localStorage");
+  Object.defineProperty(window, "localStorage", { configurable: true, ...descriptor });
+  return () => {
+    if (previous) {
+      Object.defineProperty(window, "localStorage", previous);
+    } else {
+      Reflect.deleteProperty(window, "localStorage");
+    }
+  };
+}
+
 function renderTheme(options: { userId?: string } = {}) {
   let currentState: WebAppThemeState | undefined;
   function Consumer() {
@@ -173,6 +185,47 @@ test("normalizes invalid local preference values to system", () => {
     const view = renderTheme();
     expect(view.getByLabelText("theme state").textContent).toBe("system:dark");
   } finally {
+    media.restore();
+  }
+});
+
+test("renders with the system theme when storage access is unavailable", () => {
+  const media = installThemeMediaQuery(true);
+  const restoreStorage = installLocalStorage({
+    get() {
+      throw new Error("storage blocked");
+    },
+  });
+  try {
+    const view = renderTheme();
+    expect(view.getByLabelText("theme state").textContent).toBe("system:dark");
+  } finally {
+    restoreStorage();
+    media.restore();
+  }
+});
+
+test("keeps a selected theme in memory when persistence writes fail", () => {
+  const media = installThemeMediaQuery(false);
+  const backing = window.localStorage;
+  const restoreStorage = installLocalStorage({
+    value: {
+      getItem: (key: string) => backing.getItem(key),
+      setItem: () => {
+        throw new Error("storage full");
+      },
+      removeItem: (key: string) => backing.removeItem(key),
+    },
+  });
+  try {
+    const view = renderTheme();
+    act(() => {
+      view.getState().setPreference("dark");
+    });
+    expect(view.getByLabelText("theme state").textContent).toBe("dark:dark");
+    expect(backing.getItem("webapp.theme")).toBeNull();
+  } finally {
+    restoreStorage();
     media.restore();
   }
 });
