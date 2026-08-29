@@ -83,6 +83,8 @@ Run this checklist before releasing a framework app or cutting a checkpoint.
 5. Leave a stale profile lock from a terminated process, start competing
    callers, and confirm only one callback enters at a time. Confirm stale
    recovery cannot remove a lock published by the current owner.
+6. Place malformed or structurally invalid reclaim-gate state beside a profile
+   lock and confirm the next caller discards it and acquires the lock.
 
 ## Device auth
 

@@ -153,7 +153,9 @@ metadata contains only process ownership information, never tokens. Stale-lock
 recovery first claims the existing lock ownership atomically; it never deletes
 the shared lock path solely because an earlier metadata read matched. Active
 reclaim claims block new publishers, and a replacement lock is left intact if
-ownership changes.
+ownership changes. Corrupted or structurally invalid reclaim-gate files are
+discarded during acquisition so they cannot permanently block the credential
+store.
 
 ```ts
 await store.withLock(async () => {

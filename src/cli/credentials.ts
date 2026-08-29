@@ -91,6 +91,10 @@ function reclaimPathFor(lockPath: string): string {
   return `${lockPath}.reclaim`;
 }
 
+function reclaimCleanupPathFor(lockPath: string): string {
+  return `${reclaimPathFor(lockPath)}.cleanup`;
+}
+
 function lockCandidatePath(lockPath: string): string {
   const dir = dirname(lockPath);
   return join(dir, `.${basename(lockPath)}.${process.pid}.${crypto.randomUUID()}.tmp`);
@@ -349,7 +353,28 @@ async function reclaimStaleLock(path: string, expected: LockMetadata): Promise<v
 async function clearAbandonedReclaimGate(path: string): Promise<boolean> {
   const reclaimPath = reclaimPathFor(path);
   const current = await readReclaimMetadata(reclaimPath);
-  if (!current || current === "invalid" || isProcessAlive(current.pid)) return false;
+  if (!current) return false;
+  if (current === "invalid") {
+    let cleanupLock: OwnedLock;
+    try {
+      cleanupLock = await acquireFileLock(reclaimCleanupPathFor(path), {
+        timeoutMs: 0,
+        staleAfterMs: 0,
+        pollIntervalMs: 1,
+      });
+    } catch (error) {
+      if (error instanceof JsonFileStoreLockError && error.code === "timeout") return false;
+      throw error;
+    }
+    try {
+      if (await readReclaimMetadata(reclaimPath) !== "invalid") return false;
+      await rm(reclaimPath, { force: true });
+      return true;
+    } finally {
+      await releaseFileLock(cleanupLock);
+    }
+  }
+  if (isProcessAlive(current.pid)) return false;
   await removeReclaimGate(reclaimPath, current);
   return true;
 }

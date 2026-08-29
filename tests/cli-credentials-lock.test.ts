@@ -391,6 +391,28 @@ describe("CLI credential file locks", () => {
     expect(await Bun.file(lockPath).exists()).toBe(false);
   });
 
+  test("recovers from malformed or invalid reclaim gates", async () => {
+    const home = await testHome();
+    for (const [fileName, gateContents] of [
+      ["malformed.json", "{not-json"],
+      ["invalid.json", JSON.stringify({ version: 1 })],
+    ] as const) {
+      const store = storeFor(home, fileName);
+      await store.write(credentials());
+      const reclaimPath = `${store.path()}.lock.reclaim`;
+      await Bun.write(reclaimPath, gateContents);
+      chmodSync(reclaimPath, 0o600);
+
+      let entered = false;
+      await store.withLock!(async () => {
+        entered = true;
+      });
+
+      expect(entered).toBe(true);
+      expect(await Bun.file(reclaimPath).exists()).toBe(false);
+    }
+  });
+
   test("does not overlap callbacks while competing callers reclaim a stale lock", async () => {
     const home = await testHome();
     const workerCount = 6;
