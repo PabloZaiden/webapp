@@ -152,6 +152,10 @@ textarea::placeholder {
   background: var(--wapp-bg);
 }
 
+.wapp-mobile-drawer-stack {
+  display: contents;
+}
+
 .wapp-sidebar {
   width: 18rem;
   min-width: 18rem;
@@ -2723,6 +2727,23 @@ textarea::placeholder {
   display: block;
 }
 
+:root[data-wapp-mobile] .wapp-mobile-drawer-stack {
+  display: block;
+}
+
+:root[data-wapp-mobile] .wapp-mobile-drawer-stack-mounted {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+}
+
+:root[data-wapp-mobile] .wapp-mobile-drawer-stack-mounted .wapp-mobile-drawer-layer {
+  position: absolute;
+  z-index: 0;
+  pointer-events: auto;
+}
+
 :root[data-wapp-mobile] .wapp-mobile-drawer-layer,
 :root[data-wapp-mobile] .wapp-mobile-backdrop {
   display: block;
@@ -2732,13 +2753,17 @@ textarea::placeholder {
 :root[data-wapp-mobile] .wapp-shell.sidebar-collapsed .wapp-sidebar {
   position: fixed;
   inset: 0 auto 0 0;
-  z-index: 60;
+  z-index: 81;
   width: min(18rem, 86vw);
   min-width: min(18rem, 86vw);
   transform: translateX(-100%);
   opacity: 1;
   pointer-events: auto;
   transition: transform var(--wapp-motion-fast) var(--wapp-motion-ease);
+}
+
+:root[data-wapp-mobile] .wapp-mobile-drawer-stack-mounted .wapp-sidebar {
+  z-index: 1;
 }
 
 :root[data-wapp-mobile] .wapp-shell.sidebar-open .wapp-sidebar {
@@ -2754,10 +2779,9 @@ textarea::placeholder {
   padding: 0.5rem 0.75rem;
 }
 
-/* Keep the mobile sidebar toggle reachable while the dismiss backdrop exits. */
+/* Allow the mounted drawer stack to position the mobile sidebar toggle inline. */
 :root[data-wapp-mobile] .wapp-main-header-title > .wapp-sidebar-top-button {
   position: relative;
-  z-index: 55;
 }
 
 :root[data-wapp-mobile] .wapp-sidebar-header {

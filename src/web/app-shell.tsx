@@ -164,6 +164,7 @@ export function AppShell({
     onBackdrop: closeSidebar,
     inertTargets: [mainRef.current],
   });
+  const drawerLayerZIndex = drawerOverlay.zIndex ?? 80;
   const navigateFromSidebarHeader = (nextRoute: WebAppRoute) => {
     navigate(nextRoute);
     closeSidebar();
@@ -222,34 +223,36 @@ export function AppShell({
         }
       }}
     >
-      {drawerOverlay.mounted ? (
-        <div
-          ref={drawerLayerRef}
-          className={`wapp-mobile-drawer-layer wapp-motion-${drawerOverlay.state}`}
-          role="presentation"
-          aria-hidden={drawerOpen ? undefined : true}
-          style={drawerOverlay.zIndex === undefined ? undefined : { zIndex: drawerOverlay.zIndex }}
-        >
-          <button
-            type="button"
-            className="wapp-mobile-backdrop"
-            tabIndex={drawerOverlay.state === "exit" ? -1 : 0}
-            aria-label="Close sidebar"
-            aria-hidden={drawerOverlay.state === "exit" ? true : undefined}
-            onPointerDown={(event) => {
-              suppressNextContentClickRef.current = true;
-              drawerOverlay.onBackdropPointerDown(event);
-            }}
-            onClick={drawerOverlay.onBackdropClick}
-          />
-        </div>
-      ) : null}
-      <aside
-        ref={sidebarRef}
-        id="wapp-sidebar"
-        className={`wapp-sidebar${sidebarTabs.length ? " wapp-sidebar-with-tabs" : ""}`}
-        style={drawerOverlay.mounted && drawerOverlay.zIndex !== undefined ? { zIndex: drawerOverlay.zIndex + 1 } : undefined}
+      <div
+        className={`wapp-mobile-drawer-stack${drawerOverlay.mounted ? " wapp-mobile-drawer-stack-mounted" : ""}`}
+        style={drawerOverlay.mounted ? { zIndex: drawerLayerZIndex } : undefined}
       >
+        {drawerOverlay.mounted ? (
+          <div
+            ref={drawerLayerRef}
+            className={`wapp-mobile-drawer-layer wapp-motion-${drawerOverlay.state}`}
+            role="presentation"
+            aria-hidden={drawerOpen ? undefined : true}
+          >
+            <button
+              type="button"
+              className="wapp-mobile-backdrop"
+              tabIndex={drawerOverlay.state === "exit" ? -1 : 0}
+              aria-label="Close sidebar"
+              aria-hidden={drawerOverlay.state === "exit" ? true : undefined}
+              onPointerDown={(event) => {
+                suppressNextContentClickRef.current = true;
+                drawerOverlay.onBackdropPointerDown(event);
+              }}
+              onClick={drawerOverlay.onBackdropClick}
+            />
+          </div>
+        ) : null}
+        <aside
+          ref={sidebarRef}
+          id="wapp-sidebar"
+          className={`wapp-sidebar${sidebarTabs.length ? " wapp-sidebar-with-tabs" : ""}`}
+        >
         <div className="wapp-sidebar-header">
           <button
             type="button"
@@ -328,11 +331,12 @@ export function AppShell({
             </div>
           </nav>
         ) : null}
-      </aside>
+        </aside>
+      </div>
       <section ref={mainRef} className="wapp-main">
         <header className="wapp-main-header">
           <div className="wapp-main-header-title">
-            {isMobile ? <IconButton className="wapp-sidebar-top-button" aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton> : sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
+            {isMobile ? <IconButton className="wapp-sidebar-top-button" style={drawerOverlay.mounted ? { zIndex: drawerLayerZIndex } : undefined} aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton> : sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
             <h1 key={routeKey} className="wapp-route-fade">{headerTitle}</h1>
           </div>
           {primaryHeaderActions || headerActions.length ? (
