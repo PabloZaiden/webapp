@@ -76,6 +76,8 @@ test("safe storage reports an unavailable browser without throwing", () => {
   } finally {
     if (previous) {
       Object.defineProperty(globalThis, "window", previous);
+    } else {
+      Reflect.deleteProperty(globalThis, "window");
     }
   }
 });

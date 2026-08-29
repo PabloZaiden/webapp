@@ -42,10 +42,6 @@ function decodeStoredPreference(value: string | null): ThemeStorageDecode {
     : { preference: "system", valid: false };
 }
 
-function encodeStoredPreference(value: unknown): string | undefined {
-  return isThemePreference(value) ? value : undefined;
-}
-
 function readStoredPreference(): ThemePreference {
   if (typeof window === "undefined") {
     return "system";
@@ -132,12 +128,7 @@ export function ThemeProvider({ userId, children }: { userId?: string; children:
     root.style.colorScheme = resolvedTheme;
     root.dataset["theme"] = preference;
     root.dataset["resolvedTheme"] = resolvedTheme;
-    const encoded = encodeStoredPreference(preference);
-    if (encoded === undefined) {
-      warnStorageIssue(THEME_STORAGE_KEY, "write-failed");
-      return;
-    }
-    writeStorage(THEME_STORAGE_KEY, encoded);
+    writeStorage(THEME_STORAGE_KEY, preference);
   }, [preference, resolvedTheme]);
 
   const retry = useCallback(async () => {
