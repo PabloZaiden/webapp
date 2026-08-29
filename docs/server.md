@@ -1,6 +1,28 @@
 # Server API
 
-Use `createWebAppServer` with `defineRoutes`. Route patterns support exact path segments and `:params`.
+Use `createWebAppServer` with `defineRoutes`. Route patterns support exact path
+segments, named dynamic segments (`:name`), and an optional trailing wildcard
+(`*`):
+
+```ts
+const routes = defineRoutes({
+  "/api/projects/:projectId/files/*": {
+    auth: "public",
+    sameOrigin: "never",
+    GET: (_req, ctx) => jsonResponse({
+      projectId: ctx.params.projectId,
+      path: ctx.params["*"],
+    }),
+  },
+});
+```
+
+Patterns are normalized for leading/trailing and repeated slashes. A trailing
+`*` matches zero or more remaining segments and is only valid as the final
+segment. Dynamic values are decoded one segment at a time; an encoded slash
+within a named parameter remains part of that parameter, while wildcard
+segments remain individually addressable for URL generation. Query strings and
+fragments are request inputs, not route-pattern syntax.
 
 ```ts
 import { z } from "zod";
@@ -97,6 +119,24 @@ Route defaults are intentionally secure:
 | `userParam` | unset | Optional route param name that must match the current user id |
 
 Set `auth: "public", sameOrigin: "never"` only for deliberate unauthenticated endpoints such as health probes, webhooks or callback receivers.
+
+Route definitions are compiled and validated when `createWebAppServer` is
+constructed. A route must declare at least one supported handler (`GET`,
+`POST`, `PUT`, `PATCH`, or `DELETE`). Duplicate parameter names, non-trailing
+wildcards, missing `userParam` captures, mismatched API/CLI capture shapes,
+duplicate normalized paths, and equally specific overlapping routes fail
+startup instead of being resolved by declaration order.
+
+Every dynamic path capture uses the same guarded decoder. A malformed percent
+escape returns a structured 400 `invalid_path` response and does not invoke the
+route handler. It is not converted into a generic 500.
+
+If a route matches but does not register the request method, the server returns
+405 `method_not_allowed` and an `Allow` header containing only that route's
+registered methods. `HEAD` is the existing effective read-only form of a
+registered `GET`: it uses that handler and strips the response body while
+preserving its status and headers. Other unsupported methods never fall back to
+the route's `GET` handler.
 
 Route definitions can include optional metadata. This keeps the API route table
 as the single source of truth for handlers, CLI endpoint listing, and schema
