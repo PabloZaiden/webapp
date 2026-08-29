@@ -972,6 +972,46 @@ test("pinned routes retain their header actions across sidebar tabs", async () =
   }
 });
 
+test("legacy pinned routes retain string values while discarding invalid parameters", async () => {
+  const restoreFetch = mockConfigFetch();
+  localStorage.setItem("webapp.test-app.sidebar.pins", JSON.stringify([{
+    id: "legacy-item",
+    title: "Legacy item",
+    route: {
+      view: "legacy",
+      kept: "true",
+      numeric: 42,
+      boolean: false,
+      object: { nested: "value" },
+      nullValue: null,
+    },
+  }]));
+
+  try {
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        getNodes: () => ({ nodes: [], ready: false }),
+      },
+      routes: {
+        home: createElement("p", null, "Home"),
+        legacy: (route) => createElement(
+          "p",
+          null,
+          `${route["kept"] ?? "missing"}:${route["numeric"] ?? "missing"}:${route["boolean"] ?? "missing"}:${route["object"] ?? "missing"}`,
+        ),
+      },
+    }));
+
+    fireEvent.click(await waitFor(() => view.getByRole("button", { name: "Legacy item" })));
+    await waitFor(() => expect(view.getByText("true:missing:missing:missing")).toBeTruthy());
+  } finally {
+    restoreFetch();
+  }
+});
+
 test("native pinning waits for a ready snapshot and reconciles current node metadata", async () => {
   const restoreFetch = mockConfigFetch();
   const storedPins = [

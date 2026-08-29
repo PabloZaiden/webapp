@@ -61,10 +61,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isWebAppRoute(value: unknown): value is WebAppRoute {
-  return isRecord(value)
-    && typeof value["view"] === "string"
-    && Object.values(value).every((entry) => entry === undefined || typeof entry === "string");
+function parseStoredRoute(value: unknown): WebAppRoute | undefined {
+  if (!isRecord(value) || typeof value["view"] !== "string") {
+    return undefined;
+  }
+
+  const route: WebAppRoute = { view: value["view"] };
+  for (const [key, entry] of Object.entries(value)) {
+    if (key !== "view" && typeof entry === "string") {
+      route[key] = entry;
+    }
+  }
+  return route;
 }
 
 function isSidebarBadgeVariant(value: unknown): value is SidebarBadgeVariant {
@@ -72,14 +80,18 @@ function isSidebarBadgeVariant(value: unknown): value is SidebarBadgeVariant {
 }
 
 function parseStoredPin(value: unknown): StoredSidebarPin | undefined {
-  if (!isRecord(value) || typeof value["id"] !== "string" || typeof value["title"] !== "string" || !isWebAppRoute(value["route"])) {
+  if (!isRecord(value) || typeof value["id"] !== "string" || typeof value["title"] !== "string") {
+    return undefined;
+  }
+  const route = parseStoredRoute(value["route"]);
+  if (!route) {
     return undefined;
   }
 
   const pin: StoredSidebarPin = {
     id: value["id"],
     title: value["title"],
-    route: value["route"],
+    route,
   };
   if (typeof value["subtitle"] === "string") pin.subtitle = value["subtitle"];
   if (typeof value["badge"] === "string") pin.badge = value["badge"];

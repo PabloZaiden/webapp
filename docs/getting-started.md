@@ -308,7 +308,9 @@ deployment and a normalized prefix such as `/tools/notes` when a trusted
 reverse proxy publishes the app below that path. `appPagePath` returns a
 same-origin pathname with the configured prefix; it preserves query strings
 and fragments, so use it for `history.replaceState` and other page-level
-navigation. The setup and device framework pages use this same contract.
+navigation. The prefix must contain only normalized path segments; `.` and `..`
+segments, including URL-encoded forms, are rejected. The setup and device
+framework pages use this same contract.
 
 `appPath` returns an absolute API URL, while `appAbsoluteUrl` returns an
 absolute URL for an app-local page or hash route. `appWebSocketUrl` returns a

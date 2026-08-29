@@ -10,6 +10,7 @@ import {
   appWebSocketUrl,
   configureWebAppClient,
   getWebAppPublicBasePath,
+  isWebAppPublicBasePath,
   onAuthRequired,
   setWebAppPublicBasePath,
 } from "../src/web/api-client";
@@ -67,6 +68,22 @@ describe("web API client", () => {
     expect(appPagePath("/setup")).toBe("/setup");
     expect(appPath("/api/items")).toBe("https://example.test/api/items");
     expect(appWebSocketUrl("/api/ws")).toBe("wss://example.test/api/ws");
+  });
+
+  test("rejects public base paths with literal or encoded dot segments", () => {
+    expect(isWebAppPublicBasePath("/")).toBe(true);
+    expect(isWebAppPublicBasePath("/tools/notes")).toBe(true);
+
+    for (const value of [
+      "/.",
+      "/..",
+      "/tools/./notes",
+      "/tools/../notes",
+      "/tools/%2e/notes",
+      "/tools/%2E%2E/notes",
+    ]) {
+      expect(isWebAppPublicBasePath(value)).toBe(false);
+    }
   });
 
   test("uses configured public and API base URLs", async () => {

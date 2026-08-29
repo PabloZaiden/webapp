@@ -124,8 +124,10 @@ replaceWebAppRoute({ view: "project", projectId: "42" });
 a deterministic order. A route such as `{ view: "project", projectId: "42" }`
 therefore keeps `"42"` as a string after navigation and reload. Do not create
 application-local hash serializers or rely on framework-wide coercion for
-numbers and booleans. Pinned routes use the same string-only contract; invalid
-legacy values are ignored when persisted sidebar data is read.
+numbers and booleans. Pinned routes use the same string-only contract. When
+reading legacy persisted pins, the framework keeps the required string `view`
+and each valid string parameter while discarding only route keys whose values
+are no longer valid; one legacy value cannot discard the whole pin.
 
 ### Custom item rendering
 

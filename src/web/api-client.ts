@@ -65,6 +65,17 @@ export function isWebAppPublicBasePath(value: unknown): value is string {
       && !value.startsWith("//")
       && !value.endsWith("/")
       && !/[\u0000-\u0020\u007f?#\\]/.test(value)
+      && !value.split("/").some((segment) => {
+        if (segment === "." || segment === "..") {
+          return true;
+        }
+        try {
+          const decoded = decodeURIComponent(segment);
+          return decoded === "." || decoded === "..";
+        } catch {
+          return false;
+        }
+      })
     ));
 }
 
