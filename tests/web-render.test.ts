@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { StrictMode, act, createElement, createRef, startTransition, useState } from "react";
+import { StrictMode, act, createElement, createRef, startTransition, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { ConfirmDialog, ConfirmModal } from "../src/web/components";
@@ -11,8 +11,9 @@ import type { SidebarNode } from "../src/web/sidebar/types";
 import { useWebAppConfig } from "../src/web/webapp-config";
 import { useTheme, type WebAppRootController } from "../src/web";
 import { WebAppRoot } from "../src/web/WebAppRoot";
-import { PasskeyAuthScreen } from "../src/web/auth-screens";
+import { PasskeyAuthScreen, UserSetupScreen } from "../src/web/auth-screens";
 import { configureWebAppRenderer, renderWebApp } from "../src/web/render";
+import { replaceWebAppRoute, routeToHash, useRoute } from "../src/web/routing";
 
 if (!GlobalRegistrator.isRegistered) {
   GlobalRegistrator.register({ url: "http://localhost/" });
@@ -54,11 +55,19 @@ afterAll(async () => {
   }
 });
 
-function mockConfigFetch(onRequest?: (input: RequestInfo | URL, init?: RequestInit) => void) {
+type MockConfigFetchOptions = {
+  publicBasePath?: string;
+  deviceAuthEnabled?: boolean;
+  onResponse?: (input: RequestInfo | URL, init?: RequestInit) => Response | undefined;
+};
+
+function mockConfigFetch(onRequest?: (input: RequestInfo | URL, init?: RequestInit) => void, options: MockConfigFetchOptions = {}) {
   const previousFetch = globalThis.fetch;
+  const publicBasePath = options.publicBasePath ?? "/";
   const config: WebAppConfigResponse = {
     appName: "Test App",
     version: "1.0.0",
+    publicBasePath,
     passkeyAuth: {
       enabled: false,
       passkeyConfigured: false,
@@ -80,7 +89,7 @@ function mockConfigFetch(onRequest?: (input: RequestInfo | URL, init?: RequestIn
       enabled: false,
     },
     deviceAuth: {
-      enabled: false,
+      enabled: options.deviceAuthEnabled ?? false,
     },
     apiKeys: {
       enabled: false,
@@ -94,7 +103,12 @@ function mockConfigFetch(onRequest?: (input: RequestInfo | URL, init?: RequestIn
 
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     onRequest?.(input, init);
-    if (fetchPath(input) === "/api/config") {
+    const response = options.onResponse?.(input, init);
+    if (response) {
+      return response;
+    }
+    const configPath = publicBasePath === "/" ? "/api/config" : `${publicBasePath}/api/config`;
+    if (fetchPath(input) === configPath) {
       return Response.json(config);
     }
     return Response.json({ error: "Not found", message: "Not found" }, { status: 404 });
@@ -110,6 +124,7 @@ function mockSettingsFetch(sessions: Array<{ id: string; clientId: string; scope
   const config: WebAppConfigResponse = {
     appName: "Test App",
     version: "1.0.0",
+    publicBasePath: "/",
     currentUser: { id: "owner", username: "owner", role: "owner", isOwner: true, isAdmin: true },
     passkeyAuth: {
       enabled: false,
@@ -181,6 +196,7 @@ function mockBuiltInFetch(options: BuiltInFetchOptions = {}) {
   const config: WebAppConfigResponse = {
     appName: "Test App",
     version: "1.0.0",
+    publicBasePath: "/",
     currentUser: { id: "owner", username: "owner", role: "owner", isOwner: true, isAdmin: true },
     passkeyAuth: {
       enabled: false,
@@ -612,6 +628,187 @@ test("passkey screen offers a masked API-key fallback only when enabled", async 
   expect(view.container.querySelector("form")).toBeNull();
   fireEvent.click(view.getByRole("button", { name: "Use API Key instead" }));
   expect((view.container.querySelector('input[type="password"]') as HTMLInputElement).value).toBe("");
+});
+
+test("WebAppRoot renders setup and device pages under a public base path", async () => {
+  const requested: string[] = [];
+  const restoreFetch = mockConfigFetch((input) => requested.push(String(input)), {
+    publicBasePath: "/tools/notes",
+    deviceAuthEnabled: true,
+    onResponse: (input) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname === "/tools/notes/api/auth/device/verification") {
+        return Response.json({
+          userCode: url.searchParams.get("user_code"),
+          clientId: "notes-cli",
+          scope: "read",
+          status: "pending",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+          passkeyRequired: false,
+        });
+      }
+      return undefined;
+    },
+  });
+
+  const renderRoot = () => createElement(WebAppRoot, {
+    appName: "Test App",
+    homeRoute: { view: "home" },
+    sidebar: {
+      search: false,
+      pinning: false,
+      getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+    },
+    routes: {
+      home: createElement("p", null, "Home"),
+    },
+  });
+
+  try {
+    window.history.replaceState(null, "", "http://localhost/tools/notes/setup?token=setup-token#stale");
+    const setupView = render(renderRoot());
+    await waitFor(() => expect(setupView.getByText("Finish user setup")).toBeTruthy());
+    expect(requested.some((input) => new URL(input).pathname === "/tools/notes/api/config")).toBe(true);
+    setupView.unmount();
+
+    window.history.replaceState(null, "", "http://localhost/tools/notes/device?user_code=ABCD-2345");
+    const deviceView = render(renderRoot());
+    await waitFor(() => expect(deviceView.getByText("Authorize device")).toBeTruthy());
+    await waitFor(() => expect(deviceView.getByText("notes-cli")).toBeTruthy());
+    expect(requested.some((input) => new URL(input).pathname === "/tools/notes/api/auth/device/verification")).toBe(true);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("UserSetupScreen redirects to the prefixed application root without setup state", async () => {
+  const previousFetch = globalThis.fetch;
+  const previousPublicKeyCredential = Object.getOwnPropertyDescriptor(globalThis, "PublicKeyCredential");
+  const previousCredentials = Object.getOwnPropertyDescriptor(navigator, "credentials");
+  const requested: string[] = [];
+  configureWebAppClient({ publicBasePath: "/tools/notes" });
+  window.history.replaceState(null, "", "http://localhost/tools/notes/setup?token=setup-token#stale");
+
+  const credentialResponse = {
+    attestationObject: new Uint8Array([1]),
+    clientDataJSON: new Uint8Array([2]),
+    getTransports: () => [],
+  };
+  const credential = {
+    id: "credential-id",
+    rawId: new Uint8Array([3]).buffer,
+    response: credentialResponse,
+    type: "public-key",
+    getClientExtensionResults: () => ({}),
+  };
+  Object.defineProperty(globalThis, "PublicKeyCredential", {
+    configurable: true,
+    value: class PublicKeyCredential {},
+  });
+  Object.defineProperty(navigator, "credentials", {
+    configurable: true,
+    value: { create: async () => credential },
+  });
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    requested.push(`${init?.method ?? "GET"} ${url.toString()}`);
+    if (url.pathname === "/tools/notes/api/user-setup") {
+      return Response.json({
+        username: "owner",
+        role: "user",
+        kind: "invite",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      });
+    }
+    if (url.pathname === "/tools/notes/api/user-setup/options") {
+      return Response.json({
+        challenge: "AQ",
+        rp: { name: "Test App" },
+        user: { id: "AQ", name: "owner", displayName: "owner" },
+      });
+    }
+    if (url.pathname === "/tools/notes/api/user-setup/verify") {
+      return Response.json({ ok: true });
+    }
+    return Response.json({ error: "not_found", message: "Not found" }, { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const view = render(createElement(UserSetupScreen, { refresh: async () => undefined }));
+    await waitFor(() => expect(view.getByText("Username: owner")).toBeTruthy());
+    fireEvent.click(view.getByRole("button", { name: "Set up passkey" }));
+
+    await waitFor(() => expect(window.location.pathname).toBe("/tools/notes/"));
+    expect(window.location.search).toBe("");
+    expect(window.location.hash).toBe("");
+    expect(requested.some((input) => input.includes("POST http://localhost/tools/notes/api/user-setup/options"))).toBe(true);
+    expect(requested.some((input) => input.includes("POST http://localhost/tools/notes/api/user-setup/verify"))).toBe(true);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousPublicKeyCredential) {
+      Object.defineProperty(globalThis, "PublicKeyCredential", previousPublicKeyCredential);
+    } else {
+      Reflect.deleteProperty(globalThis, "PublicKeyCredential");
+    }
+    if (previousCredentials) {
+      Object.defineProperty(navigator, "credentials", previousCredentials);
+    } else {
+      Reflect.deleteProperty(navigator, "credentials");
+    }
+  }
+});
+
+function RouteProbe({ onRoute }: { onRoute: (route: Record<string, string | undefined>) => void }) {
+  const { route } = useRoute({ view: "home" });
+  useEffect(() => {
+    onRoute(route);
+  }, [onRoute, route]);
+  return createElement("output", { "aria-label": "active route" }, route.view);
+}
+
+test("hash routes preserve string values, encoding, unknown keys, and deterministic ordering", async () => {
+  window.history.replaceState(null, "", "http://localhost/#/items?count=42&enabled=true&unknown=a%2Fb");
+  const routes: Array<Record<string, string | undefined>> = [];
+  const onRoute = (route: Record<string, string | undefined>) => routes.push(route);
+  const nextRoute = {
+    view: "items",
+    count: "42",
+    enabled: "true",
+    encoded: "a/b &",
+    omitted: undefined,
+  };
+
+  expect(routeToHash(nextRoute)).toBe("#/items?count=42&enabled=true&encoded=a%2Fb+%26");
+  const view = render(createElement(RouteProbe, { onRoute }));
+
+  await waitFor(() => expect(routes.at(-1)).toEqual({
+    view: "items",
+    count: "42",
+    enabled: "true",
+    unknown: "a/b",
+  }));
+  expect(view.getByLabelText("active route").textContent).toBe("items");
+
+  act(() => {
+    replaceWebAppRoute(nextRoute);
+  });
+  await waitFor(() => expect(routes.at(-1)).toEqual({
+    view: "items",
+    count: "42",
+    encoded: "a/b &",
+    enabled: "true",
+  }));
+  expect(window.location.hash).toBe("#/items?count=42&enabled=true&encoded=a%2Fb+%26");
+
+  view.unmount();
+  const reloadedRoutes: Array<Record<string, string | undefined>> = [];
+  render(createElement(RouteProbe, { onRoute: (route) => reloadedRoutes.push(route) }));
+  await waitFor(() => expect(reloadedRoutes.at(-1)).toEqual({
+    view: "items",
+    count: "42",
+    encoded: "a/b &",
+    enabled: "true",
+  }));
 });
 
 test("sidebar tabs select the first item, update the node context, and persist selection", async () => {

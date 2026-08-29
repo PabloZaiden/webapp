@@ -271,13 +271,17 @@ function TerminalRoute() {
 
 The `full` layout removes the page gutters and provides a flex-sized, overflow-contained surface for viewport-sized content. Use it for terminals, editors, previews and similar surfaces; the child should provide any internal padding and scrolling it needs.
 
-Use the framework URL helpers for browser API calls, websocket URLs and app-local links instead of deriving paths from `window.location` in each app. They honor `<base>`, explicit `publicBasePath` config, and reverse-proxy subpaths for direct path deep links such as `/workspaces`:
+Use the framework URL helpers for browser API calls, websocket URLs, app-local
+links and history targets instead of deriving paths from `window.location` in
+each app. They honor `<base>`, the framework-provided `publicBasePath`, and
+reverse-proxy subpaths for direct path deep links such as `/workspaces`:
 
 ```tsx
 import {
   appAbsoluteUrl,
   appFetch,
   appJson,
+  appPagePath,
   appPath,
   appRequest,
   appWebSocketUrl,
@@ -287,16 +291,39 @@ import {
 
 configureWebAppClient();
 
-const config = await appJson("/api/config");
+const config = await appJson<{ publicBasePath: string }>("/api/config");
 setWebAppPublicBasePath(config.publicBasePath);
 
 const downloadUrl = appPath("/api/items/export");
 const shareUrl = appAbsoluteUrl("/#/items");
+const setupPage = appPagePath("/setup");
 const socket = new WebSocket(appWebSocketUrl("/api/ws"));
 const rawResponse = await appRequest("/api/items");
+window.history.replaceState(null, "", appPagePath("/"));
 ```
 
-`appJson` is the framework helper for successful JSON responses and builds on `appFetch`. Both `appJson` and `appFetch` honor configured URLs, credentials, auth-required events, and `WebAppApiError` responses. Use `appFetch` when a successful response body does not need to be parsed, and use `appRequest` when the app needs a raw response without the framework's error normalization, such as downloads or custom error handling. `appJson` intentionally rejects successful empty or non-JSON responses instead of fabricating a default value.
+`WebAppRoot` loads the framework config and applies its `publicBasePath`
+before rendering application content. The server returns `/` for a root
+deployment and a normalized prefix such as `/tools/notes` when a trusted
+reverse proxy publishes the app below that path. `appPagePath` returns a
+same-origin pathname with the configured prefix; it preserves query strings
+and fragments, so use it for `history.replaceState` and other page-level
+navigation. The setup and device framework pages use this same contract.
+
+`appPath` returns an absolute API URL, while `appAbsoluteUrl` returns an
+absolute URL for an app-local page or hash route. `appWebSocketUrl` returns a
+WebSocket URL and converts `http:`/`https:` to `ws:`/`wss:`. `configureWebAppClient`
+accepts an explicit `publicBasePath` for applications that initialize the
+client outside `WebAppRoot`; `apiBaseUrl` and `wsBaseUrl` are independent
+overrides for API and WebSocket origins and do not change page links.
+
+`appJson` is the framework helper for successful JSON responses and builds on
+`appFetch`. Both `appJson` and `appFetch` honor configured URLs, credentials,
+auth-required events, and `WebAppApiError` responses. Use `appFetch` when a
+successful response body does not need to be parsed, and use `appRequest` when
+the app needs a raw response without the framework's error normalization, such
+as downloads or custom error handling. `appJson` intentionally rejects
+successful empty or non-JSON responses instead of fabricating a default value.
 
 Recommended dev script:
 

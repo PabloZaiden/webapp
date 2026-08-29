@@ -1,7 +1,7 @@
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { DeviceVerificationDetails, PasskeyAuthStatusResponse, UserSetupDetails } from "../contracts";
-import { appJson } from "./api-client";
+import { appJson, appPagePath } from "./api-client";
 import { Badge, Button, Dialog, Panel, TextField } from "./components";
 
 export function PasskeyAuthScreen({ status, apiKeysEnabled, refresh }: { status: PasskeyAuthStatusResponse; apiKeysEnabled: boolean; refresh: () => Promise<void> }) {
@@ -160,7 +160,7 @@ export function UserSetupScreen({ refresh }: { refresh: () => Promise<void> }) {
       const options = await appJson<PublicKeyCredentialCreationOptionsJSON>("/api/user-setup/options", { method: "POST", body: JSON.stringify({ token }) });
       const credential = await startRegistration({ optionsJSON: options as never });
       await appJson("/api/user-setup/verify", { method: "POST", body: JSON.stringify({ token, response: credential }) });
-      window.history.replaceState(null, "", "/");
+      window.history.replaceState(null, "", appPagePath("/"));
       await refresh();
       window.location.reload();
     } catch (err) {

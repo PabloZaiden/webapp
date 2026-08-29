@@ -48,11 +48,24 @@ export function setWebAppPublicBasePath(basePath?: string | null): void {
   }
 
   const normalizedBasePath = normalizePublicBasePath(basePath);
+  if (!isWebAppPublicBasePath(normalizedBasePath || "/")) {
+    throw new TypeError("Web app public base path must be a normalized path without query or fragment.");
+  }
   configuredPublicBasePath = normalizedBasePath || undefined;
 }
 
 export function getWebAppPublicBasePath(): string {
   return configuredPublicBasePath ?? "";
+}
+
+export function isWebAppPublicBasePath(value: unknown): value is string {
+  return typeof value === "string"
+    && (value === "/" || (
+      value.startsWith("/")
+      && !value.startsWith("//")
+      && !value.endsWith("/")
+      && !/[\u0000-\u0020\u007f?#\\]/.test(value)
+    ));
 }
 
 export function appPath(path: string): string {
@@ -62,24 +75,19 @@ export function appPath(path: string): string {
   }
 
   const normalizedPath = path.replace(/^\/+/, "");
-  const configuredBasePath = getWebAppPublicBasePath();
-  if (configuredBasePath) {
-    return new URL(normalizedPath, getConfiguredBaseUrl(configuredBasePath)).toString();
-  }
-
-  return new URL(normalizedPath, getDocumentBaseUrl()).toString();
+  return new URL(normalizedPath, getPublicBaseUrl()).toString();
 }
 
 export function appAbsoluteUrl(path: string): string {
   if (isAbsolutePath(path)) return path;
 
   const normalizedPath = path.replace(/^\/+/, "");
-  const configuredBasePath = getWebAppPublicBasePath();
-  if (configuredBasePath) {
-    return new URL(normalizedPath, getConfiguredBaseUrl(configuredBasePath)).toString();
-  }
+  return new URL(normalizedPath, getPublicBaseUrl()).toString();
+}
 
-  return new URL(normalizedPath, getDocumentBaseUrl()).toString();
+export function appPagePath(path: string): string {
+  const url = new URL(appAbsoluteUrl(path), getDocumentBaseUrl());
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 export function appWebSocketUrl(path = "/api/ws"): string {
@@ -160,6 +168,11 @@ function buildAbsoluteUrl(baseUrl: string, path: string): string {
 function getDocumentBaseUrl(): URL {
   const baseHref = document.querySelector("base")?.getAttribute("href");
   return baseHref ? new URL(baseHref, window.location.href) : new URL(".", window.location.href);
+}
+
+function getPublicBaseUrl(): URL {
+  const configuredBasePath = getWebAppPublicBasePath();
+  return configuredBasePath ? getConfiguredBaseUrl(configuredBasePath) : getDocumentBaseUrl();
 }
 
 function getConfiguredBaseUrl(basePath: string): URL {

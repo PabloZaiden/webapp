@@ -64,7 +64,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isWebAppRoute(value: unknown): value is WebAppRoute {
   return isRecord(value)
     && typeof value["view"] === "string"
-    && Object.values(value).every((entry) => entry === undefined || ["string", "number", "boolean"].includes(typeof entry));
+    && Object.values(value).every((entry) => entry === undefined || typeof entry === "string");
 }
 
 function isSidebarBadgeVariant(value: unknown): value is SidebarBadgeVariant {

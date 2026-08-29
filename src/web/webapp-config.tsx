@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { VALID_LOG_LEVELS, type WebAppConfigResponse } from "../contracts";
-import { appJson } from "./api-client";
+import { appJson, isWebAppPublicBasePath, setWebAppPublicBasePath } from "./api-client";
 
 export interface WebAppConfigState {
   config?: WebAppConfigResponse;
@@ -36,6 +36,7 @@ function isWebAppConfigResponse(value: unknown): value is WebAppConfigResponse {
   return isRecord(value)
     && typeof value["appName"] === "string"
     && typeof value["version"] === "string"
+    && isWebAppPublicBasePath(value["publicBasePath"])
     && (value["currentUser"] === undefined || isCurrentUser(value["currentUser"]))
     && hasBooleanFields(value["passkeyAuth"], [
       "enabled",
@@ -91,6 +92,7 @@ export function WebAppConfigProvider({ children }: { children: ReactNode }) {
       if (requestId !== requestIdRef.current) {
         return;
       }
+      setWebAppPublicBasePath(response.publicBasePath);
       setConfig(response);
     } catch (value) {
       if (requestId === requestIdRef.current) {

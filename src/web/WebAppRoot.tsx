@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo
 import type { WebAppConfigResponse } from "../contracts";
 import { AppShell } from "./app-shell";
 import { DeviceVerificationScreen, PasskeyAuthScreen, UserSetupScreen } from "./auth-screens";
+import { appPagePath } from "./api-client";
 import { EmptyState, Panel } from "./components";
 import { useMobileBreakpoint, useMobileSidebarSwipe, useMobileViewportHeight } from "./mobile-hooks";
 import { routeToHash, supportsViewTransitions, useRoute } from "./routing";
@@ -75,6 +76,11 @@ function uniqueSidebarItems(nodeTrees: SidebarNode[][]): SidebarNode[] {
     }
   }
   return [...itemsById.values()];
+}
+
+function normalizePagePath(path: string): string {
+  const normalizedPath = path.replace(/\/+$/, "");
+  return normalizedPath || "/";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -321,13 +327,14 @@ function WebAppRootContent({
   if (!config) {
     return <main className="wapp-auth-screen">Loading...</main>;
   }
-  if (window.location.pathname === "/setup") {
+  const currentPagePath = normalizePagePath(window.location.pathname);
+  if (currentPagePath === normalizePagePath(appPagePath("/setup"))) {
     return <UserSetupScreen refresh={refresh} />;
   }
   if (config.passkeyAuth.enabled && (config.passkeyAuth.bootstrapRequired || config.passkeyAuth.ownerPasskeySetupRequired || (!config.passkeyAuth.passkeyDisabled && config.passkeyAuth.passkeyRequired && !config.passkeyAuth.authenticated))) {
     return <PasskeyAuthScreen status={config.passkeyAuth} apiKeysEnabled={config.apiKeys.enabled} refresh={refresh} />;
   }
-  if (config.deviceAuth.enabled && window.location.pathname === "/device") {
+  if (config.deviceAuth.enabled && currentPagePath === normalizePagePath(appPagePath("/device"))) {
     return <DeviceVerificationScreen />;
   }
 

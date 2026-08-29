@@ -42,6 +42,7 @@ function makeConfig(level: LogLevelName = "info", fromEnv = false, inMemoryLogsE
   return {
     appName: "Test App",
     version: "1.0.0",
+    publicBasePath: "/",
     currentUser: {
       id: isAdmin ? "owner" : "user",
       username: isAdmin ? "owner" : "user",
@@ -251,6 +252,23 @@ describe("web log-level state", () => {
       await waitFor(() => expect(view.getByText("Unable to load app")).toBeTruthy());
       expect(view.getByText("Web app configuration response was invalid.")).toBeTruthy();
       expect(view.queryByLabelText("log level state")).toBeNull();
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("rejects malformed public base path configuration", async () => {
+    const restoreFetch = installFetch((path) => {
+      if (path === "/api/config") {
+        return Response.json({ ...makeConfig(), publicBasePath: "/tools/notes/" });
+      }
+      return Response.json({ error: "not_found", message: "Not found" }, { status: 404 });
+    });
+
+    try {
+      const view = renderApp();
+      await waitFor(() => expect(view.getByText("Unable to load app")).toBeTruthy());
+      expect(view.getByText("Web app configuration response was invalid.")).toBeTruthy();
     } finally {
       restoreFetch();
     }

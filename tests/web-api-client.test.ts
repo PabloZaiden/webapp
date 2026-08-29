@@ -4,6 +4,7 @@ import {
   appAbsoluteUrl,
   appFetch,
   appJson,
+  appPagePath,
   appPath,
   appRequest,
   appWebSocketUrl,
@@ -49,6 +50,23 @@ describe("web API client", () => {
 
     expect(appPath("/api/items")).toBe("https://example.test/prefix/api/items");
     expect(appWebSocketUrl("/api/ws")).toBe("wss://example.test/prefix/api/ws");
+  });
+
+  test("resolves public page, API, and websocket paths under root and prefixes", () => {
+    installDom("https://example.test/tools/notes/setup?token=setup-token#stale");
+    configureWebAppClient({ publicBasePath: "/tools/notes" });
+
+    expect(appPagePath("/")).toBe("/tools/notes/");
+    expect(appPagePath("/setup")).toBe("/tools/notes/setup");
+    expect(appPagePath("/device?user_code=AB CD#fragment")).toBe("/tools/notes/device?user_code=AB%20CD#fragment");
+    expect(appPath("/api/items?tag=one#fragment")).toBe("https://example.test/tools/notes/api/items?tag=one#fragment");
+    expect(appWebSocketUrl("/api/ws")).toBe("wss://example.test/tools/notes/api/ws");
+
+    installDom("https://example.test/");
+    configureWebAppClient({ publicBasePath: "/" });
+    expect(appPagePath("/setup")).toBe("/setup");
+    expect(appPath("/api/items")).toBe("https://example.test/api/items");
+    expect(appWebSocketUrl("/api/ws")).toBe("wss://example.test/api/ws");
   });
 
   test("uses configured public and API base URLs", async () => {
