@@ -1636,7 +1636,6 @@ test("sidebar search temporarily reveals matches and restores collapse state", a
 
     typeSearch(searchInput, "alpha");
     expect(await waitFor(() => view.getByRole("button", { name: /alpha/i }))).toBeTruthy();
-    expect(await waitFor(() => view.getByRole("button", { name: /alpha/i }))).toBeTruthy();
 
     typeSearch(searchInput, "");
     await waitFor(() => expect(matchingChild()).toBeNull());
