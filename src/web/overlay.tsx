@@ -268,6 +268,24 @@ export function useOverlayLifecycle({
   const active = open;
 
   useLayoutEffect(() => {
+    if (!mounted || typeof document === "undefined") {
+      return;
+    }
+    const surface = surfaceRef.current;
+    const layer = layerRef.current;
+    if (!surface || !layer) {
+      return;
+    }
+    const record = registerOverlay(tokenRef.current, surface, layer);
+    setZIndex(80 + record.order);
+
+    return () => {
+      unregisterOverlay(record.token);
+      setZIndex(undefined);
+    };
+  }, [layerRef, mounted, surfaceRef]);
+
+  useLayoutEffect(() => {
     if (!active || typeof document === "undefined") {
       return;
     }
@@ -280,8 +298,6 @@ export function useOverlayLifecycle({
     restoreFocusPendingRef.current = null;
     previousFocusRef.current = restoreFocusRefRef.current?.current
       ?? (document.activeElement instanceof Element ? document.activeElement : null);
-    const record = registerOverlay(token, surface, layer);
-    setZIndex(80 + record.order);
 
     const releaseBodyScroll = lockBodyScroll ? acquireBodyScrollLock() : () => {};
     const targets = (inertTargetsRef.current
@@ -347,7 +363,6 @@ export function useOverlayLifecycle({
     return () => {
       document.removeEventListener("focusin", handleFocusIn);
       document.removeEventListener("keydown", handleKeyDown);
-      unregisterOverlay(token);
       for (const release of releaseInert) {
         release();
       }

@@ -2489,6 +2489,29 @@ test("mobile sidebar opening is not consumed by a late backdrop click", async ()
   }
 });
 
+test("mobile sidebar can reopen while dismiss animation is exiting", async () => {
+  const restoreFetch = mockConfigFetch();
+  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
+  try {
+    const view = await renderShortcutWebApp();
+    const showSidebar = view.getByRole("button", { name: "Show sidebar" });
+
+    fireEvent.click(showSidebar);
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
+
+    const backdrop = view.getByRole("button", { name: "Close sidebar" });
+    fireEvent.pointerDown(backdrop, { button: 0 });
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
+    expect(view.getByRole("presentation", { hidden: true })).toBeTruthy();
+
+    fireEvent.click(showSidebar);
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
+  } finally {
+    restoreMobileMediaQuery();
+    restoreFetch();
+  }
+});
+
 test("mobile sidebar dismiss does not activate background content", async () => {
   const restoreFetch = mockConfigFetch();
   const restoreMobileMediaQuery = mockMobileMediaQuery(true);
