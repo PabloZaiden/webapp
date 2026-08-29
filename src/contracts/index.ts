@@ -149,6 +149,7 @@ export interface ServerLogEntry {
 export interface WebAppConfigResponse {
   appName: string;
   version: string;
+  publicBasePath: string;
   currentUser?: CurrentUser;
   passkeyAuth: PasskeyAuthStatusResponse;
   userManagement: {

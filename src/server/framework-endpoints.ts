@@ -38,7 +38,7 @@ import {
 import { audit, assertValidUsername, createSetupLinkRecord, createUserRecord, summarizeUser } from "./auth/users";
 import { nowIso, randomToken } from "./auth/crypto";
 import type { WebAppStore } from "./auth/store";
-import { getRequestBaseUrl } from "./auth/request-origin";
+import { getRequestBaseUrl, getRequestOriginInfo } from "./auth/request-origin";
 import type { Authentication } from "./authentication";
 import { authErrorResponse, tokenError } from "./authentication";
 import { checkSameOrigin } from "./same-origin";
@@ -122,6 +122,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
     const base = {
       appName: config.appName,
       version,
+      publicBasePath: getRequestOriginInfo(req, config).pathPrefix,
       currentUser: user,
       passkeyAuth: passkeyStatus(req, store, config, passkeysEnabled),
       userManagement: {
