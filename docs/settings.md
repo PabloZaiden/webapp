@@ -5,7 +5,8 @@ Settings is framework-owned so apps stay consistent. It includes:
 - Account summary and passkey logout/delete
 - User API key create/list/delete for the current user when enabled
 - Device-auth sessions for the current user when enabled
-- Theme preference: system/light/dark, stored per user
+- Theme preference: system/light/dark, stored per user and cached in browser
+  storage when available
 - Admin user management
 - Admin log-level preference unless `{PREFIX}_LOG_LEVEL` is set
 - Admin in-memory server-log capture toggle; disabled and cleared on process
@@ -20,9 +21,12 @@ immediately followed by **About**. Section and row scope rules still determine
 which application-defined settings are shown.
 
 The local-storage or system theme is applied immediately while the signed-in
-user preference loads in the background. If that request fails, the current
-theme remains active and Display Settings shows a non-blocking error with a
-retry action; the rest of Settings remains usable.
+user preference loads in the background. Browser storage is best-effort:
+unavailable or corrupt storage falls back to a valid in-memory preference, and
+a failed write does not undo the active theme. If the server preference
+request fails, the current theme remains active and Display Settings shows a
+non-blocking error with a retry action; this server error is separate from
+browser persistence and the rest of Settings remains usable.
 
 Application code rendered inside `WebAppRoot` can use `useTheme()` from
 `@pablozaiden/webapp/web` when JavaScript needs theme state. The hook exposes

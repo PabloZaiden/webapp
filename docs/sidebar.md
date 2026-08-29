@@ -49,7 +49,7 @@ entrypoints and configure the server-side `web.icons` option described in
 
 The first two app actions are optional; settings and collapse/uncollapse are always framework-owned and always appear as the rightmost fixed actions.
 
-Optional sidebar tabs stay fixed at the bottom of the sidebar, below the version footer, while the tree and search remain independently scrollable. The first tab is selected by default and the selected tab id is persisted in `localStorage` per app. The active id is passed to `getNodes` as `activeTab`, alongside the normalized search value. Header actions and pinned-item actions are resolved from the visible tab first and expanded to other configured tabs when the active route or a stored pin is not present there.
+Optional sidebar tabs stay fixed at the bottom of the sidebar, below the version footer, while the tree and search remain independently scrollable. The first tab is selected by default and the selected tab id is persisted in browser `localStorage` per app on a best-effort basis. Stored ids are validated against the configured tabs; an unavailable, unreadable, or stale value falls back to the first available tab without disabling navigation. The active id is passed to `getNodes` as `activeTab`, alongside the normalized search value. Header actions and pinned-item actions are resolved from the visible tab first and expanded to other configured tabs when the active route or a stored pin is not present there.
 
 Tabs can be icon-only, text-only, or show an icon with a label:
 
@@ -201,7 +201,9 @@ and focuses the search input after the visibility state is committed. It is a
 no-op when `sidebar.search` is `false`. `sidebar.selectTab(id)` accepts only ids
 from the configured `sidebar.tabs`; invalid ids are ignored. Route-to-tab
 matching remains application-owned, while webapp keeps the selected tab
-reactive and persists it.
+reactive and persists it when browser storage is available. A storage
+restriction or write failure leaves the selected tab active for the current
+session and does not make the shell unusable.
 
 Do not query `#wapp-sidebar`, select buttons by accessibility labels, write
 `webapp.<app>.sidebar.tab`, or change the `WebAppRoot` key to synchronize a
@@ -233,14 +235,26 @@ return {
 
 ## Native pinning
 
-Pinning is framework-owned and persisted in browser `localStorage`. Mark route-backed items as `pinnable`; `WebAppRoot` injects `Pin to sidebar` / `Unpin from sidebar` into both the sidebar context menu and the title-bar action menu for the active route. Pinned entries reuse the original sidebar node actions, so right-clicking a pinned item shows the same contextual menu as the source item.
+Pinning is framework-owned and persisted in browser `localStorage` on a
+best-effort basis. Mark route-backed items as `pinnable`; `WebAppRoot` injects
+`Pin to sidebar` / `Unpin from sidebar` into both the sidebar context menu and
+the title-bar action menu for the active route. Pinned entries are
+runtime-validated before use, and malformed records are ignored rather than
+passed into sidebar rendering. A storage restriction or failed write keeps
+pin/unpin changes in memory for the current session and does not crash the
+shell. Pinned entries reuse the original sidebar node actions, so right-clicking
+a pinned item shows the same contextual menu as the source item.
 
 When a ready snapshot is received, pins whose current `SidebarNode` still
 exists are retained and their title, subtitle, badge, layout, and route
 metadata are refreshed. Pins absent from the complete ready snapshot are
-removed from both React state and `localStorage`. While the snapshot is not
-ready, persisted pins are left untouched so a temporary loading, refresh, or
-error state cannot delete valid pins.
+removed from both React state and `localStorage` when it is available. While
+the snapshot is not ready, persisted pins are left untouched so a temporary
+loading, refresh, or error state cannot delete valid pins.
+
+The collapsed tree state is also validated before it is used. An unavailable
+or malformed value falls back to the node's `defaultCollapsed` behavior, and a
+failed write keeps the current collapse state active in memory.
 
 ```tsx
 {
