@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { WebAppErrorResponse } from "../contracts";
 
+export const DEFAULT_JSON_BODY_MAX_BYTES = 64 * 1024;
+export const MAX_WEBAUTHN_JSON_BODY_BYTES = 256 * 1024;
+
 export function jsonResponse<T>(data: T, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
   if (!headers.has("content-type")) {
@@ -190,11 +193,7 @@ async function readLimitedRequestBody(req: Request, maxBytes: number): Promise<s
 }
 
 async function readRequestBody(req: Request, maxBytes: number | undefined): Promise<string> {
-  if (maxBytes === undefined) {
-    declaredContentLength(req, undefined);
-    return await req.text();
-  }
-  return await readLimitedRequestBody(req, maxBytes);
+  return await readLimitedRequestBody(req, maxBytes ?? DEFAULT_JSON_BODY_MAX_BYTES);
 }
 
 function parseJsonText(text: string): unknown {
@@ -221,18 +220,20 @@ export async function parseJson<TSchema extends z.ZodTypeAny>(
   return validateJson(await parseUnknownJson(req, options), schema);
 }
 
-export async function parseOptionalJson<TSchema extends z.ZodTypeAny>(req: Request, schema: TSchema): Promise<z.infer<TSchema> | undefined> {
-  const text = await req.text();
+export async function parseOptionalJson<TSchema extends z.ZodTypeAny>(
+  req: Request,
+  schema: TSchema,
+  options: ParseJsonOptions = {},
+): Promise<z.infer<TSchema> | undefined> {
+  validateParseJsonOptions(options);
+  if (options.requireContentType && !hasJsonContentType(req)) {
+    throw new InvalidRequestContentTypeError();
+  }
+  const text = await readRequestBody(req, options.maxBytes);
   if (text.length === 0) {
     return undefined;
   }
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    throw new InvalidJsonError();
-  }
-  return validateJson(value, schema);
+  return validateJson(parseJsonText(text), schema);
 }
 
 export function applySecurityHeaders(headers: Headers): Headers {
