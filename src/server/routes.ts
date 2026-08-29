@@ -156,6 +156,9 @@ export type CompiledRoutePatternMatch =
       readonly kind: "no-match";
     };
 
+// Route event types are compile-time-only, so use never for the erased cache value.
+const compiledRouteTables = new WeakMap<object, CompiledRouteTable<never>>();
+
 function splitPath(pathname: string): string[] {
   return pathname.split("/").filter(Boolean);
 }
@@ -360,10 +363,20 @@ function compileRoute<TEvent>(pattern: string, route: RouteDefinition<TEvent>): 
   };
 }
 
-export function compileRouteTable<TEvent = unknown>(routes: RouteTable<TEvent>): CompiledRouteTable<TEvent> {
+function compileRouteTableUncached<TEvent = unknown>(routes: RouteTable<TEvent>): CompiledRouteTable<TEvent> {
   const compiled = Object.entries(routes).map(([pattern, route]) => compileRoute(pattern, route));
   validateRouteAmbiguity(compiled);
   return { routes: [...compiled].sort(compareRoutes) };
+}
+
+export function compileRouteTable<TEvent = unknown>(routes: RouteTable<TEvent>): CompiledRouteTable<TEvent> {
+  const cached = compiledRouteTables.get(routes);
+  if (cached) {
+    return cached as CompiledRouteTable<TEvent>;
+  }
+  const compiled = compileRouteTableUncached(routes);
+  compiledRouteTables.set(routes, compiled);
+  return compiled;
 }
 
 function decodeRouteSegment(value: string): string | undefined {

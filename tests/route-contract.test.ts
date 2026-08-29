@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   createRouteCatalog,
   createWebAppServer,
+  compileRouteTable,
   defineRoutes,
   findRouteCatalogEntry,
   jsonResponse,
@@ -106,6 +107,10 @@ const routeCases: RouteCase[] = [
 ];
 
 describe("shared route contract", () => {
+  test("reuses the compiled route table for the same route-table object", () => {
+    expect(compileRouteTable(routes)).toBe(compileRouteTable(routes));
+  });
+
   for (const routeCase of routeCases) {
     test(`matches ${routeCase.name} through runtime and catalog paths`, async () => {
       const runtimeMatch = matchRoute(routes, routeCase.apiInput.split(/[?#]/)[0]!);
