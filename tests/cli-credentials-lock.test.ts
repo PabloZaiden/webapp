@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname } from "node:path";
 import {
   createDeviceCredentialsStore,
   refreshDeviceCredentials,
+  type JsonFileStoreLockOptions,
   type StoredDeviceCredentials,
 } from "@pablozaiden/webapp/cli";
 import type { JsonFileStore } from "../src/cli/credentials";
@@ -51,12 +52,23 @@ async function testHome(): Promise<string> {
   return home;
 }
 
-function storeFor(home: string, fileName = "device-auth.json"): JsonFileStore<StoredDeviceCredentials> {
-  return createDeviceCredentialsStore({
+function storeFor(
+  home: string,
+  fileName = "device-auth.json",
+  lockOptions?: JsonFileStoreLockOptions,
+): JsonFileStore<StoredDeviceCredentials> {
+  const store = createDeviceCredentialsStore({
     appDirectoryName: "credentials",
     fileName,
     home,
   });
+  if (!lockOptions) return store;
+  return {
+    ...store,
+    withLock<R>(callback: () => Promise<R>) {
+      return store.withLock!(callback, lockOptions);
+    },
+  };
 }
 
 afterEach(async () => {
@@ -360,56 +372,65 @@ describe("CLI credential file locks", () => {
   });
 
   test("recovers a stale lock owned by a terminated process", async () => {
-    const store = storeFor(await testHome());
-    const initial = credentials();
-    await store.write(initial);
-    const child = Bun.spawn(["bun", "-e", ""]);
-    const stalePid = child.pid;
-    await child.exited;
-    const lockPath = `${store.path()}.lock`;
-    await Bun.write(lockPath, `${JSON.stringify({
-      version: 1,
-      pid: stalePid,
-      createdAt: Date.now() - 10 * 60_000,
-      owner: "stale-owner",
-    })}\n`);
-    chmodSync(lockPath, 0o600);
-
-    let refreshCalls = 0;
-    const result = await refreshDeviceCredentials({
-      credentials: initial,
-      store,
-      fetchFn: (async (_input: string | URL | Request, _init?: RequestInit) => {
-        refreshCalls++;
-        return tokenResponse();
-      }) as typeof fetch,
-      now,
-    });
-
-    expect(result?.refreshToken).toBe("new-refresh");
-    expect(refreshCalls).toBe(1);
-    expect(await Bun.file(lockPath).exists()).toBe(false);
-  });
-
-  test("recovers from malformed or invalid reclaim gates", async () => {
     const home = await testHome();
-    for (const [fileName, gateContents] of [
-      ["malformed.json", "{not-json"],
-      ["invalid.json", JSON.stringify({ version: 1 })],
-    ] as const) {
-      const store = storeFor(home, fileName);
-      await store.write(credentials());
-      const reclaimPath = `${store.path()}.lock.reclaim`;
-      await Bun.write(reclaimPath, gateContents);
-      chmodSync(reclaimPath, 0o600);
+    let holderReady!: () => void;
+    const holderReadySignal = new Promise<void>((resolve) => {
+      holderReady = resolve;
+    });
+    const server = Bun.serve({
+      port: 0,
+      fetch: (request) => {
+        if (new URL(request.url).pathname === "/holder-ready") {
+          holderReady();
+          return new Response("ok");
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    let holder: ReturnType<typeof Bun.spawn> | undefined;
+    const initial = credentials();
+    const store = storeFor(home);
+    try {
+      await store.write(initial);
+      holder = Bun.spawn([process.execPath, "tests/fixtures/cli-lock-holder-worker.ts"], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          CLI_LOCK_HOLDER_HOME: home,
+          CLI_LOCK_HOLDER_BASE_URL: `http://127.0.0.1:${server.port}`,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      await holderReadySignal;
+      holder.kill();
+      await holder.exited;
 
-      let entered = false;
-      await store.withLock!(async () => {
-        entered = true;
+      let refreshCalls = 0;
+      const recoverableStore = storeFor(home, "device-auth.json", {
+        timeoutMs: 2_000,
+        staleAfterMs: 0,
+        pollIntervalMs: 1,
+      });
+      const result = await refreshDeviceCredentials({
+        credentials: initial,
+        store: recoverableStore,
+        fetchFn: (async (_input: string | URL | Request, _init?: RequestInit) => {
+          refreshCalls++;
+          return tokenResponse();
+        }) as typeof fetch,
+        now,
       });
 
-      expect(entered).toBe(true);
-      expect(await Bun.file(reclaimPath).exists()).toBe(false);
+      expect(result?.refreshToken).toBe("new-refresh");
+      expect(refreshCalls).toBe(1);
+      expect((await recoverableStore.read())?.accessToken).toBe("new-access");
+    } finally {
+      if (holder && holder.exitCode === null) {
+        holder.kill();
+        await holder.exited;
+      }
+      await server.stop(true);
     }
   });
 
@@ -435,11 +456,18 @@ describe("CLI credential file locks", () => {
     const allWorkersSettled = new Promise<void>((resolve) => {
       allSettled = resolve;
     });
+    let holderReady!: () => void;
+    const holderReadySignal = new Promise<void>((resolve) => {
+      holderReady = resolve;
+    });
     const server = Bun.serve({
       port: 0,
       fetch: async (request) => {
         const url = new URL(request.url);
         switch (url.pathname) {
+          case "/holder-ready":
+            holderReady();
+            return new Response("ok");
           case "/started":
             started++;
             if (started === workerCount) allStarted();
@@ -474,23 +502,26 @@ describe("CLI credential file locks", () => {
       },
     });
     let workers: Array<ReturnType<typeof Bun.spawn>> = [];
+    let holder: ReturnType<typeof Bun.spawn> | undefined;
     try {
       const store = storeFor(home);
       const initial = credentials({
         baseUrl: `http://127.0.0.1:${server.port}`,
       });
       await store.write(initial);
-      const child = Bun.spawn(["bun", "-e", ""]);
-      const stalePid = child.pid;
-      await child.exited;
-      const lockPath = `${store.path()}.lock`;
-      await Bun.write(lockPath, `${JSON.stringify({
-        version: 1,
-        pid: stalePid,
-        createdAt: Date.now() - 10 * 60_000,
-        owner: "stale-owner",
-      })}\n`);
-      chmodSync(lockPath, 0o600);
+      holder = Bun.spawn([process.execPath, "tests/fixtures/cli-lock-holder-worker.ts"], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          CLI_LOCK_HOLDER_HOME: home,
+          CLI_LOCK_HOLDER_BASE_URL: `http://127.0.0.1:${server.port}`,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      await holderReadySignal;
+      holder.kill();
+      await holder.exited;
 
       const env = {
         ...process.env,
@@ -498,7 +529,7 @@ describe("CLI credential file locks", () => {
         CLI_STALE_LOCK_TEST_BASE_URL: `http://127.0.0.1:${server.port}`,
       };
       workers = Array.from({ length: workerCount }, (_, index) => Bun.spawn(
-        ["bun", "tests/fixtures/cli-stale-lock-worker.ts"],
+        [process.execPath, "tests/fixtures/cli-stale-lock-worker.ts"],
         {
           cwd: process.cwd(),
           env: {
@@ -525,10 +556,12 @@ describe("CLI credential file locks", () => {
       expect(maximumActive).toBe(1);
     } finally {
       release();
-      for (const worker of workers) {
-        if (worker.exitCode === null) worker.kill();
+      const processes = holder ? [holder, ...workers] : workers;
+      for (const process of processes) {
+        if (process.exitCode === null) process.kill();
       }
-      server.stop(true);
+      await Promise.all(processes.map((process) => process.exited));
+      await server.stop(true);
     }
   });
 

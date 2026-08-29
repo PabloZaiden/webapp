@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  createWebAppCli,
   getAuthorizedHeaders,
   runApiCliCommand,
   type StoredDeviceCredentials,
@@ -13,15 +14,162 @@ const catalog = createRouteCatalog(defineRoutes({
     cliPath: "item/:id",
     description: "Read item.",
     GET: () => jsonResponse({ ok: true }),
+    POST: () => jsonResponse({ ok: true }),
+    PUT: () => jsonResponse({ ok: true }),
+    PATCH: () => jsonResponse({ ok: true }),
+    DELETE: () => jsonResponse({ ok: true }),
   },
 }));
 
+function emptyProfileStore() {
+  const credentials = {
+    path: () => "memory",
+    read: async () => undefined,
+    write: async () => undefined,
+    clear: async () => undefined,
+  };
+  return {
+    selectedName: async (name?: string) => name ?? "default",
+    list: async () => [],
+    use: async () => undefined,
+    remove: async () => false,
+    credentials: () => credentials,
+  };
+}
+
+function createMutationCli(
+  fetchFn: typeof fetch,
+  envPrefix = "TEST_CLI_MUTATIONS",
+) {
+  return createWebAppCli({
+    appName: "CLI Mutation Test",
+    commandName: "cli-mutation-test",
+    envPrefix,
+    version: "test",
+    profileStore: emptyProfileStore(),
+    routeCatalog: catalog,
+    environment: {
+      [`${envPrefix}_BASE_URL`]: "https://mutation.example.test///",
+      [`${envPrefix}_API_KEY`]: "test-key",
+    },
+    fetchFn,
+  });
+}
+
 describe("generic API CLI command", () => {
+  test("sends JSON payloads for representative mutation methods", async () => {
+    const requests: Array<{
+      url: string;
+      method: string;
+      body: unknown;
+      contentType: string | null;
+      authorization: string | null;
+    }> = [];
+    const cli = createMutationCli((async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        method: init?.method ?? "GET",
+        body: typeof init?.body === "string" ? JSON.parse(init.body) as unknown : undefined,
+        contentType: new Headers(init?.headers).get("content-type"),
+        authorization: new Headers(init?.headers).get("authorization"),
+      });
+      return Response.json({ method: init?.method, received: JSON.parse(String(init?.body)) });
+    }) as typeof fetch);
+    const payload = JSON.stringify({ title: "updated", enabled: true });
+
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+      const result = await cli.execute([
+        "api",
+        "item/123",
+        "--method",
+        method,
+        "--payload",
+        payload,
+      ]);
+
+      expect(result.exitCode).toBe(0);
+    }
+
+    expect(requests).toEqual([
+      {
+        url: "https://mutation.example.test/api/items/123",
+        method: "POST",
+        body: { title: "updated", enabled: true },
+        contentType: "application/json",
+        authorization: "Bearer test-key",
+      },
+      {
+        url: "https://mutation.example.test/api/items/123",
+        method: "PUT",
+        body: { title: "updated", enabled: true },
+        contentType: "application/json",
+        authorization: "Bearer test-key",
+      },
+      {
+        url: "https://mutation.example.test/api/items/123",
+        method: "PATCH",
+        body: { title: "updated", enabled: true },
+        contentType: "application/json",
+        authorization: "Bearer test-key",
+      },
+      {
+        url: "https://mutation.example.test/api/items/123",
+        method: "DELETE",
+        body: { title: "updated", enabled: true },
+        contentType: "application/json",
+        authorization: "Bearer test-key",
+      },
+    ]);
+  });
+
+  test("surfaces malformed payloads without making an application request", async () => {
+    let requests = 0;
+    const cli = createMutationCli((async () => {
+      requests += 1;
+      return Response.json({ ok: true });
+    }) as unknown as typeof fetch, "TEST_CLI_INVALID_PAYLOAD");
+
+    const result = await cli.execute([
+      "api",
+      "item/123",
+      "--method",
+      "POST",
+      "--payload",
+      "{\"title\":",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toBeDefined();
+    expect(requests).toBe(0);
+  });
+
+  test("preserves non-success response envelopes through public CLI execution", async () => {
+    const cli = createMutationCli((async () => Response.json(
+      { error: "invalid item" },
+      { status: 422, statusText: "Unprocessable Entity" },
+    )) as unknown as typeof fetch, "TEST_CLI_MUTATION_ERROR");
+
+    const result = await cli.execute([
+      "api",
+      "item/123",
+      "--method",
+      "PATCH",
+      "--payload",
+      JSON.stringify({ title: "" }),
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.output!)).toMatchObject({
+      status: { code: 422, ok: false, text: "Unprocessable Entity" },
+      response: { error: "invalid item" },
+    });
+  });
+
   test("lists endpoints and prints schema metadata", async () => {
     const list = await runApiCliCommand({ catalog, args: [] });
     const schema = await runApiCliCommand({ catalog, mode: "schema", args: ["item/123"] });
 
-    expect(list.output).toContain("GET item/:id - Read item.");
+    expect(list.output).toContain("GET, POST, PUT, PATCH, DELETE item/:id - Read item.");
     expect(JSON.parse(schema.output!)).toMatchObject({
       path: "/api/items/:id",
       scopes: ["items:read"],
