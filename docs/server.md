@@ -55,16 +55,29 @@ timestamps, and other server-managed fields under application control.
 `parseJson(req, schema)` parses and validates the body at runtime. Malformed JSON
 returns a 400 `invalid_json` response, while a JSON value that does not satisfy
 the schema returns a 400 `invalid_request_body` response with field details.
-Pass `{ maxBytes, requireContentType: true }` when an endpoint needs a
-bounded JSON body. The parser rejects a non-JSON content type with a 400
-`invalid_request_content_type` response, rejects an invalid `Content-Length`
-with a 400 `invalid_request_content_length` response, rejects declared and
-streamed bodies over `maxBytes` with a 413 `request_body_too_large` response,
+`parseJson`, `parseUnknownJson`, and `parseOptionalJson` use
+`DEFAULT_JSON_BODY_MAX_BYTES` (64 KiB) when `maxBytes` is omitted, so JSON
+request bodies are bounded before parsing or schema validation. Pass
+`{ maxBytes, requireContentType: true }` when an endpoint needs a different
+finite limit or must require a JSON content type. The parser rejects a
+non-JSON content type with a 400 `invalid_request_content_type` response,
+rejects an invalid `Content-Length` with a 400
+`invalid_request_content_length` response, rejects declared and streamed
+bodies over the selected limit with a 413 `request_body_too_large` response,
 and cancels a streamed body as soon as the limit is exceeded. JSON media types
-with a `+json` suffix are accepted. Use `parseOptionalJson(req, schema)` only
-for endpoints that deliberately allow an empty body. Only a zero-byte body is
-considered absent; whitespace-only content is non-empty malformed JSON and is
-rejected just like any other malformed body. `parseUnknownJson` returns
+with a `+json` suffix are accepted.
+
+Built-in endpoints use the 64 KiB default for small device, token, user,
+preference, logging, and API-key requests. WebAuthn registration and
+authentication response endpoints explicitly use
+`MAX_WEBAUTHN_JSON_BODY_BYTES` (256 KiB) because attestation payloads can be
+larger; the browser API-key exchange retains its separate 4 KiB limit. These
+are finite, code-defined exceptions rather than unbounded fallbacks.
+
+Use `parseOptionalJson(req, schema)` only for endpoints that deliberately allow
+an empty body. It accepts the same optional parser settings. Only a zero-byte
+body is considered absent; whitespace-only content is non-empty malformed JSON
+and is rejected just like any other malformed body. `parseUnknownJson` returns
 `unknown` and is intentionally unvalidated, so application handlers should
 prefer a schema-backed parser.
 

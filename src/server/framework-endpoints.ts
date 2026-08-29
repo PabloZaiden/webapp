@@ -66,8 +66,18 @@ import {
 import { resolveEffectiveLogLevel, type RuntimeConfig } from "./runtime-config";
 import { setLogLevel } from "./logger";
 import type { InMemoryLogStorage } from "./logger";
-import { errorResponse, jsonResponse, methodNotAllowed, notFound, parseJson, successResponse } from "./responses";
+import {
+  errorResponse,
+  jsonResponse,
+  MAX_WEBAUTHN_JSON_BODY_BYTES,
+  methodNotAllowed,
+  notFound,
+  parseJson,
+  successResponse,
+} from "./responses";
 import type { WebSocketData } from "./realtime/bus";
+
+const MAX_API_KEY_AUTH_BODY_BYTES = 4 * 1024;
 
 export interface FrameworkEndpointDependencies {
   config: RuntimeConfig;
@@ -190,7 +200,12 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         return addHeaders(jsonResponse(result.options), result.headers);
       }
       if (passkeysEnabled && path === "/api/passkey-auth/bootstrap/verify" && req.method === "POST") {
-        const headers = await completeBootstrapRegistration(req, store, config, await parseJson(req, registrationResponseSchema));
+        const headers = await completeBootstrapRegistration(
+          req,
+          store,
+          config,
+          await parseJson(req, registrationResponseSchema, { maxBytes: MAX_WEBAUTHN_JSON_BODY_BYTES }),
+        );
         return addHeaders(successResponse(), headers);
       }
       if (passkeysEnabled && path === "/api/passkey-auth/owner-setup/options" && req.method === "POST") {
@@ -198,7 +213,12 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         return addHeaders(jsonResponse(result.options), result.headers);
       }
       if (passkeysEnabled && path === "/api/passkey-auth/owner-setup/verify" && req.method === "POST") {
-        const headers = await completeOwnerPasskeySetup(req, store, config, await parseJson(req, registrationResponseSchema));
+        const headers = await completeOwnerPasskeySetup(
+          req,
+          store,
+          config,
+          await parseJson(req, registrationResponseSchema, { maxBytes: MAX_WEBAUTHN_JSON_BODY_BYTES }),
+        );
         return addHeaders(successResponse(), headers);
       }
       if (passkeysEnabled && path === "/api/user-setup" && req.method === "GET") {
@@ -211,7 +231,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         return addHeaders(jsonResponse(result.options), result.headers);
       }
       if (passkeysEnabled && path === "/api/user-setup/verify" && req.method === "POST") {
-        const body = await parseJson(req, setupVerificationSchema);
+        const body = await parseJson(req, setupVerificationSchema, { maxBytes: MAX_WEBAUTHN_JSON_BODY_BYTES });
         const headers = await completeSetupRegistration(req, store, config, body.token, body.response);
         return addHeaders(successResponse(), headers);
       }
@@ -220,13 +240,18 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         return addHeaders(jsonResponse(result.options), result.headers);
       }
       if (passkeysEnabled && path === "/api/passkey-auth/authentication/verify" && req.method === "POST") {
-        const headers = await completeAuthentication(req, store, config, await parseJson(req, authenticationResponseSchema));
+        const headers = await completeAuthentication(
+          req,
+          store,
+          config,
+          await parseJson(req, authenticationResponseSchema, { maxBytes: MAX_WEBAUTHN_JSON_BODY_BYTES }),
+        );
         return addHeaders(successResponse(), headers);
       }
       if (passkeysEnabled && apiKeysEnabled && path === "/api/passkey-auth/api-key" && req.method === "POST") {
         const originFailure = checkSameOrigin(req, config, { kind: "anonymous" }, "mutations");
         if (originFailure) return originFailure;
-        const body = await parseJson(req, apiKeyAuthenticationRequestSchema, { maxBytes: 4096 });
+        const body = await parseJson(req, apiKeyAuthenticationRequestSchema, { maxBytes: MAX_API_KEY_AUTH_BODY_BYTES });
         const apiKey = authenticateApiKey(store, body.apiKey);
         if (!apiKey || !apiKey.scopes.includes("*")) {
           return errorResponse(401, "invalid_api_key", "Invalid API key");

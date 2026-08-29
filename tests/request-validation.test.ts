@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { createWebAppServer, defineRoutes, jsonResponse, parseJson, parseOptionalJson, sqliteWebAppStore } from "@pablozaiden/webapp/server";
+import {
+  createWebAppServer,
+  DEFAULT_JSON_BODY_MAX_BYTES,
+  defineRoutes,
+  jsonResponse,
+  MAX_WEBAUTHN_JSON_BODY_BYTES,
+  parseJson,
+  parseOptionalJson,
+  sqliteWebAppStore,
+} from "@pablozaiden/webapp/server";
 import { resetInMemoryLogStorage } from "../src/server/logger";
 
 function testStore(name: string) {
@@ -66,6 +75,73 @@ describe("request body validation", () => {
     expect(await valid?.json()).toMatchObject({ device_code: expect.any(String), user_code: expect.any(String) });
   });
 
+  test("enforces the default limit through built-in endpoints", async () => {
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_REQUEST_VALIDATION_DEFAULT_LIMIT",
+      store: testStore("request-validation-default-limit"),
+      auth: { passkeys: false, deviceAuth: true },
+      routes: defineRoutes({}),
+    });
+
+    const declaredOversized = await app.handleRequest(new Request("http://localhost/api/auth/device", {
+      method: "POST",
+      headers: { "content-length": String(DEFAULT_JSON_BODY_MAX_BYTES + 1) },
+      body: "{}",
+    }));
+    expect(declaredOversized?.status).toBe(413);
+    expect(await responseJson<{ error: string }>(declaredOversized)).toMatchObject({
+      error: "request_body_too_large",
+    });
+
+    const streamedOversized = await app.handleRequest(new Request("http://localhost/api/auth/device", {
+      method: "POST",
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"scope":"'));
+          controller.enqueue(new TextEncoder().encode("x".repeat(DEFAULT_JSON_BODY_MAX_BYTES)));
+          controller.close();
+        },
+      }),
+    }));
+    expect(streamedOversized?.status).toBe(413);
+    expect(await responseJson<{ error: string }>(streamedOversized)).toMatchObject({
+      error: "request_body_too_large",
+    });
+  });
+
+  test("allows a WebAuthn-sized body to reach downstream handling", async () => {
+    const app = createWebAppServer({
+      appName: "Test",
+      envPrefix: "TEST_REQUEST_VALIDATION_WEBAUTHN_LIMIT",
+      store: testStore("request-validation-webauthn-limit"),
+      auth: { passkeys: true, deviceAuth: false },
+      routes: defineRoutes({}),
+    });
+    const payload = JSON.stringify({
+      id: "credential",
+      rawId: "credential",
+      response: {
+        clientDataJSON: "client-data",
+        attestationObject: "x".repeat(DEFAULT_JSON_BODY_MAX_BYTES),
+      },
+      clientExtensionResults: {},
+      type: "public-key",
+    });
+    const payloadBytes = new TextEncoder().encode(payload);
+    expect(payloadBytes.byteLength).toBeGreaterThan(DEFAULT_JSON_BODY_MAX_BYTES);
+    expect(payloadBytes.byteLength).toBeLessThan(MAX_WEBAUTHN_JSON_BODY_BYTES);
+
+    const response = await app.handleRequest(new Request("http://localhost/api/passkey-auth/bootstrap/verify", {
+      method: "POST",
+      body: payload,
+    }));
+    expect(response?.status).toBe(400);
+    expect(await responseJson<{ error: string }>(response)).toMatchObject({
+      error: "challenge_invalid",
+    });
+  });
+
   test("returns 400 for whitespace-only optional JSON bodies", async () => {
     const webhookSchema = z.object({ title: z.string().optional() });
     const app = createWebAppServer({
@@ -98,6 +174,15 @@ describe("request body validation", () => {
     }));
     expect(empty?.status).toBe(200);
     expect(await responseJson<{ body: null }>(empty)).toEqual({ body: null });
+
+    const oversized = await app.handleRequest(new Request("http://localhost/api/webhooks", {
+      method: "POST",
+      body: JSON.stringify({ title: "x".repeat(DEFAULT_JSON_BODY_MAX_BYTES) }),
+    }));
+    expect(oversized?.status).toBe(413);
+    expect(await responseJson<{ error: string }>(oversized)).toMatchObject({
+      error: "request_body_too_large",
+    });
   });
 
   test("returns field details for schema-invalid application input", async () => {
