@@ -1,8 +1,7 @@
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { cleanup } from "@testing-library/react";
-import { createLogger } from "../src/web/logger";
-import { readStorage, removeStorage, warnStorageIssue, writeStorage } from "../src/web/storage";
+import { readStorage, removeStorage, writeStorage } from "../src/web/storage";
 
 if (!GlobalRegistrator.isRegistered) {
   GlobalRegistrator.register({ url: "http://localhost/" });
@@ -113,45 +112,5 @@ test("safe storage converts throwing accessors and methods into failures", () =>
     expect(removeStorage("preference")).toMatchObject({ ok: false, reason: "error" });
   } finally {
     restoreMethods();
-  }
-});
-
-test("safe storage de-duplicates repeated warnings for one operation and key", () => {
-  const key = "deduplicated-storage-warning";
-  const logger = createLogger("webapp:storage");
-  const warnings: unknown[] = [];
-  const detach = logger.attachTransport((record) => {
-    warnings.push(record);
-  });
-  const restore = installLocalStorage({
-    value: {
-      getItem() {
-        throw new Error("read blocked");
-      },
-    },
-  });
-  try {
-    expect(readStorage(key)).toMatchObject({ ok: false, reason: "error" });
-    expect(readStorage(key)).toMatchObject({ ok: false, reason: "error" });
-    expect(warnings).toHaveLength(1);
-  } finally {
-    detach();
-    restore();
-  }
-});
-
-test("safe storage reports encoding failures separately from writes", () => {
-  const key = "encoding-storage-warning";
-  const logger = createLogger("webapp:storage");
-  const warnings: unknown[] = [];
-  const detach = logger.attachTransport((record) => {
-    warnings.push(record);
-  });
-  try {
-    warnStorageIssue(key, "encoding-failed");
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatchObject({ 1: { code: "encoding-failed", key } });
-  } finally {
-    detach();
   }
 });

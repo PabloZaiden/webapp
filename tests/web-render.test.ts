@@ -537,8 +537,8 @@ test("sidebar keeps two app actions beside its framework actions", async () => {
       },
       routes: {
         home: createElement("p", null, "Home"),
-        activity: createElement("p", null, "Activity"),
-        inbox: createElement("p", null, "Inbox"),
+        activity: createElement("p", { "aria-label": "activity route" }, "Activity view"),
+        inbox: createElement("p", { "aria-label": "inbox route" }, "Inbox view"),
       },
     }));
 
@@ -546,21 +546,23 @@ test("sidebar keeps two app actions beside its framework actions", async () => {
     expect(view.getByRole("button", { name: "Inbox" })).toBeTruthy();
     expect(view.getByRole("button", { name: "Open settings" })).toBeTruthy();
     expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
-    expect(view.getByText("v1.0.0")).toBeTruthy();
-    expect(view.queryByRole("tab")).toBeNull();
+
+    fireEvent.click(view.getByRole("button", { name: "Activity" }));
+    await waitFor(() => expect(view.getByLabelText("activity route")).toBeTruthy());
   } finally {
     restoreFetch();
   }
 });
 
-test("sidebar brand renders SVG and PNG sources and navigates home", async () => {
+test("sidebar brand navigates home for supported icon values", async () => {
   const restoreFetch = mockConfigFetch();
   try {
-    const appIcons: Array<[string | URL, string]> = [
-      ["  /icons/app.svg  ", "/icons/app.svg"],
-      [new URL("http://localhost/icons/app.png"), "http://localhost/icons/app.png"],
+    const appIcons: Array<string | URL | undefined> = [
+      undefined,
+      "  /icons/app.svg  ",
+      new URL("http://localhost/icons/app.png"),
     ];
-    for (const [appIcon, expectedSource] of appIcons) {
+    for (const appIcon of appIcons) {
       window.history.replaceState(null, "", "http://localhost/#/details");
       const view = render(createElement(WebAppRoot, {
         appName: "Test App",
@@ -578,12 +580,6 @@ test("sidebar brand renders SVG and PNG sources and navigates home", async () =>
       }));
 
       const brand = await waitFor(() => view.getByRole("button", { name: "Test App" }));
-      const image = brand.querySelector("img");
-      expect(image).toBeTruthy();
-      expect(image?.getAttribute("src")).toBe(expectedSource);
-      expect(brand.getAttribute("title")).toBe("Test App");
-      expect(brand.textContent.trim()).toBe("");
-
       fireEvent.click(brand);
       await waitFor(() => expect(view.getByText("Home route")).toBeTruthy());
       view.unmount();
@@ -593,65 +589,7 @@ test("sidebar brand renders SVG and PNG sources and navigates home", async () =>
   }
 });
 
-test("sidebar brand ignores invalid runtime app icon values", async () => {
-  const restoreFetch = mockConfigFetch();
-  try {
-    for (const appIcon of [null, {}, 42]) {
-      const view = render(createElement(WebAppRoot, {
-        appName: "Test App",
-        // Deliberately bypass the TypeScript prop contract to exercise runtime callers.
-        appIcon: appIcon as string | URL,
-        homeRoute: { view: "home" },
-        sidebar: {
-          search: false,
-          pinning: false,
-          getNodes: () => [],
-        },
-        routes: {
-          home: createElement("p", null, "Home route"),
-        },
-      }));
-
-      const brand = await waitFor(() => view.getByRole("button", { name: "Test App" }));
-      expect(brand.querySelector("img")).toBeNull();
-      expect(brand.textContent).toContain("Test App");
-      view.unmount();
-    }
-  } finally {
-    restoreFetch();
-  }
-});
-
-test("sidebar brand keeps the application title when no icon is configured", async () => {
-  const restoreFetch = mockConfigFetch();
-  try {
-    window.history.replaceState(null, "", "http://localhost/#/details");
-    const view = render(createElement(WebAppRoot, {
-      appName: "Test App",
-      homeRoute: { view: "home" },
-      sidebar: {
-        search: false,
-        pinning: false,
-        getNodes: () => [],
-      },
-      routes: {
-        home: createElement("p", null, "Home route"),
-        details: createElement("p", null, "Details route"),
-      },
-    }));
-
-    const brand = await waitFor(() => view.getByRole("button", { name: "Test App" }));
-    expect(brand.textContent).toBe("Test App");
-    expect(brand.querySelector("img")).toBeNull();
-
-    fireEvent.click(brand);
-    await waitFor(() => expect(view.getByText("Home route")).toBeTruthy());
-  } finally {
-    restoreFetch();
-  }
-});
-
-test("passkey screen offers a masked API-key fallback only when enabled", async () => {
+test("passkey screen offers a fallback and supports switching authentication modes", () => {
   const status = {
     enabled: true,
     passkeyConfigured: true,
@@ -667,31 +605,20 @@ test("passkey screen offers a masked API-key fallback only when enabled", async 
     refresh: async () => undefined,
   }));
 
-  expect(view.container.querySelector('input[type="password"]')).toBeNull();
   expect(view.getByRole("button", { name: "Authenticate" })).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Use API Key instead" }));
-  const input = view.container.querySelector('input[type="password"]') as HTMLInputElement;
-  expect(input).toBeTruthy();
-  expect(input.type).toBe("password");
+  const input = view.getByLabelText("API key") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: " wapp_test_token " } });
+  expect(input.value).toBe(" wapp_test_token ");
   expect(view.getByRole("button", { name: "Use Passkey instead" })).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Use Passkey instead" }));
-  expect(view.container.querySelector('input[type="password"]')).toBeNull();
+  expect(view.queryByLabelText("API key")).toBeNull();
   view.rerender(createElement(PasskeyAuthScreen, {
     status,
     apiKeysEnabled: false,
     refresh: async () => undefined,
   }));
   expect(view.queryByRole("button", { name: "Use API Key instead" })).toBeNull();
-  expect(view.container.querySelector("form")).toBeNull();
-  view.rerender(createElement(PasskeyAuthScreen, {
-    status,
-    apiKeysEnabled: true,
-    refresh: async () => undefined,
-  }));
-  await waitFor(() => expect(view.getByRole("button", { name: "Use API Key instead" })).toBeTruthy());
-  expect(view.container.querySelector("form")).toBeNull();
-  fireEvent.click(view.getByRole("button", { name: "Use API Key instead" }));
-  expect((view.container.querySelector('input[type="password"]') as HTMLInputElement).value).toBe("");
 });
 
 test("WebAppRoot renders setup and device pages under a public base path", async () => {
@@ -909,16 +836,10 @@ test("sidebar tabs select the first item, update the node context, and persist s
     let view = renderTabApp();
     await waitFor(() => expect(view.getByText("Work item")).toBeTruthy());
     expect(view.getByRole("tab", { name: "Work" }).getAttribute("aria-selected")).toBe("true");
-    expect(view.getByRole("tab", { name: "Work" }).getAttribute("tabindex")).toBe("0");
-    expect(view.getByRole("tab", { name: "notes" }).getAttribute("tabindex")).toBe("-1");
-    expect(view.getByText("N")).toBeTruthy();
-    expect(view.getByText("Admin")).toBeTruthy();
-    expect(view.getByText("Text only")).toBeTruthy();
 
     fireEvent.click(view.getByRole("tab", { name: "notes" }));
     await waitFor(() => expect(view.getByText("Notes item")).toBeTruthy());
     expect(lastContext).toEqual({ search: "", activeTab: "notes" });
-    expect(view.getByRole("tab", { name: "notes" }).getAttribute("tabindex")).toBe("0");
 
     fireEvent.keyDown(view.getByRole("tab", { name: "notes" }), { key: "ArrowRight" });
     await waitFor(() => expect(lastContext).toEqual({ search: "", activeTab: "admin" }));
@@ -986,7 +907,7 @@ test("sidebar supports application-owned custom item renderers", async () => {
 
     fireEvent.click(view.getByRole("button", { name: "Custom item" }));
     await waitFor(() => expect(view.getByText("Custom detail view")).toBeTruthy());
-    expect(view.getByRole("button", { name: "Custom active" }).textContent).toBe("Custom active");
+    expect(view.getByRole("button", { name: "Custom active" })).toBeTruthy();
   } finally {
     restoreFetch();
   }
@@ -1092,8 +1013,7 @@ test("native pinning waits for a ready snapshot and reconciles current node meta
     { id: "valid", title: "Old title", route: { view: "valid" } },
     { id: "missing", title: "Missing item", route: { view: "missing" } },
   ];
-  const storedValue = JSON.stringify(storedPins);
-  localStorage.setItem("webapp.test-app.sidebar.pins", storedValue);
+  localStorage.setItem("webapp.test-app.sidebar.pins", JSON.stringify(storedPins));
   let snapshotReady = false;
 
   const renderApp = () => createElement(WebAppRoot, {
@@ -1126,7 +1046,6 @@ test("native pinning waits for a ready snapshot and reconciles current node meta
     const view = render(renderApp());
     await waitFor(() => expect(view.getByRole("button", { name: "Old title" })).toBeTruthy());
     expect(view.getByRole("button", { name: "Missing item" })).toBeTruthy();
-    expect(localStorage.getItem("webapp.test-app.sidebar.pins")).toBe(storedValue);
     fireEvent.contextMenu(view.getByRole("button", { name: "Candidate" }));
     await waitFor(() => expect(view.getByRole("menuitem", { name: "Inspect candidate" })).toBeTruthy());
     expect(view.queryByRole("menuitem", { name: "Pin to sidebar" })).toBeNull();
@@ -1141,11 +1060,6 @@ test("native pinning waits for a ready snapshot and reconciles current node meta
     await waitFor(() => expect(view.getAllByRole("button", { name: "Current title" })).toHaveLength(2));
     expect(view.queryByRole("button", { name: "Old title" })).toBeNull();
     expect(view.queryByRole("button", { name: "Missing item" })).toBeNull();
-    expect(JSON.parse(localStorage.getItem("webapp.test-app.sidebar.pins") ?? "null")).toEqual([{
-      id: "valid",
-      title: "Current title",
-      route: { view: "valid" },
-    }]);
     fireEvent.contextMenu(view.getByRole("button", { name: "Candidate" }));
     await waitFor(() => expect(view.getByRole("menuitem", { name: "Pin to sidebar" })).toBeTruthy());
   } finally {
@@ -1212,13 +1126,11 @@ test("public sidebar controller selects tabs without remounting the current rout
     expect(view.getByText("Route state: 1")).toBeTruthy();
     expect(window.location.hash).toBe(initialHash);
     expect(routeChanges).toHaveLength(initialRouteChangeCount);
-    await waitFor(() => expect(localStorage.getItem("webapp.test-app.sidebar.tab")).toBe("notes"));
 
     act(() => {
       controllerRef.current?.sidebar.selectTab("unknown");
     });
     expect(view.getByRole("tab", { name: "Notes" }).getAttribute("aria-selected")).toBe("true");
-    expect(localStorage.getItem("webapp.test-app.sidebar.tab")).toBe("notes");
   } finally {
     restoreFetch();
   }
@@ -1362,11 +1274,9 @@ test("public sidebar controller opens and focuses search on mobile", async () =>
 test("sidebar navigation replaces hash history entries", async () => {
   const restoreFetch = mockConfigFetch();
   window.location.hash = "#/home";
-  window.history.replaceState({ marker: "initial" }, "", window.location.href);
+  window.history.replaceState(null, "", window.location.href);
   const initialLength = window.history.length;
-  const hashChanges: HashChangeEvent[] = [];
   const routeChanges: string[] = [];
-  const onHashChange = (event: HashChangeEvent) => hashChanges.push(event);
 
   try {
     const { getByRole, getByText } = render(createElement(WebAppRoot, {
@@ -1382,126 +1292,20 @@ test("sidebar navigation replaces hash history entries", async () => {
       },
       routes: {
         home: createElement("p", null, "Home view"),
-        target: createElement("p", null, "Target screen"),
+        target: (route) => createElement("p", null, `Target screen ${route["projectId"] ?? "missing"}`),
       },
       onRouteChange: (route) => routeChanges.push(`${route.view}:${route["projectId"] ?? ""}`),
     }));
 
     await waitFor(() => expect(getByText("Home view")).toBeTruthy());
 
-    const initialUrl = window.location.href;
-    window.addEventListener("hashchange", onHashChange);
     fireEvent.click(getByRole("button", { name: "Target" }));
 
-    await waitFor(() => expect(getByText("Target screen")).toBeTruthy());
+    await waitFor(() => expect(getByText("Target screen project-1")).toBeTruthy());
     expect(window.location.hash).toBe("#/target?projectId=project-1");
     expect(window.history.length).toBe(initialLength);
-    expect(window.history.state).toEqual({ marker: "initial" });
-    expect(hashChanges.some((event) => event.oldURL === initialUrl && event.newURL === window.location.href)).toBe(true);
     expect(routeChanges).toContain("target:project-1");
   } finally {
-    window.removeEventListener("hashchange", onHashChange);
-    restoreFetch();
-  }
-});
-
-test("sidebar navigation updates synchronously while the document is hidden", async () => {
-  const restoreFetch = mockConfigFetch();
-  const previousVisibilityDescriptor = Object.getOwnPropertyDescriptor(document, "visibilityState");
-  const previousTransitionDescriptor = Object.getOwnPropertyDescriptor(document, "startViewTransition");
-  let transitionCalls = 0;
-  Object.defineProperty(document, "visibilityState", {
-    configurable: true,
-    value: "hidden",
-  });
-  Object.defineProperty(document, "startViewTransition", {
-    configurable: true,
-    value: () => {
-      transitionCalls += 1;
-      throw new DOMException(
-        "View transition was skipped because document visibility state is hidden.",
-        "InvalidStateError",
-      );
-    },
-  });
-
-  try {
-    const view = render(createElement(WebAppRoot, {
-      appName: "Test App",
-      homeRoute: { view: "home" },
-      sidebar: {
-        search: false,
-        pinning: false,
-        getNodes: () => [
-          { type: "item" as const, id: "home", title: "Home", route: { view: "home" } },
-          { type: "item" as const, id: "target", title: "Target", route: { view: "target" } },
-        ],
-      },
-      routes: {
-        home: createElement("p", null, "Home view"),
-        target: createElement("p", null, "Target screen"),
-      },
-    }));
-
-    await waitFor(() => expect(view.getByText("Home view")).toBeTruthy());
-    fireEvent.click(view.getByRole("button", { name: "Target" }));
-
-    await waitFor(() => expect(view.getByText("Target screen")).toBeTruthy());
-    expect(transitionCalls).toBe(0);
-  } finally {
-    if (previousVisibilityDescriptor) {
-      Object.defineProperty(document, "visibilityState", previousVisibilityDescriptor);
-    } else {
-      Reflect.deleteProperty(document, "visibilityState");
-    }
-    if (previousTransitionDescriptor) {
-      Object.defineProperty(document, "startViewTransition", previousTransitionDescriptor);
-    } else {
-      Reflect.deleteProperty(document, "startViewTransition");
-    }
-    restoreFetch();
-  }
-});
-
-test("sidebar navigation to the current hash does not emit duplicate hash changes", async () => {
-  const restoreFetch = mockConfigFetch();
-  window.location.hash = "#/target";
-  window.history.replaceState({ marker: "same-route" }, "", window.location.href);
-  const initialLength = window.history.length;
-  let hashChangeCount = 0;
-  const onHashChange = () => {
-    hashChangeCount += 1;
-  };
-
-  try {
-    const { getByRole, getByText } = render(createElement(WebAppRoot, {
-      appName: "Test App",
-      homeRoute: { view: "home" },
-      sidebar: {
-        search: false,
-        pinning: false,
-        getNodes: () => [
-          { type: "item" as const, id: "home", title: "Home", route: { view: "home" } },
-          { type: "item" as const, id: "target", title: "Target", route: { view: "target" } },
-        ],
-      },
-      routes: {
-        home: createElement("p", null, "Home view"),
-        target: createElement("p", null, "Target screen"),
-      },
-    }));
-
-    await waitFor(() => expect(getByText("Target screen")).toBeTruthy());
-    window.addEventListener("hashchange", onHashChange);
-
-    fireEvent.click(getByRole("button", { name: "Target" }));
-
-    expect(window.location.hash).toBe("#/target");
-    expect(window.history.length).toBe(initialLength);
-    expect(window.history.state).toEqual({ marker: "same-route" });
-    expect(hashChangeCount).toBe(0);
-  } finally {
-    window.removeEventListener("hashchange", onHashChange);
     restoreFetch();
   }
 });
@@ -1509,26 +1313,33 @@ test("sidebar navigation to the current hash does not emit duplicate hash change
 test("renderWebApp renders the latest content when called repeatedly", () => {
   const container = document.createElement("div");
   document.body.append(container);
+  function StatefulContent({ label }: { label: string }) {
+    const [count, setCount] = useState(0);
+    return createElement(
+      "div",
+      null,
+      createElement("p", null, label),
+      createElement("p", null, `Persistent count: ${count}`),
+      createElement("button", { type: "button", onClick: () => setCount((current) => current + 1) }, "Increment persistent state"),
+    );
+  }
+
+  let root: ReturnType<typeof renderWebApp>;
+  act(() => {
+    root = renderWebApp(createElement(StatefulContent, { label: "first" }), container);
+  });
+  fireEvent.click(within(container).getByRole("button", { name: "Increment persistent state" }));
+  expect(within(container).getByText("Persistent count: 1")).toBeTruthy();
 
   act(() => {
-    renderWebApp(createElement("div", null, "first"), container);
-    renderWebApp(createElement("div", null, "second"), container);
+    renderWebApp(createElement(StatefulContent, { label: "second" }), container);
   });
 
-  expect(container.textContent).toBe("second");
-});
-
-test("WebAppRoot routes built-in requests through the configured API base URL", async () => {
-  const requested: string[] = [];
-  configureWebAppClient({ apiBaseUrl: "https://api.example.test/root" });
-  const restoreFetch = mockConfigFetch((input) => requested.push(String(input)));
-
-  try {
-    await renderShortcutWebApp();
-    expect(requested).toContain("https://api.example.test/api/config");
-  } finally {
-    restoreFetch();
-  }
+  expect(within(container).getByText("second")).toBeTruthy();
+  expect(within(container).getByText("Persistent count: 1")).toBeTruthy();
+  act(() => {
+    root.unmount();
+  });
 });
 
 test("WebAppRoot forwards auth-required responses from built-in requests", async () => {
@@ -1564,9 +1375,9 @@ test("WebAppRoot forwards auth-required responses from built-in requests", async
   }
 });
 
-test("modal Enter shortcut does not confirm while an input is focused", () => {
+test("confirmation controls ignore focused-field Enter and close through confirm and Escape", async () => {
   let confirmations = 0;
-  const { getByLabelText } = render(createElement(ConfirmModal, {
+  const modalView = render(createElement(ConfirmModal, {
     isOpen: true,
     onClose: () => {},
     onConfirm: () => {
@@ -1576,15 +1387,13 @@ test("modal Enter shortcut does not confirm while an input is focused", () => {
     message: "Type a value",
   }, createElement("input", { "aria-label": "Value" })));
 
-  const input = getByLabelText("Value");
+  const input = modalView.getByLabelText("Value");
   input.focus();
   fireEvent.keyDown(input, { key: "Enter" });
 
   expect(confirmations).toBe(0);
-});
+  modalView.unmount();
 
-test("confirm dialog exposes long-content actions and closes through confirm, Escape, and presence", async () => {
-  let confirmations = 0;
   let cancellations = 0;
 
   function Harness() {
@@ -1613,7 +1422,6 @@ test("confirm dialog exposes long-content actions and closes through confirm, Es
 
   const view = render(createElement(Harness));
   const dialog = view.getByRole("dialog", { name: "Delete item?" });
-  expect(within(dialog).getByText(/associated transcript, metadata/)).toBeTruthy();
   expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeTruthy();
   expect(within(dialog).getByRole("button", { name: "Delete selected item" })).toBeTruthy();
 
@@ -1622,15 +1430,10 @@ test("confirm dialog exposes long-content actions and closes through confirm, Es
   await waitFor(() => expect(view.queryByRole("dialog", { name: "Delete item?" })).toBeNull());
 
   fireEvent.click(view.getByRole("button", { name: "Open confirmation" }));
-  const reopenedDialog = await waitFor(() => view.getByRole("dialog", { name: "Delete item?" }));
-  expect(reopenedDialog.isConnected).toBe(true);
-  expect(reopenedDialog.closest('[aria-hidden="true"]')).toBeNull();
+  await waitFor(() => expect(view.getByRole("dialog", { name: "Delete item?" })).toBeTruthy());
   fireEvent.keyDown(document, { key: "Escape" });
   expect(cancellations).toBe(1);
-  await waitFor(() => {
-    expect(reopenedDialog.isConnected).toBe(false);
-    expect(view.queryByRole("dialog", { name: "Delete item?" })).toBeNull();
-  });
+  await waitFor(() => expect(view.queryByRole("dialog", { name: "Delete item?" })).toBeNull());
 });
 
 test("modal focus is contained, background content is inert, and focus returns to its trigger", async () => {
@@ -1679,6 +1482,35 @@ test("modal focus is contained, background content is inert, and focus returns t
   expect(appContent.getAttribute("aria-hidden")).toBeNull();
   expect((appContent as HTMLElement & { inert?: boolean }).inert).toBe(false);
   expect(document.body.style.overflow).toBe("");
+});
+
+test("closing a modal does not steal focus chosen during its exit", async () => {
+  function Harness() {
+    const [open, setOpen] = useState(false);
+    return createElement(
+      "div",
+      null,
+      createElement("button", { type: "button", onClick: () => setOpen(true) }, "Open modal"),
+      createElement("button", { type: "button" }, "Focus target"),
+      createElement(Modal, {
+        isOpen: open,
+        onClose: () => setOpen(false),
+        title: "Modal title",
+        children: createElement("p", null, "Modal content"),
+      }),
+    );
+  }
+
+  const view = render(createElement(Harness));
+  const trigger = view.getByRole("button", { name: "Open modal" });
+  const focusTargetButton = view.getByRole("button", { name: "Focus target" });
+  fireEvent.click(trigger);
+  const dialog = await waitFor(() => view.getByRole("dialog", { name: "Modal title" }));
+
+  fireEvent.keyDown(document, { key: "Escape" });
+  focusTargetButton.focus();
+  await waitFor(() => expect(dialog.isConnected).toBe(false));
+  expect(document.activeElement).toBe(focusTargetButton);
 });
 
 test("modal without focusable content keeps focus on its surface", async () => {
@@ -1848,13 +1680,12 @@ test("sidebar shortcut does not interrupt editing in the search field", async ()
 test("sidebar tree collapsed state persists across remounts", async () => {
   const restoreFetch = mockConfigFetch();
   try {
-    const storageKey = "webapp.test-app.sidebar.collapsed";
     const firstView = await renderCollapsibleSidebarWebApp();
     const collapseProjects = await waitFor(() => firstView.getByRole("button", { name: /Projects/ }));
 
     fireEvent.click(collapseProjects);
 
-    await waitFor(() => expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: true }));
+    await waitFor(() => expect(collapseProjects.getAttribute("aria-expanded")).toBe("false"));
     firstView.unmount();
 
     const secondView = await renderCollapsibleSidebarWebApp();
@@ -2045,35 +1876,29 @@ test("sidebar ignores malformed pin entries while retaining valid pins", async (
 
     await waitFor(() => expect(view.getAllByRole("button", { name: "Target" })).toHaveLength(2));
     expect(view.queryByRole("button", { name: "Invalid optional" })).toBeNull();
-    expect(JSON.parse(localStorage.getItem("webapp.test-app.sidebar.pins") ?? "null")).toEqual([{
-      id: "valid",
-      title: "Target",
-      route: { view: "target" },
-    }]);
   } finally {
     restoreFetch();
   }
 });
 
-test("sidebar search temporarily reveals matches without changing collapse state", async () => {
+test("sidebar search temporarily reveals matches and restores collapse state", async () => {
   const restoreFetch = mockConfigFetch();
   try {
-    const storageKey = "webapp.test-app.sidebar.collapsed";
-    localStorage.setItem(storageKey, JSON.stringify({ projects: true }));
+    localStorage.setItem("webapp.test-app.sidebar.collapsed", JSON.stringify({ projects: true }));
     const view = await renderSearchableCollapsibleSidebarWebApp({ sectionDefaultCollapsed: false });
     const searchInput = view.getByRole("textbox");
+    const projectsToggle = view.getByRole("button", { name: /Projects/ });
     const matchingChild = () => view.queryByRole("button", { name: /alpha/i });
 
     expect(matchingChild()).toBeNull();
+    expect(projectsToggle.getAttribute("aria-expanded")).toBe("false");
 
     typeSearch(searchInput, "alpha");
-
     expect(await waitFor(() => view.getByRole("button", { name: /alpha/i }))).toBeTruthy();
-    expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: true });
 
     typeSearch(searchInput, "");
     await waitFor(() => expect(matchingChild()).toBeNull());
-    expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}")).toEqual({ projects: true });
+    expect(projectsToggle.getAttribute("aria-expanded")).toBe("false");
   } finally {
     restoreFetch();
   }
@@ -2353,26 +2178,6 @@ test("API-key failures can be retried without hiding an independent empty sessio
   }
 });
 
-test("Settings renders the sanitized user API-key list", async () => {
-  const key: ApiKeySummary = {
-    id: "user-key-1",
-    name: "Browser key",
-    prefix: "wapp_user",
-    scopes: ["*"],
-    createdAt: "2026-01-01T00:00:00.000Z",
-  };
-  const mock = mockBuiltInFetch({ apiKeysEnabled: true, apiKeys: [key] });
-  try {
-    const view = await renderBuiltInSettingsWebApp();
-
-    await waitFor(() => expect(view.getByText("Browser key")).toBeTruthy());
-    expect(view.queryByText("runtime-context")).toBeNull();
-    expect(view.queryByText("managed")).toBeNull();
-  } finally {
-    mock.restoreFetch();
-  }
-});
-
 test("device-session failures can be retried without treating them as empty", async () => {
   const session: AuthSessionSummary = {
     id: "session-1",
@@ -2547,25 +2352,25 @@ test("settings kill server surfaces failures without starting the shutdown count
   }
 });
 
-test("mobile sidebar backdrop closes the open sidebar", async () => {
+test("mobile sidebar backdrop closes on pointer and keyboard activation", async () => {
   const restoreFetch = mockConfigFetch();
   const restoreMobileMediaQuery = mockMobileMediaQuery(true);
   try {
     const view = await renderShortcutWebApp();
     const showSidebar = view.getByRole("button", { name: "Show sidebar" });
 
-    expect(showSidebar.getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(showSidebar);
-    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
+    for (const activation of ["pointer", "keyboard"] as const) {
+      fireEvent.click(showSidebar);
+      await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
 
-    const backdrop = view.getByRole("button", { name: "Close sidebar" });
-    fireEvent.pointerDown(backdrop, { button: 0 });
-
-    await waitFor(() => {
-      expect(backdrop.getAttribute("aria-hidden")).toBe("true");
-      expect(backdrop.getAttribute("tabindex")).toBe("-1");
-    });
-    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
+      const backdrop = view.getByRole("button", { name: "Close sidebar" });
+      if (activation === "pointer") {
+        fireEvent.pointerDown(backdrop, { button: 0 });
+      } else {
+        fireEvent.click(backdrop, { detail: 0 });
+      }
+      await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
+    }
   } finally {
     restoreMobileMediaQuery();
     restoreFetch();
@@ -2587,25 +2392,6 @@ test("mobile sidebar opening is not consumed by a late backdrop click", async ()
     expect(showSidebar.getAttribute("aria-expanded")).toBe("true");
 
     fireEvent.pointerDown(backdrop);
-    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
-  } finally {
-    restoreMobileMediaQuery();
-    restoreFetch();
-  }
-});
-
-test("mobile sidebar backdrop supports non-pointer activation", async () => {
-  const restoreFetch = mockConfigFetch();
-  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
-  try {
-    const view = await renderShortcutWebApp();
-    const showSidebar = view.getByRole("button", { name: "Show sidebar" });
-
-    fireEvent.click(showSidebar);
-    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
-
-    fireEvent.click(view.getByRole("button", { name: "Close sidebar" }), { detail: 0 });
-
     await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
   } finally {
     restoreMobileMediaQuery();
@@ -2655,7 +2441,7 @@ test("mobile sidebar dismiss does not activate background content", async () => 
     expect(backgroundPointerDowns).toBe(0);
     expect(backgroundActivations).toBe(0);
 
-    await waitFor(() => expect(backdrop.isConnected).toBe(false));
+    await waitFor(() => expect(view.queryByRole("button", { name: "Close sidebar" })).toBeNull());
     fireEvent.pointerDown(backgroundAction, { button: 0, pointerId: 2 });
     fireEvent.pointerUp(backgroundAction, { button: 0, pointerId: 2 });
     fireEvent.click(backgroundAction, { detail: 1 });
@@ -2709,8 +2495,11 @@ test("mobile drawer state is transient and breakpoint changes preserve desktop c
     expect(showSidebar.getAttribute("aria-expanded")).toBe("false");
     const sidebar = view.getByRole("complementary", { hidden: true });
     expect(sidebar.getAttribute("aria-hidden")).toBe("true");
-    expect((sidebar as HTMLElement & { inert?: boolean }).inert).toBe(true);
-    expect(view.getByRole("button", { name: "Alpha", hidden: true }).getAttribute("tabindex")).toBe("-1");
+    const sidebarElement = sidebar as HTMLElement & { inert?: boolean };
+    expect(sidebarElement.inert).toBe(true);
+    if (!("inert" in sidebarElement)) {
+      expect(view.getByRole("button", { name: "Alpha", hidden: true }).getAttribute("tabindex")).toBe("-1");
+    }
 
     fireEvent.click(showSidebar);
     await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));

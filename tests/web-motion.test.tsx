@@ -1,8 +1,11 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { act, useRef, useState } from "react";
-import { cleanup, fireEvent, render, within } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { AnimatedList, Collapsible, FloatingPanel, StreamingText, TabPanel, TabPanels, Tabs } from "../src/web";
+import { installControlledTimers, type ControlledTimers } from "./fixtures/controlled-timers";
+
+let activeTimers: ControlledTimers | undefined;
 
 async function ensureHappyDom() {
   if (
@@ -20,10 +23,15 @@ async function ensureHappyDom() {
   GlobalRegistrator.register({ url: "http://localhost/" });
 }
 
-beforeEach(ensureHappyDom);
+beforeEach(async () => {
+  await ensureHappyDom();
+  activeTimers = installControlledTimers();
+});
 
 afterEach(() => {
   cleanup();
+  activeTimers?.restore();
+  activeTimers = undefined;
   document.body.innerHTML = "";
 });
 
@@ -34,30 +42,11 @@ afterAll(async () => {
   }
 });
 
-async function waitForExit(query: () => Element | null): Promise<void> {
-  const deadline = Date.now() + 500;
-  while (Date.now() < deadline) {
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    if (query() === null) {
-      return;
-    }
+function timers(): ControlledTimers {
+  if (!activeTimers) {
+    throw new Error("Controlled timers were not installed.");
   }
-  throw new Error("Timed out waiting for motion exit.");
-}
-
-async function waitForText(query: () => string, expected: string): Promise<void> {
-  const deadline = Date.now() + 500;
-  while (Date.now() < deadline) {
-    if (query() === expected) {
-      return;
-    }
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-  }
-  throw new Error(`Timed out waiting for text: ${expected}`);
+  return activeTimers;
 }
 
 describe("framework motion primitives", () => {
@@ -78,7 +67,10 @@ describe("framework motion primitives", () => {
     fireEvent.click(view.getByRole("button", { name: "Toggle" }));
 
     expect(view.getByText("Collapsible content")).toBeTruthy();
-    await waitForExit(() => view.queryByText("Collapsible content"));
+    act(() => {
+      timers().advanceBy(20);
+    });
+    expect(view.queryByText("Collapsible content")).toBeNull();
   });
 
   test("animates anchored floating panels and closes them with Escape", async () => {
@@ -104,8 +96,14 @@ describe("framework motion primitives", () => {
 
     const panel = view.getByRole("dialog", { name: "Floating panel" });
     expect(panel).toBeTruthy();
+    act(() => {
+      timers().flushAnimationFrames();
+    });
     fireEvent.keyDown(document, { key: "Escape" });
-    await waitForExit(() => view.queryByRole("dialog", { name: "Floating panel" }));
+    act(() => {
+      timers().advanceBy(350);
+    });
+    expect(view.queryByRole("dialog", { name: "Floating panel" })).toBeNull();
   });
 
   test("animates keyed list removals without retaining them indefinitely", async () => {
@@ -125,8 +123,11 @@ describe("framework motion primitives", () => {
     fireEvent.click(view.getByRole("button", { name: "Remove alpha" }));
 
     expect(view.getByText("alpha")).toBeTruthy();
-    await waitForExit(() => view.queryByText("alpha"));
-    expect(within(view.container).getByText("beta")).toBeTruthy();
+    act(() => {
+      timers().advanceBy(20);
+    });
+    expect(view.queryByText("alpha")).toBeNull();
+    expect(view.getByText("beta")).toBeTruthy();
   });
 
   test("queues streaming appends behind one active chunk and preserves the final text", async () => {
@@ -144,14 +145,17 @@ describe("framework motion primitives", () => {
     const view = render(<Harness />);
     const appendFirst = view.getByRole("button", { name: "Append first" });
     const appendSecond = view.getByRole("button", { name: "Append second" });
-    const getStream = () => view.container.querySelector("[data-wapp-streaming-text='active']");
 
     fireEvent.click(appendFirst);
-    expect(getStream()?.querySelectorAll(".wapp-streaming-text-chunk").length).toBe(1);
     fireEvent.click(appendSecond);
-    expect(getStream()?.querySelectorAll(".wapp-streaming-text-chunk").length).toBe(1);
 
-    await waitForText(() => getStream()?.textContent ?? "", "Initial first second");
+    act(() => {
+      timers().advanceBy(20);
+    });
+    act(() => {
+      timers().advanceBy(20);
+    });
+    expect(view.getByText("Initial first second")).toBeTruthy();
   });
 
   test("provides accessible tab navigation and transitions tab panels", async () => {
@@ -181,7 +185,10 @@ describe("framework motion primitives", () => {
     fireEvent.click(activityTab);
 
     expect(view.getByText("Activity content")).toBeTruthy();
-    await waitForExit(() => view.queryByText("Overview content"));
+    act(() => {
+      timers().advanceBy(20);
+    });
+    expect(view.queryByText("Overview content")).toBeNull();
 
     const overviewTab = view.getByRole("tab", { name: "Overview" });
     overviewTab.focus();

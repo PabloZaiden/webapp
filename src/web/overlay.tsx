@@ -21,10 +21,14 @@ type OverlayRecord = {
 };
 
 const overlayStack: OverlayRecord[] = [];
-let nextOverlayOrder = 0;
 
 function registerOverlay(token: OverlayToken, surface: HTMLElement, layer: HTMLElement): OverlayRecord {
-  const record = { token, surface, layer, order: nextOverlayOrder++ };
+  const usedOrders = new Set(overlayStack.map((record) => record.order));
+  let order = 0;
+  while (usedOrders.has(order)) {
+    order += 1;
+  }
+  const record = { token, surface, layer, order };
   overlayStack.push(record);
   return record;
 }
@@ -145,13 +149,14 @@ function acquireInertElement(target: HTMLElement): () => void {
   if ("inert" in target) {
     record.nativeInert = target.inert;
     target.inert = true;
+  } else {
+    applyFallbackTabIndexes(target, record);
+    if (typeof MutationObserver !== "undefined") {
+      record.observer = new MutationObserver(() => applyFallbackTabIndexes(target, record));
+      record.observer.observe(target, { childList: true, subtree: true });
+    }
   }
   target.setAttribute("aria-hidden", "true");
-  applyFallbackTabIndexes(target, record);
-  if (typeof MutationObserver !== "undefined") {
-    record.observer = new MutationObserver(() => applyFallbackTabIndexes(target, record));
-    record.observer.observe(target, { childList: true, subtree: true });
-  }
   inertElements.set(target, record);
   return () => releaseInertElement(target);
 }
@@ -242,7 +247,7 @@ export function useOverlayLifecycle({
   const presence = usePresence(open, { duration });
   const tokenRef = useRef<OverlayToken>(Symbol("webapp-overlay"));
   const previousFocusRef = useRef<Element | null>(null);
-  const restoreFocusPendingRef = useRef(false);
+  const restoreFocusPendingRef = useRef<{ target: HTMLElement; surface: HTMLElement } | null>(null);
   const onEscapeRef = useRef(onEscape);
   const onBackdropRef = useRef(onBackdrop);
   const closeOnBackdropRef = useRef(closeOnBackdrop);
@@ -271,9 +276,8 @@ export function useOverlayLifecycle({
     if (!surface || !layer) {
       return;
     }
-
     const token = tokenRef.current;
-    restoreFocusPendingRef.current = false;
+    restoreFocusPendingRef.current = null;
     previousFocusRef.current = restoreFocusRefRef.current?.current
       ?? (document.activeElement instanceof Element ? document.activeElement : null);
     const record = registerOverlay(token, surface, layer);
@@ -351,19 +355,32 @@ export function useOverlayLifecycle({
       const restoreTarget = restoreFocusRefRef.current?.current ?? previousFocusRef.current;
       if (canRestoreFocus(restoreTarget)) {
         restoreTarget.focus();
+        restoreFocusPendingRef.current = { target: restoreTarget, surface };
       }
-      restoreFocusPendingRef.current = true;
     };
   }, [active, layerRef, lockBodyScroll, surfaceRef]);
 
   useLayoutEffect(() => {
-    if (open || presence.mounted || !restoreFocusPendingRef.current) {
+    const pending = restoreFocusPendingRef.current;
+    if (open || presence.mounted || !pending) {
       return;
     }
-    restoreFocusPendingRef.current = false;
-    const restoreTarget = restoreFocusRefRef.current?.current ?? previousFocusRef.current;
-    if (canRestoreFocus(restoreTarget)) {
-      restoreTarget.focus();
+    restoreFocusPendingRef.current = null;
+    if (!canRestoreFocus(pending.target)) {
+      return;
+    }
+    const activeElement = document.activeElement;
+    const activeOverlay = activeElement instanceof Element ? overlayForElement(activeElement) : undefined;
+    if (
+      activeElement !== pending.target
+      && (
+        activeElement === null
+        || activeElement === document.body
+        || pending.surface.contains(activeElement)
+        || activeOverlay !== undefined
+      )
+    ) {
+      pending.target.focus();
     }
   }, [open, presence.mounted]);
 
