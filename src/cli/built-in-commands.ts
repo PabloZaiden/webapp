@@ -280,14 +280,16 @@ function statusCommand<TAppContext>(
           error: "No authenticated CLI instance is configured",
         };
       }
+      const rejectedAccessToken = auth.accessToken;
       const request = () => dependencies.fetchFn(
         `${auth.baseUrl}/api/auth/status`,
         { headers: auth.headers },
       );
       let response = await request();
-      if (response.status === 401 && auth.source === "device") {
+      if (response.status === 401 && auth.source === "device" && rejectedAccessToken) {
         const refreshed = await forceRefreshCliAuth({
           credentials,
+          rejectedAccessToken,
           fetchFn: dependencies.fetchFn,
         });
         if (refreshed) {

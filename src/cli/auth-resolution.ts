@@ -15,6 +15,7 @@ export interface ResolvedCliAuth {
   source: CliAuthSource;
   headers: Headers;
   baseUrl?: string;
+  accessToken?: string;
 }
 
 export interface ResolveCliAuthOptions {
@@ -49,6 +50,7 @@ export async function resolveCliAuth(input: ResolveCliAuthOptions): Promise<Reso
         source: "device",
         headers: getAuthorizedHeaders(refreshed, headers),
         baseUrl: refreshed.baseUrl,
+        accessToken: refreshed.accessToken,
       };
     }
   }
@@ -70,16 +72,20 @@ export async function resolveCliAuth(input: ResolveCliAuthOptions): Promise<Reso
 }
 
 export async function forceRefreshCliAuth(
-  input: ResolveCliAuthOptions,
+  input: ResolveCliAuthOptions & {
+    rejectedAccessToken: string;
+  },
 ): Promise<ResolvedCliAuth | undefined> {
   const stored = await input.credentials?.read();
   if (!stored) return undefined;
   const refreshed = await refreshDeviceCredentials({
     credentials: {
       ...stored,
-      accessTokenExpiresAt: new Date(0).toISOString(),
     },
     store: input.credentials,
+    forceRefresh: {
+      rejectedAccessToken: input.rejectedAccessToken,
+    },
     fetchFn: input.fetchFn,
     now: input.now,
   });
@@ -88,5 +94,6 @@ export async function forceRefreshCliAuth(
     source: "device",
     headers: getAuthorizedHeaders(refreshed),
     baseUrl: refreshed.baseUrl,
+    accessToken: refreshed.accessToken,
   };
 }

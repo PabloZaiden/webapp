@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { runApiCliCommand, type StoredDeviceCredentials } from "@pablozaiden/webapp/cli";
+import {
+  getAuthorizedHeaders,
+  runApiCliCommand,
+  type StoredDeviceCredentials,
+} from "@pablozaiden/webapp/cli";
 import { createRouteCatalog, defineRoutes, jsonResponse } from "@pablozaiden/webapp/server";
 
 const catalog = createRouteCatalog(defineRoutes({
@@ -62,6 +66,7 @@ describe("generic API CLI command", () => {
           writes.push(value);
           credentials = value;
         },
+        withLock: async <T>(callback: () => Promise<T>) => callback(),
       },
       now: () => new Date("2026-01-01T00:00:00Z"),
     });
@@ -71,6 +76,149 @@ describe("generic API CLI command", () => {
     expect(requestedAuth).toEqual(["Bearer old", "Bearer new"]);
     expect(writes).toHaveLength(1);
     expect(JSON.parse(result.output!)).toMatchObject({ response: { id: "123" } });
+  });
+
+  test("performs one refresh across concurrent device 401 recoveries", async () => {
+    const initial: StoredDeviceCredentials = {
+      baseUrl: "http://example.test",
+      clientId: "cli",
+      accessToken: "old",
+      refreshToken: "refresh",
+      tokenType: "Bearer",
+      scope: "*",
+      accessTokenExpiresAt: "2026-01-01T00:10:00.000Z",
+      createdAt: "2025-12-31T00:00:00.000Z",
+      updatedAt: "2025-12-31T00:00:00.000Z",
+    };
+    let stored = initial;
+    let lockTail = Promise.resolve();
+    const store = {
+      read: async () => stored,
+      write: async (value: StoredDeviceCredentials) => {
+        stored = value;
+      },
+      withLock: async <T>(callback: () => Promise<T>) => {
+        const previous = lockTail;
+        let release!: () => void;
+        lockTail = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await previous;
+        try {
+          return await callback();
+        } finally {
+          release();
+        }
+      },
+    };
+    const rotated: StoredDeviceCredentials = {
+      ...initial,
+      accessToken: "new",
+      refreshToken: "next",
+      accessTokenExpiresAt: "2026-01-01T00:10:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const rotatedAuthorization = getAuthorizedHeaders(rotated).get("authorization");
+    const requestedAuth: string[] = [];
+    let applicationRequests = 0;
+    let refreshRequests = 0;
+    let releaseInitialRequests!: () => void;
+    const initialRequests = new Promise<void>((resolve) => {
+      releaseInitialRequests = resolve;
+    });
+    const fetchFn = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/auth/token")) {
+        refreshRequests++;
+        return Response.json({
+          access_token: rotated.accessToken,
+          refresh_token: rotated.refreshToken,
+          token_type: "Bearer",
+          expires_in: 600,
+          scope: "*",
+        });
+      }
+      applicationRequests++;
+      const authorization = new Headers(init?.headers).get("authorization") ?? "";
+      requestedAuth.push(authorization);
+      if (applicationRequests === 2) releaseInitialRequests();
+      if (applicationRequests <= 2) await initialRequests;
+      return authorization === rotatedAuthorization
+        ? Response.json({ id: "123" })
+        : Response.json({ error: "rejected" }, { status: 401 });
+    };
+    const command = () => runApiCliCommand({
+      catalog,
+      args: ["item/123"],
+      fetchFn: fetchFn as typeof fetch,
+      credentials: store,
+      now: () => new Date("2026-01-01T00:00:00Z"),
+    });
+
+    const [first, second] = await Promise.all([command(), command()]);
+
+    expect(first.exitCode).toBe(0);
+    expect(second.exitCode).toBe(0);
+    expect(refreshRequests).toBe(1);
+    expect(applicationRequests).toBe(4);
+    expect(rotatedAuthorization).toBeDefined();
+    expect(requestedAuth.filter((authorization) => authorization === rotatedAuthorization)).toHaveLength(2);
+    expect(new Set(requestedAuth).size).toBe(2);
+    expect(stored).toMatchObject({
+      accessToken: "new",
+      refreshToken: "next",
+    });
+  });
+
+  test("preserves the final 401 after one refresh and retry", async () => {
+    let stored: StoredDeviceCredentials = {
+      baseUrl: "http://example.test",
+      clientId: "cli",
+      accessToken: "old",
+      refreshToken: "refresh",
+      tokenType: "Bearer",
+      scope: "*",
+      accessTokenExpiresAt: "2026-01-01T00:10:00.000Z",
+      createdAt: "2025-12-31T00:00:00.000Z",
+      updatedAt: "2025-12-31T00:00:00.000Z",
+    };
+    let applicationRequests = 0;
+    let refreshRequests = 0;
+    const result = await runApiCliCommand({
+      catalog,
+      args: ["item/123"],
+      fetchFn: (async (input: string | URL | Request) => {
+        if (String(input).endsWith("/api/auth/token")) {
+          refreshRequests++;
+          return Response.json({
+            access_token: "new",
+            refresh_token: "next",
+            token_type: "Bearer",
+            expires_in: 600,
+            scope: "*",
+          });
+        }
+        applicationRequests++;
+        return Response.json({ error: "still-rejected" }, { status: 401 });
+      }) as typeof fetch,
+      credentials: {
+        read: async () => stored,
+        write: async (value) => {
+          stored = value;
+        },
+        withLock: async <T>(callback: () => Promise<T>) => callback(),
+      },
+      now: () => new Date("2026-01-01T00:00:00Z"),
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(applicationRequests).toBe(2);
+    expect(refreshRequests).toBe(1);
+    expect(JSON.parse(result.output!)).toMatchObject({
+      status: { code: 401 },
+      response: { error: "still-rejected" },
+    });
   });
 
   test("uses the complete environment pair without device credentials", async () => {
