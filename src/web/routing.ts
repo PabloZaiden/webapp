@@ -4,9 +4,10 @@ import type { WebAppRoute } from "./sidebar/types";
 
 export function routeToHash(route: WebAppRoute): string {
   const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(route)) {
-    if (key !== "view" && value !== undefined) {
-      params.set(key, String(value));
+  for (const key of Object.keys(route).filter((entry) => entry !== "view").sort()) {
+    const value = route[key];
+    if (value !== undefined) {
+      params.set(key, value);
     }
   }
   return `#/${route.view}${params.size ? `?${params.toString()}` : ""}`;
