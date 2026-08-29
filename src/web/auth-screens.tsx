@@ -1,7 +1,8 @@
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { DeviceVerificationDetails, PasskeyAuthStatusResponse, UserSetupDetails } from "../contracts";
 import { appJson } from "./api-client";
+import { useAsyncOperation } from "./async-operation";
 import { Badge, Button, Dialog, Panel, TextField } from "./components";
 
 export function PasskeyAuthScreen({ status, apiKeysEnabled, refresh }: { status: PasskeyAuthStatusResponse; apiKeysEnabled: boolean; refresh: () => Promise<void> }) {
@@ -187,46 +188,94 @@ export function UserSetupScreen({ refresh }: { refresh: () => Promise<void> }) {
 
 export function DeviceVerificationScreen() {
   const params = new URLSearchParams(window.location.search);
-  const initialCode = params.get("user_code") ?? "";
+  const initialCode = normalizeDeviceCode(params.get("user_code") ?? "");
   const [userCode, setUserCode] = useState(initialCode);
   const [details, setDetails] = useState<DeviceVerificationDetails>();
+  const [loadedCode, setLoadedCode] = useState<string>();
   const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
+  const {
+    pending: lookupPending,
+    start: startLookup,
+    isCurrent: isLookupCurrent,
+    finish: finishLookup,
+    invalidate: invalidateLookup,
+  } = useAsyncOperation();
+  const {
+    pending: decisionPending,
+    start: startDecision,
+    isCurrent: isDecisionCurrent,
+    finish: finishDecision,
+  } = useAsyncOperation({ abortOnUnmount: false });
+  const normalizedCode = normalizeDeviceCode(userCode);
 
-  const load = useCallback(async () => {
-    if (!userCode.trim()) {
+  useEffect(() => {
+    if (!normalizedCode) {
+      invalidateLookup();
       setDetails(undefined);
+      setLoadedCode(undefined);
+      setError(undefined);
       return;
     }
-    setBusy(true);
-    setError(undefined);
-    try {
-      setDetails(await appJson<DeviceVerificationDetails>(`/api/auth/device/verification?user_code=${encodeURIComponent(userCode.trim())}`));
-    } catch (err) {
-      setDetails(undefined);
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }, [userCode]);
 
-  useEffect(() => void load(), [load]);
+    const token = startLookup({ replace: true });
+    if (!token) {
+      return;
+    }
+    setError(undefined);
+    void appJson<DeviceVerificationDetails>(`/api/auth/device/verification?user_code=${encodeURIComponent(normalizedCode)}`, {
+      signal: token.signal,
+    })
+      .then((nextDetails) => {
+        if (!isLookupCurrent(token)) {
+          return;
+        }
+        if (normalizeDeviceCode(nextDetails.userCode) !== normalizedCode) {
+          setDetails(undefined);
+          setLoadedCode(undefined);
+          setError("Device authorization response did not match the requested code.");
+          return;
+        }
+        setDetails(nextDetails);
+        setLoadedCode(normalizedCode);
+      })
+      .catch((err: unknown) => {
+        if (!isLookupCurrent(token)) {
+          return;
+        }
+        setDetails(undefined);
+        setLoadedCode(undefined);
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        finishLookup(token);
+      });
+  }, [finishLookup, invalidateLookup, isLookupCurrent, normalizedCode, startLookup]);
 
   async function decide(action: "approve" | "deny") {
-    if (!details) {
+    const currentCode = normalizeDeviceCode(userCode);
+    if (!details || details.status !== "pending" || loadedCode !== currentCode) {
       return;
     }
-    setBusy(true);
+    const token = startDecision();
+    if (!token) {
+      return;
+    }
     setError(undefined);
     try {
-      setDetails(await appJson<DeviceVerificationDetails>(`/api/auth/device/${action}`, {
+      const nextDetails = await appJson<DeviceVerificationDetails>(`/api/auth/device/${action}`, {
         method: "POST",
-        body: JSON.stringify({ user_code: details.userCode }),
-      }));
+        body: JSON.stringify({ user_code: currentCode }),
+        signal: token.signal,
+      });
+      if (isDecisionCurrent(token)) {
+        setDetails(nextDetails);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (isDecisionCurrent(token)) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      setBusy(false);
+      finishDecision(token);
     }
   }
 
@@ -234,7 +283,20 @@ export function DeviceVerificationScreen() {
     <main className="wapp-device-screen">
       <Panel title="Authorize device" description="Enter the code shown by the CLI or external device.">
         <div className="wapp-device-stack">
-          <TextField label="User code" value={userCode} onChange={(event) => setUserCode(event.currentTarget.value.toUpperCase())} placeholder="ABCD-2345" />
+          <TextField
+            label="User code"
+            value={userCode}
+            disabled={decisionPending}
+            onInput={(event) => {
+              const nextCode = normalizeDeviceCode(event.currentTarget.value);
+              invalidateLookup();
+              setUserCode(nextCode);
+              setDetails(undefined);
+              setLoadedCode(undefined);
+              setError(undefined);
+            }}
+            placeholder="ABCD-2345"
+          />
           {error ? <p className="wapp-error">{error}</p> : null}
           {details ? (
             <div className="wapp-device-card">
@@ -245,11 +307,29 @@ export function DeviceVerificationScreen() {
             </div>
           ) : null}
           <div className="wapp-row-actions">
-            <Button type="button" variant="ghost" disabled={busy || !details || details.status !== "pending"} onClick={() => void decide("deny")}>Deny</Button>
-            <Button type="button" variant="primary" disabled={busy || !details || details.status !== "pending"} onClick={() => void decide("approve")}>Approve</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={lookupPending || decisionPending || !details || details.status !== "pending" || loadedCode !== normalizedCode}
+              onClick={() => void decide("deny")}
+            >
+              Deny
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              disabled={lookupPending || decisionPending || !details || details.status !== "pending" || loadedCode !== normalizedCode}
+              onClick={() => void decide("approve")}
+            >
+              Approve
+            </Button>
           </div>
         </div>
       </Panel>
     </main>
   );
+}
+
+function normalizeDeviceCode(value: string): string {
+  return value.trim().toUpperCase();
 }

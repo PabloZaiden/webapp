@@ -2,7 +2,9 @@ import { startRegistration } from "@simplewebauthn/browser";
 import { useCallback, useState } from "react";
 import type { ApiKeySummary, CreatedApiKeyResponse, WebAppConfigResponse } from "../../contracts";
 import { appJson } from "../api-client";
+import { useAsyncOperation } from "../async-operation";
 import { Button, ConfirmDialog, EmptyState } from "../components";
+import { log } from "../logger";
 import { useLiveQuery } from "../realtime/useRealtime";
 import { ResourceState } from "./resource-state";
 
@@ -16,6 +18,13 @@ export function SecuritySection({ config, refresh, setError }: SecuritySectionPr
   const [createdToken, setCreatedToken] = useState<string>();
   const [apiKeyToDelete, setApiKeyToDelete] = useState<ApiKeySummary>();
   const [confirmDeletePasskey, setConfirmDeletePasskey] = useState(false);
+  const {
+    pending: createKeyPending,
+    start: startCreateKey,
+    isCurrent: isCreateKeyCurrent,
+    isMounted: isCreateKeyMounted,
+    finish: finishCreateKey,
+  } = useAsyncOperation({ abortOnUnmount: false });
 
   const loadApiKeys = useCallback(
     () => config.apiKeys.enabled
@@ -26,9 +35,43 @@ export function SecuritySection({ config, refresh, setError }: SecuritySectionPr
   const { data: apiKeys, error: apiKeysLoadError, loading: apiKeysLoading, refresh: refreshApiKeys } = useLiveQuery<ApiKeySummary[]>({ load: loadApiKeys, realtime: false });
 
   async function createKey() {
-    const result = await appJson<CreatedApiKeyResponse>("/api/api-keys", { method: "POST", body: JSON.stringify({ name: "Browser key", scopes: ["*"] }) });
-    setCreatedToken(result.token);
-    await refreshApiKeys();
+    const operationToken = startCreateKey();
+    if (!operationToken) {
+      return;
+    }
+    setError(undefined);
+    try {
+      const result = await appJson<CreatedApiKeyResponse>("/api/api-keys", {
+        method: "POST",
+        body: JSON.stringify({ name: "Browser key", scopes: ["*"] }),
+        signal: operationToken.signal,
+      });
+      if (!isCreateKeyCurrent(operationToken)) {
+        await revokeUnpresentableKey(result.key.id);
+        return;
+      }
+      setCreatedToken(result.token);
+      await refreshApiKeys();
+    } catch (err) {
+      if (isCreateKeyCurrent(operationToken)) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      finishCreateKey(operationToken);
+    }
+  }
+
+  async function revokeUnpresentableKey(id: string) {
+    try {
+      await appJson(`/api/api-keys/${encodeURIComponent(id)}`, { method: "DELETE" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (isCreateKeyMounted()) {
+        setError(message);
+      } else {
+        log.error(`Failed to revoke unpresentable API key ${id}.`, err);
+      }
+    }
   }
 
   async function deleteKey(id: string) {
@@ -93,7 +136,7 @@ export function SecuritySection({ config, refresh, setError }: SecuritySectionPr
               <strong>API keys</strong>
               <p>Create bearer tokens for scripts and agents.</p>
             </div>
-            <div className="wapp-row-actions"><Button type="button" onClick={() => void createKey().catch((err) => setError(String(err)))}>Create API key</Button></div>
+            <div className="wapp-row-actions"><Button type="button" loading={createKeyPending} onClick={() => void createKey()}>Create API key</Button></div>
           </div>
           <br />
           <br />

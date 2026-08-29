@@ -114,6 +114,16 @@ function renderTheme(options: { userId?: string } = {}) {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 test("exposes explicit preferences and concrete resolved themes", () => {
   localStorage.setItem("webapp.theme", "light");
   const media = installThemeMediaQuery(true);
@@ -178,6 +188,36 @@ test("preserves the local preference and reports invalid saved responses", async
     await waitFor(() => expect(view.getState().error?.message).toBe("Theme preference response was invalid."));
     expect(view.getState().preference).toBe("light");
     expect(view.getByLabelText("theme state").textContent).toBe("light:light");
+  } finally {
+    globalThis.fetch = previousFetch;
+    media.restore();
+  }
+});
+
+test("local theme selection invalidates a pending server load", async () => {
+  localStorage.setItem("webapp.theme", "light");
+  const media = installThemeMediaQuery(false);
+  const previousFetch = globalThis.fetch;
+  const load = deferred<Response>();
+  let requestStarted = false;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    requestStarted = true;
+    return await load.promise;
+  }) as typeof fetch;
+  try {
+    const view = renderTheme({ userId: "owner" });
+    await waitFor(() => expect(requestStarted).toBe(true));
+
+    act(() => {
+      view.getState().setPreference("dark");
+    });
+    expect(view.getByLabelText("theme state").textContent).toBe("dark:dark");
+    expect(view.getState().loading).toBe(false);
+
+    await act(async () => {
+      load.resolve(Response.json({ theme: "light" }));
+    });
+    expect(view.getByLabelText("theme state").textContent).toBe("dark:dark");
   } finally {
     globalThis.fetch = previousFetch;
     media.restore();
