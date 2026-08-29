@@ -161,28 +161,88 @@ export function useLiveQuery<TData, TEvent = ResourceRealtimeEvent>({
   const [data, setData] = useState<TData | undefined>(initialData);
   const [error, setError] = useState<Error>();
   const [loading, setLoading] = useState(initialData === undefined);
-  const depsKey = JSON.stringify(deps);
+  const loadRef = useRef(load);
+  loadRef.current = load;
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      setData(await load());
-      setError(undefined);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      setLoading(false);
+  type RefreshSource = "manual" | "realtime";
+  const mountedRef = useRef(true);
+  const nextGenerationRef = useRef(0);
+  const currentGenerationRef = useRef(0);
+  const activeGenerationsRef = useRef(new Set<number>());
+  const realtimeInFlightRef = useRef(false);
+  const realtimeQueuedRef = useRef(false);
+
+  const startLoad = useCallback((source: RefreshSource): Promise<void> => {
+    if (!mountedRef.current) return Promise.resolve();
+
+    const generation = nextGenerationRef.current + 1;
+    nextGenerationRef.current = generation;
+    currentGenerationRef.current = generation;
+    activeGenerationsRef.current.add(generation);
+    if (source === "realtime") {
+      realtimeInFlightRef.current = true;
+      realtimeQueuedRef.current = false;
     }
-  }, [load, depsKey]);
+    setLoading(true);
+
+    return (async () => {
+      try {
+        const nextData = await loadRef.current();
+        if (mountedRef.current && generation === currentGenerationRef.current) {
+          setData(nextData);
+          setError(undefined);
+        }
+      } catch (err) {
+        if (mountedRef.current && generation === currentGenerationRef.current) {
+          setError(err instanceof Error ? err : new Error(String(err)));
+        }
+      } finally {
+        const isCurrent = generation === currentGenerationRef.current;
+        activeGenerationsRef.current.delete(generation);
+        if (source === "realtime") {
+          realtimeInFlightRef.current = false;
+        }
+        if (!mountedRef.current) return;
+        if (realtimeQueuedRef.current && activeGenerationsRef.current.size === 0 && !realtimeInFlightRef.current) {
+          realtimeQueuedRef.current = false;
+          void startLoad("realtime");
+        } else if (isCurrent && !realtimeQueuedRef.current) {
+          setLoading(false);
+        }
+      }
+    })();
+  }, []);
+
+  const refresh = useCallback(() => startLoad("manual"), [startLoad]);
+
+  const requestRealtimeRefresh = useCallback(() => {
+    if (!mountedRef.current) return;
+    if (realtimeInFlightRef.current || activeGenerationsRef.current.size > 0) {
+      realtimeQueuedRef.current = true;
+      setLoading(true);
+      return;
+    }
+    void startLoad("realtime");
+  }, [startLoad]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      nextGenerationRef.current += 1;
+      currentGenerationRef.current = nextGenerationRef.current;
+      realtimeQueuedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, ...deps]);
 
   const realtimeState = useRealtimeRefresh<TEvent>({
     ...(realtime === false ? {} : realtime),
     enabled: realtime !== false,
-    refresh: () => void refresh(),
+    refresh: requestRealtimeRefresh,
   });
 
   return { data, error, loading, refresh, realtimeStatus: realtimeState.status, lastEvent: realtimeState.lastEvent };
