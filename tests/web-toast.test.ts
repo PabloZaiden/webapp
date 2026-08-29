@@ -196,7 +196,7 @@ describe("framework toast service", () => {
     }
   });
 
-  test("provides the toast hook through the standard renderWebApp runtime", () => {
+  test("provides the toast hook through the standard renderWebApp runtime", async () => {
     let currentService: ToastService | undefined;
     function Application() {
       currentService = useToast();
@@ -218,7 +218,7 @@ describe("framework toast service", () => {
     expect(within(document.body).getByRole("status").textContent).toContain("Runtime notification.");
     expect(within(document.body).getAllByRole("region", { name: "Notifications" })).toHaveLength(1);
 
-    act(() => {
+    await act(async () => {
       root?.unmount();
     });
   });
