@@ -2715,6 +2715,7 @@ textarea::placeholder {
   transform: translateX(-100%);
   opacity: 1;
   pointer-events: auto;
+  transition: transform var(--wapp-motion-fast) var(--wapp-motion-ease);
 }
 
 :root[data-wapp-mobile] .wapp-shell.sidebar-open .wapp-sidebar {
@@ -2736,6 +2737,12 @@ textarea::placeholder {
 :root[data-wapp-mobile] .wapp-main-header {
   min-height: 3.5rem;
   padding: 0.5rem 0.75rem;
+}
+
+/* Keep the mobile sidebar toggle reachable while the dismiss backdrop exits. */
+:root[data-wapp-mobile] .wapp-main-header-title > .wapp-sidebar-top-button {
+  position: relative;
+  z-index: 55;
 }
 
 :root[data-wapp-mobile] .wapp-sidebar-header {
