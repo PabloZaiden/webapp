@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ThemePreference } from "../contracts";
 import { appJson } from "./api-client";
+import { useAsyncOperation } from "./async-operation";
 
 const THEME_STORAGE_KEY = "webapp.theme";
 const THEME_MEDIA_QUERY = "(prefers-color-scheme: dark)";
@@ -64,9 +65,14 @@ export function useTheme(): WebAppThemeState {
 export function ThemeProvider({ userId, children }: { userId?: string; children: ReactNode }) {
   const [preference, setPreferenceState] = useState<ThemePreference>(readStoredPreference);
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(readSystemTheme);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error>();
-  const requestIdRef = useRef(0);
+  const {
+    pending: loading,
+    start: startLoad,
+    isCurrent: isLoadCurrent,
+    finish: finishLoad,
+    invalidate: invalidateLoad,
+  } = useAsyncOperation();
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -84,8 +90,9 @@ export function ThemeProvider({ userId, children }: { userId?: string; children:
     if (!isThemePreference(nextPreference)) {
       throw new TypeError(`Unknown theme preference: ${String(nextPreference)}.`);
     }
+    invalidateLoad();
     setPreferenceState(nextPreference);
-  }, []);
+  }, [invalidateLoad]);
 
   const resolvedTheme = preference === "system" ? systemTheme : preference;
 
@@ -103,32 +110,31 @@ export function ThemeProvider({ userId, children }: { userId?: string; children:
   }, [preference, resolvedTheme]);
 
   const retry = useCallback(async () => {
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
     if (!userId) {
-      setLoading(false);
+      invalidateLoad();
       setError(undefined);
       return;
     }
 
-    setLoading(true);
+    const token = startLoad({ replace: true });
+    if (!token) {
+      return;
+    }
     setError(undefined);
     try {
-      const response = await appJson<unknown>("/api/preferences/theme");
-      if (requestId !== requestIdRef.current) {
+      const response = await appJson<unknown>("/api/preferences/theme", { signal: token.signal });
+      if (!isLoadCurrent(token)) {
         return;
       }
-      setPreference(parseThemeResponse(response));
+      setPreferenceState(parseThemeResponse(response));
     } catch (value) {
-      if (requestId === requestIdRef.current) {
+      if (isLoadCurrent(token)) {
         setError(toError(value));
       }
     } finally {
-      if (requestId === requestIdRef.current) {
-        setLoading(false);
-      }
+      finishLoad(token);
     }
-  }, [setPreference, userId]);
+  }, [finishLoad, invalidateLoad, isLoadCurrent, startLoad, userId]);
 
   useEffect(() => {
     void retry();

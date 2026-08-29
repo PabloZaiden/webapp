@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import type { CreatedUserResponse, WebAppConfigResponse, WebAppUserRole, WebAppUserSummary } from "../../contracts";
 import { appJson } from "../api-client";
+import { useAsyncOperation } from "../async-operation";
 import { Badge, Button, ConfirmDialog, EmptyState, FormSection, SelectField, TextField } from "../components";
 import { useLiveQuery } from "../realtime/useRealtime";
 import { ResourceState } from "./resource-state";
@@ -11,6 +12,12 @@ export function UserManagement({ config }: { config: WebAppConfigResponse }) {
   const [setupLink, setSetupLink] = useState<string>();
   const [userToDelete, setUserToDelete] = useState<WebAppUserSummary>();
   const [error, setError] = useState<string>();
+  const {
+    pending: setupLinkPending,
+    start: startSetupLinkMutation,
+    isCurrent: isSetupLinkMutationCurrent,
+    finish: finishSetupLinkMutation,
+  } = useAsyncOperation({ abortOnUnmount: false });
 
   const loadUsers = useCallback(
     () => config.userManagement.canManageUsers
@@ -21,15 +28,30 @@ export function UserManagement({ config }: { config: WebAppConfigResponse }) {
   const { data: users, error: usersLoadError, loading: usersLoading, refresh: refreshUsers } = useLiveQuery<WebAppUserSummary[]>({ load: loadUsers, realtime: false });
 
   async function createUser() {
+    const operationToken = startSetupLinkMutation();
+    if (!operationToken) {
+      return;
+    }
+    setError(undefined);
     try {
-      setError(undefined);
-      const result = await appJson<CreatedUserResponse>("/api/users", { method: "POST", body: JSON.stringify({ username, role }) });
+      const result = await appJson<CreatedUserResponse>("/api/users", {
+        method: "POST",
+        body: JSON.stringify({ username, role }),
+        signal: operationToken.signal,
+      });
+      if (!isSetupLinkMutationCurrent(operationToken)) {
+        return;
+      }
       setUsername("");
       setRole("user");
       setSetupLink(result.setupLink.url);
       await refreshUsers();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (isSetupLinkMutationCurrent(operationToken)) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      finishSetupLinkMutation(operationToken);
     }
   }
 
@@ -44,13 +66,28 @@ export function UserManagement({ config }: { config: WebAppConfigResponse }) {
   }
 
   async function resetUser(user: WebAppUserSummary) {
+    const operationToken = startSetupLinkMutation();
+    if (!operationToken) {
+      return;
+    }
+    setError(undefined);
     try {
-      setError(undefined);
-      const result = await appJson<CreatedUserResponse>(`/api/users/${encodeURIComponent(user.id)}/reset`, { method: "POST", body: "{}" });
+      const result = await appJson<CreatedUserResponse>(`/api/users/${encodeURIComponent(user.id)}/reset`, {
+        method: "POST",
+        body: "{}",
+        signal: operationToken.signal,
+      });
+      if (!isSetupLinkMutationCurrent(operationToken)) {
+        return;
+      }
       setSetupLink(result.setupLink.url);
       await refreshUsers();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (isSetupLinkMutationCurrent(operationToken)) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      finishSetupLinkMutation(operationToken);
     }
   }
 
@@ -74,15 +111,15 @@ export function UserManagement({ config }: { config: WebAppConfigResponse }) {
       <br />
       <div className="wapp-settings-row stacked">
         <div>
-          <TextField label="Username" value={username} onChange={(event) => setUsername(event.currentTarget.value)} placeholder="new-user" />
+          <TextField label="Username" value={username} disabled={setupLinkPending} onChange={(event) => setUsername(event.currentTarget.value)} placeholder="new-user" />
           <br />
-          <SelectField label="Role" value={role} onChange={(event) => setRole(event.currentTarget.value as WebAppUserRole)}>
+          <SelectField label="Role" value={role} disabled={setupLinkPending} onChange={(event) => setRole(event.currentTarget.value as WebAppUserRole)}>
             <option value="user">User</option>
             <option value="admin">Admin</option>
           </SelectField>
         </div>
         <br />
-        <div className="wapp-row-actions"><Button type="button" variant="primary" disabled={!username.trim()} onClick={() => void createUser()}>Create setup link</Button></div>
+        <div className="wapp-row-actions"><Button type="button" variant="primary" loading={setupLinkPending} disabled={!username.trim()} onClick={() => void createUser()}>Create setup link</Button></div>
         {setupLink ? <code className="wapp-token">{setupLink}</code> : null}
       </div>
       <br />
@@ -102,7 +139,7 @@ export function UserManagement({ config }: { config: WebAppConfigResponse }) {
                     <option value="admin">Admin</option>
                   </select>
                 ) : <Badge variant="success">Owner</Badge>}
-                {user.role !== "owner" ? <Button type="button" onClick={() => void resetUser(user)}>Reset</Button> : null}
+                {user.role !== "owner" ? <Button type="button" loading={setupLinkPending} onClick={() => void resetUser(user)}>Reset</Button> : null}
                 <Button type="button" variant="danger" disabled={user.role === "owner"} onClick={() => setUserToDelete(user)}>Delete</Button>
               </div>
             </div>
