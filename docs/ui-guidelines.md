@@ -5,6 +5,7 @@ The framework intentionally provides a consistent base UI:
 - Fixed sidebar header and main header share the same height.
 - Sidebar content scrolls independently; the title row, version footer and optional tab bar stay fixed.
 - Sidebar width is desktop-first and collapsible; mobile uses a drawer with backdrop.
+- Desktop sidebar collapse is a persisted shell preference; mobile drawer openness is transient and is reset when the responsive mode changes.
 - The app title in the sidebar navigates home.
 - Settings and collapse controls are framework-owned.
 - Version is always visible at the bottom of the sidebar.
@@ -59,6 +60,19 @@ Use these first:
 | `ConfirmDialog` | Destructive confirmation |
 
 The default `Panel` is the muted card surface, `DataList` renders card rows, and `Button` uses the primary medium-sized action treatment. Use an explicit variant or size only when the surface is intentionally different from the application baseline.
+
+`Modal`, `ConfirmModal`, and `ConfirmDialog` are framework-owned modal overlays.
+They share focus entry and restoration, topmost-only Escape and backdrop
+dismissal, Tab containment, body scroll locking, and inert background content.
+Their header and footer remain fixed while the body scrolls internally when the
+viewport is short, so actions remain reachable on small screens. Do not add a
+second modal portal, focus trap, scroll lock, or arbitrary transition timer in
+application code.
+
+`Dialog` is a static, in-flow surface by default. It does not claim
+`aria-modal` semantics, trap focus, or lock body scrolling. Only pass its
+explicit modal option when the caller also makes the rest of the page
+unavailable; use `ConfirmDialog` or `Modal` for normal overlays.
 
 For entity actions, prefer the framework title bar: define one `ActionMenuItem[]` builder and attach it to `SidebarNode.actions` for the route-backed node. The framework reuses those actions for both sidebar right-click and the active route title-bar menu. Use `WebAppRoot.header.getActions` only for additional actions not owned by a sidebar node.
 

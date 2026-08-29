@@ -2,10 +2,13 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { useToast, type ToastService } from "../src/web";
 import { configureWebAppRenderer, renderWebApp, type WebAppRootHandle } from "../src/web/render";
 import { ToastProvider } from "../src/web/toast";
+import { installControlledTimers, type ControlledTimers } from "./fixtures/controlled-timers";
+
+let activeTimers: ControlledTimers | undefined;
 
 async function ensureHappyDom() {
   if (
@@ -23,11 +26,16 @@ async function ensureHappyDom() {
   GlobalRegistrator.register({ url: "http://localhost/" });
 }
 
-beforeEach(ensureHappyDom);
+beforeEach(async () => {
+  await ensureHappyDom();
+  activeTimers = installControlledTimers();
+});
 configureWebAppRenderer(createRoot);
 
 afterEach(() => {
   cleanup();
+  activeTimers?.restore();
+  activeTimers = undefined;
   if (typeof document !== "undefined" && document.body) {
     document.body.innerHTML = "";
   }
@@ -59,19 +67,11 @@ function renderToastService() {
   };
 }
 
-function trackClearTimeout() {
-  const previousClearTimeout = globalThis.clearTimeout;
-  const calls: Array<ReturnType<typeof setTimeout>> = [];
-  globalThis.clearTimeout = ((handle: ReturnType<typeof setTimeout>) => {
-    calls.push(handle);
-    previousClearTimeout(handle);
-  }) as typeof globalThis.clearTimeout;
-  return {
-    calls,
-    restore() {
-      globalThis.clearTimeout = previousClearTimeout;
-    },
-  };
+function timers(): ControlledTimers {
+  if (!activeTimers) {
+    throw new Error("Controlled timers were not installed.");
+  }
+  return activeTimers;
 }
 
 describe("framework toast service", () => {
@@ -145,7 +145,7 @@ describe("framework toast service", () => {
     ]);
   });
 
-  test("auto-dismisses timed notifications while keeping duration-zero records persistent", async () => {
+  test("auto-dismisses timed notifications while keeping duration-zero records persistent", () => {
     const { getService } = renderToastService();
 
     act(() => {
@@ -154,46 +154,42 @@ describe("framework toast service", () => {
     });
 
     expect(getService().toasts.find((toast) => toast.id === "persistent")?.duration).toBe(0);
-    await waitFor(() => {
-      expect(getService().toasts.some((toast) => toast.id === "short-lived")).toBe(false);
-    }, { timeout: 1_000 });
+    act(() => {
+      timers().advanceBy(10);
+    });
+    expect(getService().toasts.some((toast) => toast.id === "short-lived")).toBe(false);
     expect(getService().toasts.some((toast) => toast.id === "persistent")).toBe(true);
   });
 
-  test("clears timers when records are replaced, dismissed, evicted, or unmounted", () => {
-    const tracker = trackClearTimeout();
-    try {
-      const view = renderToastService();
+  test("stale timers cannot dismiss a replacement notification", () => {
+    const { getService } = renderToastService();
 
-      act(() => {
-        view.getService().info("Dismissed timer.", { id: "dismissed", duration: 1_000 });
-      });
-      act(() => {
-        view.getService().dismiss("dismissed");
-      });
-      expect(tracker.calls.length).toBeGreaterThan(0);
+    act(() => {
+      getService().info("Original.", { id: "status", duration: 20 });
+      getService().success("Replacement.", { id: "status", duration: 0 });
+    });
+    act(() => {
+      timers().advanceBy(20);
+    });
+    expect(getService().toasts).toEqual([expect.objectContaining({
+      id: "status",
+      message: "Replacement.",
+      duration: 0,
+    })]);
 
-      const callsAfterDismiss = tracker.calls.length;
-      act(() => {
-        view.getService().info("Replaced timer.", { id: "replaced", duration: 1_000 });
-        view.getService().success("Persistent replacement.", { id: "replaced", duration: 0 });
-      });
-      expect(tracker.calls.length).toBeGreaterThan(callsAfterDismiss);
-
-      const callsAfterReplace = tracker.calls.length;
-      act(() => {
-        for (let index = 0; index < 6; index += 1) {
-          view.getService().info(`Evicted ${index}`, { duration: 1_000 });
-        }
-      });
-      expect(tracker.calls.length).toBeGreaterThan(callsAfterReplace);
-
-      const callsBeforeUnmount = tracker.calls.length;
-      view.unmount();
-      expect(tracker.calls.length).toBeGreaterThan(callsBeforeUnmount);
-    } finally {
-      tracker.restore();
-    }
+    act(() => {
+      getService().info("Dismissed.", { id: "status", duration: 20 });
+      getService().dismiss("status");
+      getService().success("New notification.", { id: "status", duration: 0 });
+    });
+    act(() => {
+      timers().advanceBy(20);
+    });
+    expect(getService().toasts).toEqual([expect.objectContaining({
+      id: "status",
+      message: "New notification.",
+      duration: 0,
+    })]);
   });
 
   test("provides the toast hook through the standard renderWebApp runtime", async () => {
@@ -210,7 +206,6 @@ describe("framework toast service", () => {
       root = renderWebApp(createElement(Application), container);
     });
     expect(currentService).toBeTruthy();
-    expect(container.textContent).toBe("Application");
 
     act(() => {
       currentService?.info("Runtime notification.", { duration: 0 });

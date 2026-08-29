@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useReducer, useRef, useState, type ForwardedRef, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type ReactNode } from "react";
 import type { WebAppConfigResponse } from "../contracts";
 import { AppShell } from "./app-shell";
 import { DeviceVerificationScreen, PasskeyAuthScreen, UserSetupScreen } from "./auth-screens";
@@ -6,7 +6,7 @@ import { appPagePath } from "./api-client";
 import { EmptyState, Panel } from "./components";
 import { useMobileBreakpoint, useMobileSidebarSwipe, useMobileViewportHeight } from "./mobile-hooks";
 import { routeToHash, supportsViewTransitions, useRoute } from "./routing";
-import { flattenSidebarItems, useSidebarCollapsedState, useSidebarPins, useSidebarTab } from "./sidebar-state";
+import { flattenSidebarItems, useSidebarCollapsedState, useSidebarDesktopCollapsedState, useSidebarPins, useSidebarTab } from "./sidebar-state";
 import { SettingsView } from "./settings/settings-view";
 import type { HeaderContext, WebAppRootController, WebAppRootProps } from "./root-types";
 import type { ActionMenuItem, SidebarNode, SidebarNodeSnapshot, SidebarTab, WebAppRoute } from "./sidebar/types";
@@ -16,34 +16,6 @@ import { setLogLevel } from "./logger";
 import { useReducedMotion } from "./motion";
 
 const EMPTY_SIDEBAR_TABS: SidebarTab[] = [];
-
-type SidebarVisibilityState = {
-  open: boolean;
-  collapsed: boolean;
-};
-
-type SidebarVisibilityAction =
-  | { type: "open" }
-  | { type: "close" }
-  | { type: "toggle-collapsed" };
-
-const INITIAL_SIDEBAR_VISIBILITY: SidebarVisibilityState = {
-  open: false,
-  collapsed: false,
-};
-
-function reduceSidebarVisibility(state: SidebarVisibilityState, action: SidebarVisibilityAction): SidebarVisibilityState {
-  switch (action.type) {
-    case "open":
-      return { open: true, collapsed: false };
-    case "close":
-      return { ...state, open: false };
-    case "toggle-collapsed": {
-      const collapsed = !state.collapsed;
-      return { open: !collapsed, collapsed };
-    }
-  }
-}
 
 export { replaceHashRoute, replaceWebAppRoute, routeToHash } from "./routing";
 export type {
@@ -134,18 +106,32 @@ function WebAppRootContent({
   const sidebarSearchId = useId();
   const sidebarSearchInputRef = useRef<HTMLInputElement>(null);
   const [sidebarSearchFocusRequested, setSidebarSearchFocusRequested] = useState(false);
-  const [sidebarVisibility, dispatchSidebarVisibility] = useReducer(reduceSidebarVisibility, INITIAL_SIDEBAR_VISIBILITY);
-  const { open: sidebarOpen, collapsed: sidebarCollapsed } = sidebarVisibility;
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const {
+    collapsed: sidebarCollapsed,
+    setCollapsed: setDesktopSidebarCollapsed,
+    toggleCollapsed: toggleDesktopSidebarCollapsed,
+  } = useSidebarDesktopCollapsedState(appName);
+  const sidebarOpen = isMobile && mobileSidebarOpen;
   const sidebarTreeState = useSidebarCollapsedState(appName);
   const sidebarTabs = sidebar.tabs ?? EMPTY_SIDEBAR_TABS;
   const { activeTab, selectTab } = useSidebarTab(appName, sidebarTabs);
   const setSidebarOpen = useCallback((open: boolean) => {
-    dispatchSidebarVisibility({ type: open ? "open" : "close" });
-  }, []);
+    if (isMobile) {
+      setMobileSidebarOpen(open);
+    }
+  }, [isMobile]);
   useMobileSidebarSwipe(isMobile, sidebarOpen, setSidebarOpen);
   const openSidebar = useCallback(() => {
-    setSidebarOpen(true);
-  }, [setSidebarOpen]);
+    if (isMobile) {
+      setMobileSidebarOpen(true);
+    } else {
+      setDesktopSidebarCollapsed(false);
+    }
+  }, [isMobile, setDesktopSidebarCollapsed]);
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [isMobile]);
   const focusSidebarSearch = useCallback(() => {
     if (!sidebarSearchEnabled) {
       return;
@@ -154,8 +140,10 @@ function WebAppRootContent({
     openSidebar();
   }, [openSidebar, sidebarSearchEnabled]);
   const toggleSidebarCollapsed = useCallback(() => {
-    dispatchSidebarVisibility({ type: "toggle-collapsed" });
-  }, []);
+    if (!isMobile) {
+      toggleDesktopSidebarCollapsed();
+    }
+  }, [isMobile, toggleDesktopSidebarCollapsed]);
   const normalizedSidebarSearch = sidebarSearchEnabled ? search.trim() : "";
   const sidebarSearchActive = normalizedSidebarSearch.length > 0;
   const pinningEnabled = sidebar.pinning !== false;
@@ -382,6 +370,7 @@ function WebAppRootContent({
       setSidebarOpen={setSidebarOpen}
       sidebarCollapsed={sidebarCollapsed}
       toggleSidebarCollapsed={toggleSidebarCollapsed}
+      isMobile={isMobile}
       collapsed={sidebarTreeState.collapsed}
       toggleCollapsed={sidebarTreeState.toggleCollapsed}
       searchActive={sidebarSearchActive}
