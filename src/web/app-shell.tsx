@@ -1,6 +1,6 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { ActionMenu, IconButton } from "./components";
-import { Presence } from "./motion";
+import { useInertElement, useOverlayLifecycle } from "./overlay";
 import { SidebarTree } from "./sidebar-tree";
 import type { SidebarCollapsedState } from "./sidebar-state";
 import type { ActionMenuItem, SidebarAction, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
@@ -73,6 +73,7 @@ export interface AppShellProps {
   setSidebarOpen: (open: boolean) => void;
   sidebarCollapsed: boolean;
   toggleSidebarCollapsed: () => void;
+  isMobile: boolean;
   collapsed: SidebarCollapsedState;
   toggleCollapsed: (id: string, isCollapsed: boolean) => void;
   searchActive: boolean;
@@ -106,6 +107,7 @@ export function AppShell({
   setSidebarOpen,
   sidebarCollapsed,
   toggleSidebarCollapsed,
+  isMobile,
   collapsed,
   toggleCollapsed,
   searchActive,
@@ -133,12 +135,14 @@ export function AppShell({
       }
 
       event.preventDefault();
-      toggleSidebarCollapsed();
+      if (!isMobile) {
+        toggleSidebarCollapsed();
+      }
     }
 
     document.addEventListener("keydown", handleSidebarShortcut);
     return () => document.removeEventListener("keydown", handleSidebarShortcut);
-  }, [toggleSidebarCollapsed]);
+  }, [isMobile, toggleSidebarCollapsed]);
 
   const topSidebarActions = topActions.slice(0, 2);
   const sidebarToggleLabel = sidebarCollapsed ? "Show sidebar" : "Collapse sidebar";
@@ -146,7 +150,20 @@ export function AppShell({
   const hasAppIcon = Boolean(appIconSource);
   const sidebarTabRefs = useRef(new Map<string, HTMLButtonElement>());
   const closeSidebar = () => setSidebarOpen(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const drawerLayerRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
   const suppressNextContentClickRef = useRef(false);
+  const drawerOpen = isMobile && sidebarOpen;
+  useInertElement(sidebarRef, !drawerOpen && (isMobile || sidebarCollapsed));
+  const drawerOverlay = useOverlayLifecycle({
+    open: drawerOpen,
+    surfaceRef: sidebarRef,
+    layerRef: drawerLayerRef,
+    onEscape: closeSidebar,
+    onBackdrop: closeSidebar,
+    inertTargets: [mainRef.current],
+  });
   const navigateFromSidebarHeader = (nextRoute: WebAppRoute) => {
     navigate(nextRoute);
     closeSidebar();
@@ -199,47 +216,40 @@ export function AppShell({
           return;
         }
         suppressNextContentClickRef.current = false;
-        if (event.detail === 0) {
-          return;
+        if (event.detail !== 0) {
+          event.preventDefault();
+          event.stopPropagation();
         }
-        event.preventDefault();
-        event.stopPropagation();
       }}
     >
-      <Presence present={sidebarOpen}>
-        {(state) => (
-          <div
-            className={`wapp-mobile-backdrop wapp-motion-${state}`}
-            role="button"
-            tabIndex={state === "exit" ? -1 : 0}
+      {drawerOverlay.mounted ? (
+        <div
+          ref={drawerLayerRef}
+          className={`wapp-mobile-drawer-layer wapp-motion-${drawerOverlay.state}`}
+          role="presentation"
+          aria-hidden={drawerOpen ? undefined : true}
+          style={drawerOverlay.zIndex === undefined ? undefined : { zIndex: drawerOverlay.zIndex }}
+        >
+          <button
+            type="button"
+            className="wapp-mobile-backdrop"
+            tabIndex={drawerOverlay.state === "exit" ? -1 : 0}
             aria-label="Close sidebar"
-            aria-hidden={state === "exit" ? true : undefined}
+            aria-hidden={drawerOverlay.state === "exit" ? true : undefined}
             onPointerDown={(event) => {
-              if (event.button === 0) {
-                event.preventDefault();
-                event.stopPropagation();
-                suppressNextContentClickRef.current = true;
-                closeSidebar();
-              }
+              suppressNextContentClickRef.current = true;
+              drawerOverlay.onBackdropPointerDown(event);
             }}
-            onClick={(event) => {
-              event.stopPropagation();
-              if (event.detail === 0) {
-                event.preventDefault();
-                closeSidebar();
-              }
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                event.stopPropagation();
-                closeSidebar();
-              }
-            }}
+            onClick={drawerOverlay.onBackdropClick}
           />
-        )}
-      </Presence>
-      <aside id="wapp-sidebar" className={`wapp-sidebar${sidebarTabs.length ? " wapp-sidebar-with-tabs" : ""}`}>
+        </div>
+      ) : null}
+      <aside
+        ref={sidebarRef}
+        id="wapp-sidebar"
+        className={`wapp-sidebar${sidebarTabs.length ? " wapp-sidebar-with-tabs" : ""}`}
+        style={drawerOverlay.mounted && drawerOverlay.zIndex !== undefined ? { zIndex: drawerOverlay.zIndex + 1 } : undefined}
+      >
         <div className="wapp-sidebar-header">
           <button
             type="button"
@@ -253,7 +263,7 @@ export function AppShell({
           <div className="wapp-sidebar-actions">
             {topSidebarActions.map((action) => <IconButton key={action.id} className="wapp-sidebar-top-button" title={action.title} aria-label={action.title} onClick={() => runSidebarHeaderAction(action)}><ActionIcon icon={action.icon} /></IconButton>)}
             <IconButton className="wapp-sidebar-top-button" title="Settings" aria-label="Open settings" active={route.view === "settings"} onClick={() => navigateFromSidebarHeader({ view: "settings" })}><Icon name="settings" /></IconButton>
-            <IconButton className="wapp-sidebar-top-button" title={sidebarToggleLabel} aria-label={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton>
+            {!isMobile ? <IconButton className="wapp-sidebar-top-button" title={sidebarToggleLabel} aria-label={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
           </div>
         </div>
         <div className="wapp-sidebar-scroll">
@@ -319,10 +329,10 @@ export function AppShell({
           </nav>
         ) : null}
       </aside>
-      <section className="wapp-main">
+      <section ref={mainRef} className="wapp-main">
         <header className="wapp-main-header">
           <div className="wapp-main-header-title">
-            {sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : <IconButton className="wapp-mobile-only wapp-sidebar-top-button" aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton>}
+            {isMobile ? <IconButton className="wapp-sidebar-top-button" aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton> : sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
             <h1 key={routeKey} className="wapp-route-fade">{headerTitle}</h1>
           </div>
           {primaryHeaderActions || headerActions.length ? (

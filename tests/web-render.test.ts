@@ -3,7 +3,7 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { StrictMode, act, createElement, createRef, startTransition, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
-import { ConfirmDialog, ConfirmModal } from "../src/web/components";
+import { ConfirmDialog, ConfirmModal, Dialog, Modal } from "../src/web/components";
 import type { ApiKeySummary, AuthSessionSummary, ThemePreference, WebAppConfigResponse, WebAppUserSummary } from "../src/contracts";
 import { configureWebAppClient, onAuthRequired } from "../src/web/api-client";
 import { MOBILE_MEDIA_QUERY } from "../src/web/mobile";
@@ -271,16 +271,107 @@ function mockBuiltInFetch(options: BuiltInFetchOptions = {}) {
 
 function mockMobileMediaQuery(matches: boolean) {
   const previousMatchMedia = window.matchMedia;
+  const mobileQuery = previousMatchMedia.call(window, MOBILE_MEDIA_QUERY);
+  const previousMatchesDescriptor = Object.getOwnPropertyDescriptor(mobileQuery, "matches");
+  const previousAddEventListenerDescriptor = Object.getOwnPropertyDescriptor(mobileQuery, "addEventListener");
+  const previousRemoveEventListenerDescriptor = Object.getOwnPropertyDescriptor(mobileQuery, "removeEventListener");
+  const listeners = new Set<EventListenerOrEventListenerObject>();
+  let currentMatches = matches;
+  Object.defineProperty(mobileQuery, "matches", {
+    configurable: true,
+    get: () => currentMatches,
+  });
+  Object.defineProperty(mobileQuery, "addEventListener", {
+    configurable: true,
+    value: (type: string, listener: EventListenerOrEventListenerObject | null) => {
+      if (type === "change" && listener) {
+        listeners.add(listener);
+      }
+    },
+  });
+  Object.defineProperty(mobileQuery, "removeEventListener", {
+    configurable: true,
+    value: (type: string, listener: EventListenerOrEventListenerObject | null) => {
+      if (type === "change" && listener) {
+        listeners.delete(listener);
+      }
+    },
+  });
   window.matchMedia = ((query: string) => {
-    const mediaQuery = previousMatchMedia.call(window, query);
-    if (query === MOBILE_MEDIA_QUERY) {
-      Object.defineProperty(mediaQuery, "matches", { configurable: true, value: matches });
-    }
-    return mediaQuery;
+    return query === MOBILE_MEDIA_QUERY ? mobileQuery : previousMatchMedia.call(window, query);
   }) as typeof window.matchMedia;
 
-  return () => {
+  const restore = (() => {
     window.matchMedia = previousMatchMedia;
+    if (previousMatchesDescriptor) {
+      Object.defineProperty(mobileQuery, "matches", previousMatchesDescriptor);
+    } else {
+      Reflect.deleteProperty(mobileQuery, "matches");
+    }
+    if (previousAddEventListenerDescriptor) {
+      Object.defineProperty(mobileQuery, "addEventListener", previousAddEventListenerDescriptor);
+    } else {
+      Reflect.deleteProperty(mobileQuery, "addEventListener");
+    }
+    if (previousRemoveEventListenerDescriptor) {
+      Object.defineProperty(mobileQuery, "removeEventListener", previousRemoveEventListenerDescriptor);
+    } else {
+      Reflect.deleteProperty(mobileQuery, "removeEventListener");
+    }
+  }) as (() => void) & { setMatches: (nextMatches: boolean) => void };
+  restore.setMatches = (nextMatches: boolean) => {
+    currentMatches = nextMatches;
+    const event = { matches: nextMatches, media: MOBILE_MEDIA_QUERY } as MediaQueryListEvent;
+    for (const listener of listeners) {
+      if (typeof listener === "function") {
+        listener(event);
+      } else {
+        listener.handleEvent(event);
+      }
+    }
+  };
+  return restore;
+}
+
+function createVisualViewportFixture(initialHeight: number) {
+  const listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
+  let height = initialHeight;
+  const viewport = {
+    get height() {
+      return height;
+    },
+    offsetTop: 0,
+    addEventListener(type: string, listener: EventListenerOrEventListenerObject | null) {
+      if (!listener) {
+        return;
+      }
+      const typeListeners = listeners.get(type) ?? new Set<EventListenerOrEventListenerObject>();
+      typeListeners.add(listener);
+      listeners.set(type, typeListeners);
+    },
+    removeEventListener(type: string, listener: EventListenerOrEventListenerObject | null) {
+      if (!listener) {
+        return;
+      }
+      listeners.get(type)?.delete(listener);
+    },
+  };
+
+  return {
+    viewport,
+    setHeight(nextHeight: number) {
+      height = nextHeight;
+    },
+    emit(type: string) {
+      const event = new Event(type);
+      for (const listener of listeners.get(type) ?? []) {
+        if (typeof listener === "function") {
+          listener(event);
+        } else {
+          listener.handleEvent(event);
+        }
+      }
+    },
   };
 }
 
@@ -378,7 +469,7 @@ async function renderSidebarWebApp(options: SidebarFixtureOptions = {}) {
   });
   const view = render(options.strictMode ? createElement(StrictMode, null, root) : root);
 
-  await waitFor(() => expect(view.getByRole("button", { name: /Projects/ })).toBeTruthy());
+  await waitFor(() => expect(view.getByRole("button", { name: /Projects/, hidden: true })).toBeTruthy());
 
   return view;
 }
@@ -386,7 +477,10 @@ async function renderSidebarWebApp(options: SidebarFixtureOptions = {}) {
 async function renderShortcutWebApp(options: SidebarFixtureOptions = {}) {
   const view = await renderSidebarWebApp(options);
 
-  await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
+  await waitFor(() => expect(
+    view.queryByRole("button", { name: "Collapse sidebar" })
+      ?? view.queryByRole("button", { name: "Show sidebar" }),
+  ).toBeTruthy());
   await act(async () => {});
 
   return view;
@@ -1160,7 +1254,7 @@ test("public sidebar controller opens and focuses search on mobile", async () =>
       },
     }));
 
-    const searchInput = await waitFor(() => view.getByRole("textbox", { name: "Search" }));
+    const searchInput = await waitFor(() => view.getByRole("textbox", { name: "Search", hidden: true }));
     await waitFor(() => expect(controllerRef.current).toBeTruthy());
     act(() => {
       controllerRef.current?.sidebar.focusSearch();
@@ -1342,6 +1436,174 @@ test("confirmation controls ignore focused-field Enter and close through confirm
   await waitFor(() => expect(view.queryByRole("dialog", { name: "Delete item?" })).toBeNull());
 });
 
+test("modal focus is contained, background content is inert, and focus returns to its trigger", async () => {
+  function Harness() {
+    const [open, setOpen] = useState(false);
+    return createElement(
+      "div",
+      null,
+      createElement("button", { type: "button", onClick: () => setOpen(true) }, "Open modal"),
+      createElement("p", null, "Background content"),
+      createElement(Modal, {
+        isOpen: open,
+        onClose: () => setOpen(false),
+        title: "Modal title",
+        children: createElement("p", null, "Modal content"),
+        footer: createElement("button", { type: "button", onClick: () => setOpen(false) }, "Done"),
+      }),
+    );
+  }
+
+  const view = render(createElement(Harness));
+  const trigger = view.getByRole("button", { name: "Open modal" });
+  const appContent = view.container;
+  trigger.focus();
+  fireEvent.click(trigger);
+
+  const dialog = await waitFor(() => view.getByRole("dialog", { name: "Modal title" }));
+  expect(dialog.contains(document.activeElement)).toBe(true);
+  expect(appContent.getAttribute("aria-hidden")).toBe("true");
+  expect((appContent as HTMLElement & { inert?: boolean }).inert).toBe(true);
+  expect(document.body.style.overflow).toBe("hidden");
+
+  const controls = within(dialog).getAllByRole("button");
+  const firstControl = controls[0]!;
+  const lastControl = controls.at(-1)!;
+  lastControl.focus();
+  fireEvent.keyDown(lastControl, { key: "Tab" });
+  expect(document.activeElement).toBe(firstControl);
+  firstControl.focus();
+  fireEvent.keyDown(firstControl, { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(lastControl);
+
+  fireEvent.keyDown(document, { key: "Escape" });
+  await waitFor(() => expect(dialog.isConnected).toBe(false));
+  expect(document.activeElement).toBe(trigger);
+  expect(appContent.getAttribute("aria-hidden")).toBeNull();
+  expect((appContent as HTMLElement & { inert?: boolean }).inert).toBe(false);
+  expect(document.body.style.overflow).toBe("");
+});
+
+test("closing a modal does not steal focus chosen during its exit", async () => {
+  function Harness() {
+    const [open, setOpen] = useState(false);
+    return createElement(
+      "div",
+      null,
+      createElement("button", { type: "button", onClick: () => setOpen(true) }, "Open modal"),
+      createElement("button", { type: "button" }, "Focus target"),
+      createElement(Modal, {
+        isOpen: open,
+        onClose: () => setOpen(false),
+        title: "Modal title",
+        children: createElement("p", null, "Modal content"),
+      }),
+    );
+  }
+
+  const view = render(createElement(Harness));
+  const trigger = view.getByRole("button", { name: "Open modal" });
+  const focusTargetButton = view.getByRole("button", { name: "Focus target" });
+  fireEvent.click(trigger);
+  const dialog = await waitFor(() => view.getByRole("dialog", { name: "Modal title" }));
+
+  fireEvent.keyDown(document, { key: "Escape" });
+  focusTargetButton.focus();
+  await waitFor(() => expect(dialog.isConnected).toBe(false));
+  expect(document.activeElement).toBe(focusTargetButton);
+});
+
+test("modal without focusable content keeps focus on its surface", async () => {
+  function Harness() {
+    const [open, setOpen] = useState(false);
+    return createElement(
+      "div",
+      null,
+      createElement("button", { type: "button", onClick: () => setOpen(true) }, "Open modal"),
+      createElement(Modal, {
+        isOpen: open,
+        onClose: () => setOpen(false),
+        title: "Empty modal",
+        showCloseButton: false,
+        children: createElement("p", null, "No controls"),
+      }),
+    );
+  }
+
+  const view = render(createElement(Harness));
+  fireEvent.click(view.getByRole("button", { name: "Open modal" }));
+  const dialog = await waitFor(() => view.getByRole("dialog", { name: "Empty modal" }));
+  expect(document.activeElement).toBe(dialog);
+  fireEvent.keyDown(document, { key: "Escape" });
+  await waitFor(() => expect(view.queryByRole("dialog", { name: "Empty modal" })).toBeNull());
+});
+
+test("nested overlays close from the topmost layer and restore focus within the parent", async () => {
+  function Harness() {
+    const [parentOpen, setParentOpen] = useState(false);
+    const [childOpen, setChildOpen] = useState(false);
+    return createElement(
+      "div",
+      null,
+      createElement("button", { type: "button", onClick: () => setParentOpen(true) }, "Open parent"),
+      createElement(Modal, {
+        isOpen: parentOpen,
+        onClose: () => setParentOpen(false),
+        title: "Parent modal",
+        children: createElement("p", null, "Parent content"),
+        footer: createElement("button", { type: "button", onClick: () => setChildOpen(true) }, "Open child"),
+      }),
+      createElement(ConfirmDialog, {
+        open: childOpen,
+        title: "Child confirmation",
+        message: "Confirm child action",
+        onCancel: () => setChildOpen(false),
+        onConfirm: () => setChildOpen(false),
+      }),
+    );
+  }
+
+  const view = render(createElement(Harness));
+  const parentTrigger = view.getByRole("button", { name: "Open parent" });
+  parentTrigger.focus();
+  fireEvent.click(parentTrigger);
+  const parent = await waitFor(() => view.getByRole("dialog", { name: "Parent modal" }));
+  const childTrigger = within(parent).getByRole("button", { name: "Open child" });
+  childTrigger.focus();
+  fireEvent.click(childTrigger);
+  const child = await waitFor(() => view.getByRole("dialog", { name: "Child confirmation" }));
+  expect(document.body.style.overflow).toBe("hidden");
+
+  fireEvent.keyDown(document, { key: "Escape" });
+  await waitFor(() => expect(child.isConnected).toBe(false));
+  expect(view.getByRole("dialog", { name: "Parent modal" })).toBe(parent);
+  expect(document.activeElement).toBe(childTrigger);
+  expect(document.body.style.overflow).toBe("hidden");
+
+  fireEvent.keyDown(document, { key: "Escape" });
+  await waitFor(() => expect(view.queryByRole("dialog", { name: "Parent modal" })).toBeNull());
+  await waitFor(() => expect(parent.isConnected).toBe(false));
+  expect(document.body.style.overflow).toBe("");
+});
+
+test("static dialogs do not claim modal semantics or lock the page", () => {
+  let cancellations = 0;
+  const view = render(createElement(Dialog, {
+    title: "Static dialog",
+    onClose: () => {
+      cancellations += 1;
+    },
+    actions: createElement("button", { type: "button" }, "Action"),
+    children: createElement("p", null, "Static content"),
+  }));
+  const dialog = view.getByRole("dialog", { name: "Static dialog" });
+
+  expect(dialog.getAttribute("aria-modal")).toBeNull();
+  expect(document.body.style.overflow).toBe("");
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(cancellations).toBe(1);
+});
+
 test("sidebar toggle control changes the accessible action", async () => {
   const restoreFetch = mockConfigFetch();
   try {
@@ -1360,7 +1622,6 @@ test("sidebar toggle control changes the accessible action", async () => {
 
 test("sidebar opening remains authoritative over a queued collapse toggle", async () => {
   const restoreFetch = mockConfigFetch();
-  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
   const controllerRef = createRef<WebAppRootController>();
 
   try {
@@ -1372,10 +1633,8 @@ test("sidebar opening remains authoritative over a queued collapse toggle", asyn
       controllerRef.current?.sidebar.open();
     });
 
-    const showSidebar = await waitFor(() => view.getByRole("button", { name: "Show sidebar" }));
-    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
+    await waitFor(() => expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy());
   } finally {
-    restoreMobileMediaQuery();
     restoreFetch();
   }
 });
@@ -2095,6 +2354,7 @@ test("settings kill server surfaces failures without starting the shutdown count
 
 test("mobile sidebar backdrop closes on pointer and keyboard activation", async () => {
   const restoreFetch = mockConfigFetch();
+  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
   try {
     const view = await renderShortcutWebApp();
     const showSidebar = view.getByRole("button", { name: "Show sidebar" });
@@ -2112,12 +2372,14 @@ test("mobile sidebar backdrop closes on pointer and keyboard activation", async 
       await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
     }
   } finally {
+    restoreMobileMediaQuery();
     restoreFetch();
   }
 });
 
 test("mobile sidebar opening is not consumed by a late backdrop click", async () => {
   const restoreFetch = mockConfigFetch();
+  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
   try {
     const view = await renderShortcutWebApp();
     const showSidebar = view.getByRole("button", { name: "Show sidebar" });
@@ -2132,6 +2394,7 @@ test("mobile sidebar opening is not consumed by a late backdrop click", async ()
     fireEvent.pointerDown(backdrop);
     await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
   } finally {
+    restoreMobileMediaQuery();
     restoreFetch();
   }
 });
@@ -2169,7 +2432,7 @@ test("mobile sidebar dismiss does not activate background content", async () => 
     await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
 
     const backdrop = view.getByRole("button", { name: "Close sidebar" });
-    const backgroundAction = view.getByRole("button", { name: "Background action" });
+    const backgroundAction = view.getByRole("button", { name: "Background action", hidden: true });
     fireEvent.pointerDown(backdrop, { button: 0, pointerId: 1 });
     fireEvent.pointerUp(backdrop, { button: 0, pointerId: 1 });
     fireEvent.click(backgroundAction, { detail: 1 });
@@ -2210,5 +2473,118 @@ test("mobile left-edge swipe opens navigation", async () => {
   } finally {
     restoreMobileMediaQuery();
     restoreFetch();
+  }
+});
+
+test("mobile drawer state is transient and breakpoint changes preserve desktop collapse", async () => {
+  const restoreFetch = mockConfigFetch();
+  const restoreMobileMediaQuery = mockMobileMediaQuery(false);
+  const treeStorageKey = "webapp.test-app.sidebar.collapsed";
+  const desktopStorageKey = "webapp.test-app.sidebar.desktop-collapsed";
+  localStorage.setItem(treeStorageKey, JSON.stringify({ unrelated: true }));
+
+  try {
+    const view = await renderShortcutWebApp();
+    fireEvent.click(view.getByRole("button", { name: "Collapse sidebar" }));
+    await waitFor(() => expect(view.queryByRole("button", { name: "Collapse sidebar" })).toBeNull());
+    expect(localStorage.getItem(treeStorageKey)).toBe(JSON.stringify({ unrelated: true }));
+    expect(localStorage.getItem(desktopStorageKey)).toBe("true");
+
+    act(() => restoreMobileMediaQuery.setMatches(true));
+    const showSidebar = await waitFor(() => view.getByRole("button", { name: "Show sidebar" }));
+    expect(showSidebar.getAttribute("aria-expanded")).toBe("false");
+    const sidebar = view.getByRole("complementary", { hidden: true });
+    expect(sidebar.getAttribute("aria-hidden")).toBe("true");
+    const sidebarElement = sidebar as HTMLElement & { inert?: boolean };
+    expect(sidebarElement.inert).toBe(true);
+    if (!("inert" in sidebarElement)) {
+      expect(view.getByRole("button", { name: "Alpha", hidden: true }).getAttribute("tabindex")).toBe("-1");
+    }
+
+    fireEvent.click(showSidebar);
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("true"));
+    expect(sidebar.getAttribute("aria-hidden")).toBeNull();
+    expect(view.getByRole("button", { name: "Alpha" }).getAttribute("tabindex")).toBeNull();
+    const background = view.getByRole("heading", { name: "Test App", hidden: true });
+    expect(background.closest("[aria-hidden='true']")).toBeTruthy();
+
+    const backdrop = view.getByRole("button", { name: "Close sidebar" });
+    act(() => restoreMobileMediaQuery.setMatches(false));
+    await waitFor(() => expect(showSidebar.getAttribute("aria-expanded")).toBe("false"));
+    await waitFor(() => expect(backdrop.isConnected).toBe(false));
+    expect(localStorage.getItem(desktopStorageKey)).toBe("true");
+    expect(localStorage.getItem(treeStorageKey)).toBe(JSON.stringify({ unrelated: true }));
+    expect(document.body.style.overflow).toBe("");
+  } finally {
+    restoreMobileMediaQuery();
+    restoreFetch();
+  }
+});
+
+test("mobile shell follows the visual viewport while an editable control has focus", async () => {
+  const restoreFetch = mockConfigFetch();
+  const restoreMobileMediaQuery = mockMobileMediaQuery(true);
+  const previousCSSDescriptor = Object.getOwnPropertyDescriptor(window, "CSS");
+  const previousVisualViewportDescriptor = Object.getOwnPropertyDescriptor(window, "visualViewport");
+  const previousInnerHeightDescriptor = Object.getOwnPropertyDescriptor(window, "innerHeight");
+  const visualViewport = createVisualViewportFixture(800);
+
+  try {
+    Object.defineProperty(window, "CSS", {
+      configurable: true,
+      value: { supports: () => true },
+    });
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: visualViewport.viewport,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 800,
+    });
+
+    const view = render(createElement(WebAppRoot, {
+      appName: "Test App",
+      homeRoute: { view: "home" },
+      sidebar: {
+        search: false,
+        pinning: false,
+        getNodes: () => [{ type: "item" as const, id: "home", title: "Home", route: { view: "home" } }],
+      },
+      routes: {
+        home: createElement("textarea", { "aria-label": "Message" }),
+      },
+    }));
+    const input = await waitFor(() => view.getByRole("textbox", { name: "Message" }));
+
+    input.focus();
+    visualViewport.setHeight(420);
+    visualViewport.emit("resize");
+
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue("--wapp-viewport-height")).toBe("420px"));
+
+    input.blur();
+    visualViewport.setHeight(800);
+    visualViewport.emit("resize");
+
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue("--wapp-viewport-height")).toBe(""));
+  } finally {
+    restoreMobileMediaQuery();
+    restoreFetch();
+    if (previousCSSDescriptor) {
+      Object.defineProperty(window, "CSS", previousCSSDescriptor);
+    } else {
+      Reflect.deleteProperty(window, "CSS");
+    }
+    if (previousVisualViewportDescriptor) {
+      Object.defineProperty(window, "visualViewport", previousVisualViewportDescriptor);
+    } else {
+      Reflect.deleteProperty(window, "visualViewport");
+    }
+    if (previousInnerHeightDescriptor) {
+      Object.defineProperty(window, "innerHeight", previousInnerHeightDescriptor);
+    } else {
+      Reflect.deleteProperty(window, "innerHeight");
+    }
   }
 });

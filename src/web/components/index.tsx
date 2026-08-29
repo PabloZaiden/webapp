@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type 
 import { createPortal } from "react-dom";
 import type { ActionMenuItem, BadgeAppearance, BadgeVariant } from "../sidebar/types";
 import { AnimatedList, MOTION_FAST_MS, usePresence } from "../motion";
+import { isTopmostOverlayElement, useOverlayLifecycle } from "../overlay";
 
 export type ButtonVariant = "default" | "primary" | "danger" | "ghost";
 export type ButtonSize = "xs" | "sm" | "md" | "lg";
@@ -508,8 +509,17 @@ export function CodeValue({ value, label, copyLabel = "Copy" }: { value: string;
 }
 
 function isTopmostDialog(dialog: HTMLElement): boolean {
-  const openDialogs = Array.from(document.querySelectorAll<HTMLElement>("[role='dialog'][aria-modal='true']"));
-  return openDialogs[openDialogs.length - 1] === dialog;
+  const overlayResult = isTopmostOverlayElement(dialog);
+  if (overlayResult !== undefined) {
+    return overlayResult;
+  }
+
+  const modalDialogs = Array.from(document.querySelectorAll<HTMLElement>("[role='dialog'][aria-modal='true']"));
+  if (modalDialogs.length > 0) {
+    return false;
+  }
+  const staticDialogs = Array.from(document.querySelectorAll<HTMLElement>("[role='dialog']"));
+  return staticDialogs.at(-1) === dialog;
 }
 
 function isNativeEnterTarget(target: EventTarget | null): boolean {
@@ -615,37 +625,6 @@ export function useDialogKeyboardShortcuts({
   }, [acceptDisabled, dialogRef, enabled]);
 }
 
-const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-const MODAL_SCROLL_LOCK_COUNT_KEY = "__webappModalScrollLockCount";
-const MODAL_SCROLL_LOCK_OVERFLOW_KEY = "__webappModalScrollLockOverflow";
-
-type ScrollLockedBody = HTMLElement & {
-  [MODAL_SCROLL_LOCK_COUNT_KEY]?: number;
-  [MODAL_SCROLL_LOCK_OVERFLOW_KEY]?: string;
-};
-
-function lockBodyScroll(): () => void {
-  const body = document.body as ScrollLockedBody;
-  const lockCount = body[MODAL_SCROLL_LOCK_COUNT_KEY] ?? 0;
-  if (lockCount === 0) {
-    body[MODAL_SCROLL_LOCK_OVERFLOW_KEY] = body.style.overflow;
-    body.style.overflow = "hidden";
-  }
-  body[MODAL_SCROLL_LOCK_COUNT_KEY] = lockCount + 1;
-
-  return () => {
-    const nextLockCount = Math.max((body[MODAL_SCROLL_LOCK_COUNT_KEY] ?? 1) - 1, 0);
-    if (nextLockCount > 0) {
-      body[MODAL_SCROLL_LOCK_COUNT_KEY] = nextLockCount;
-      return;
-    }
-
-    body.style.overflow = body[MODAL_SCROLL_LOCK_OVERFLOW_KEY] ?? "";
-    delete body[MODAL_SCROLL_LOCK_COUNT_KEY];
-    delete body[MODAL_SCROLL_LOCK_OVERFLOW_KEY];
-  };
-}
-
 export interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -671,91 +650,54 @@ export function Modal({
   closeOnOverlayClick = true,
   className = "",
 }: ModalProps) {
-  const presence = usePresence(isOpen);
   const modalRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<Element | null>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+  const overlay = useOverlayLifecycle({
+    open: isOpen,
+    surfaceRef: modalRef,
+    layerRef,
+    onEscape: onClose,
+    onBackdrop: onClose,
+    closeOnBackdrop: closeOnOverlayClick,
+  });
   const titleId = useId();
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  const descriptionId = useId();
 
   useDialogKeyboardShortcuts({
     dialogRef: modalRef,
-    enabled: isOpen && presence.mounted,
-    onCancel: () => onCloseRef.current(),
+    enabled: isOpen && overlay.mounted,
   });
 
-  const handleFocusTrap = useCallback((event: KeyboardEvent) => {
-    if (event.key !== "Tab") {
-      return;
-    }
-
-    const currentModal = modalRef.current;
-    const openModals = Array.from(document.querySelectorAll<HTMLElement>("[role='dialog'][aria-modal='true']"));
-    const topmostModal = openModals[openModals.length - 1];
-    if (!currentModal || currentModal !== topmostModal) {
-      return;
-    }
-
-    const focusable = currentModal.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
-    if (focusable.length === 0) {
-      return;
-    }
-
-    const first = focusable[0]!;
-    const last = focusable[focusable.length - 1]!;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-      return;
-    }
-    if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    previousFocusRef.current = document.activeElement;
-    document.addEventListener("keydown", handleFocusTrap);
-    const unlockBodyScroll = lockBodyScroll();
-    modalRef.current?.focus();
-
-    return () => {
-      document.removeEventListener("keydown", handleFocusTrap);
-      unlockBodyScroll();
-      if (previousFocusRef.current instanceof HTMLElement) {
-        previousFocusRef.current.focus();
-      }
-    };
-  }, [handleFocusTrap, isOpen, presence.mounted]);
-
-  if (!presence.mounted) {
+  if (!overlay.mounted) {
     return null;
   }
 
   return createPortal(
-    <div className={`wapp-modal-layer wapp-motion-${presence.state}`} aria-hidden={isOpen ? undefined : true}>
+    <div
+      ref={layerRef}
+      className={`wapp-modal-layer wapp-motion-${overlay.state}`}
+      aria-hidden={isOpen ? undefined : true}
+      style={overlay.zIndex === undefined ? undefined : { zIndex: overlay.zIndex }}
+    >
       <div
         className="wapp-modal-overlay"
-        onClick={closeOnOverlayClick ? onClose : undefined}
+        onPointerDown={overlay.onBackdropPointerDown}
+        onClick={overlay.onBackdropClick}
         aria-hidden="true"
       />
       <div
         ref={modalRef}
         tabIndex={-1}
-        className={`wapp-modal wapp-modal-${size} wapp-motion-${presence.state} ${className}`}
+        className={`wapp-modal wapp-modal-${size} wapp-motion-${overlay.state} ${className}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
       >
         <div className="wapp-modal-header">
           <div className="wapp-modal-title-block">
             <h2 id={titleId}>{title}</h2>
-            {description ? <p>{description}</p> : null}
+            {description ? <p id={descriptionId}>{description}</p> : null}
           </div>
           {showCloseButton ? (
             <button type="button" className="wapp-modal-close" aria-label="Close" onClick={onClose}>
@@ -832,6 +774,7 @@ export function Dialog({
   actions,
   onClose,
   keyboardShortcutsEnabled = true,
+  modal = false,
   className = "",
 }: {
   title: string;
@@ -840,13 +783,14 @@ export function Dialog({
   actions?: ReactNode;
   onClose?: () => void;
   keyboardShortcutsEnabled?: boolean;
+  modal?: boolean;
   className?: string;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   useDialogKeyboardShortcuts({ dialogRef, enabled: keyboardShortcutsEnabled, onCancel: onClose });
 
   return (
-    <div ref={dialogRef} className={`wapp-dialog ${className}`} role="dialog" aria-modal="true" aria-label={title}>
+    <div ref={dialogRef} className={`wapp-dialog ${className}`} role="dialog" aria-modal={modal ? true : undefined} aria-label={title}>
       <div className="wapp-dialog-title">
         <div>
           <h2>{title}</h2>
@@ -881,24 +825,61 @@ export function ConfirmDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const presence = usePresence(open);
-  if (!presence.mounted) return null;
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const overlay = useOverlayLifecycle({
+    open,
+    surfaceRef: dialogRef,
+    layerRef,
+    onEscape: onCancel,
+    onBackdrop: onCancel,
+  });
+  useDialogKeyboardShortcuts({
+    dialogRef,
+    enabled: open && overlay.mounted,
+    onAccept: onConfirm,
+  });
+
+  if (!overlay.mounted) return null;
   return createPortal(
-    <div className={`wapp-dialog-backdrop wapp-motion-${presence.state}`} role="presentation" aria-hidden={open ? undefined : true}>
-      <Dialog
-        title={title}
-        onClose={onCancel}
-        keyboardShortcutsEnabled={open && presence.mounted}
-        className={`wapp-motion-${presence.state}`}
-        actions={(
+    <div
+      ref={layerRef}
+      className={`wapp-dialog-layer wapp-motion-${overlay.state}`}
+      role="presentation"
+      aria-hidden={open ? undefined : true}
+      style={overlay.zIndex === undefined ? undefined : { zIndex: overlay.zIndex }}
+    >
+      <div
+        className="wapp-dialog-backdrop"
+        aria-hidden="true"
+        onPointerDown={overlay.onBackdropPointerDown}
+        onClick={overlay.onBackdropClick}
+      />
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className={`wapp-dialog wapp-motion-${overlay.state}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+      >
+        <div className="wapp-dialog-title">
+          <div>
+            <h2 id={titleId}>{title}</h2>
+          </div>
+          <button type="button" className="wapp-dialog-close" aria-label="Close dialog" onClick={onCancel}>×</button>
+        </div>
+        <div className="wapp-dialog-body">
+          <p>{message}</p>
+        </div>
+        <div className="wapp-dialog-actions" data-dialog-actions>
           <>
           <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
           <Button type="button" variant={danger ? "danger" : "primary"} onClick={onConfirm}>{confirmLabel}</Button>
           </>
-        )}
-      >
-        <p>{message}</p>
-      </Dialog>
+        </div>
+      </div>
     </div>,
     document.body,
   );

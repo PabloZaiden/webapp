@@ -47,7 +47,10 @@ entrypoints and configure the server-side `web.icons` option described in
 />
 ```
 
-The first two app actions are optional; settings and collapse/uncollapse are always framework-owned and always appear as the rightmost fixed actions.
+The first two app actions are optional; settings and desktop
+collapse/uncollapse are always framework-owned and always appear as the
+rightmost fixed actions on desktop. The desktop collapse preference is
+persisted separately from per-node tree expansion state.
 
 Optional sidebar tabs stay fixed at the bottom of the sidebar, below the version footer, while the tree and search remain independently scrollable. The first tab is selected by default and the selected tab id is persisted in browser `localStorage` per app on a best-effort basis. Stored ids are validated against the configured tabs; an unavailable, unreadable, or stale value falls back to the first available tab without disabling navigation. The active id is passed to `getNodes` as `activeTab`, alongside the normalized search value. Header actions and pinned-item actions are resolved from the visible tab first and expanded to other configured tabs when the active route or a stored pin is not present there.
 
@@ -195,22 +198,31 @@ function AppShell() {
 }
 ```
 
-`sidebar.open()` makes the sidebar visible: it opens the mobile drawer and
-uncollapses the desktop sidebar. `sidebar.focusSearch()` does the same as needed
-and focuses the search input after the visibility state is committed. It is a
-no-op when `sidebar.search` is `false`. `sidebar.selectTab(id)` accepts only ids
-from the configured `sidebar.tabs`; invalid ids are ignored. Route-to-tab
-matching remains application-owned, while webapp keeps the selected tab
-reactive and persists it when browser storage is available. A storage
-restriction or write failure leaves the selected tab active for the current
-session and does not make the shell unusable.
+`sidebar.open()` makes the sidebar visible: it opens the transient mobile drawer
+or uncollapses the persisted desktop sidebar preference. `sidebar.focusSearch()`
+does the same as needed and focuses the search input after the visibility state
+is committed. It is a no-op when `sidebar.search` is `false`.
+`sidebar.selectTab(id)` accepts only ids from the configured `sidebar.tabs`;
+invalid ids are ignored. Route-to-tab matching remains application-owned, while
+webapp keeps the selected tab reactive and persists it when browser storage is
+available. A storage restriction or write failure leaves the selected tab
+active for the current session and does not make the shell unusable.
 
 Do not query `#wapp-sidebar`, select buttons by accessibility labels, write
 `webapp.<app>.sidebar.tab`, or change the `WebAppRoot` key to synchronize a
 route. The controller preserves the mounted route view and keeps those
 implementation details inside webapp.
 
-On mobile widths, the drawer can be opened with a horizontal swipe starting within the first 24px of the viewport, in addition to the header button. The gesture must move at least 64px to the right, stay within 48px of vertical displacement, and remain more horizontal than vertical.
+On mobile widths, the drawer can be opened with a horizontal swipe starting
+within the first 24px of the viewport, in addition to the header button. The
+gesture must move at least 64px to the right, stay within 48px of vertical
+displacement, and remain more horizontal than vertical.
+
+The open mobile drawer owns focus while it is active and makes the main content
+inert. Closing it restores focus to the trigger when that control is still
+available. A closed mobile or desktop-collapsed sidebar is inert and
+`aria-hidden`, so its search field, links, tabs, and actions are not reachable
+by keyboard or exposed as active navigation.
 
 Use `actions` when an entity needs commands in the sidebar. `WebAppRoot` finds the active route-backed sidebar node and automatically renders its `ActionMenuItem[]` in the title-bar overflow menu, so the sidebar right-click menu and header menu stay consistent from one source of truth. Use `header.getActions` only for extra route-level actions that are not represented by the active sidebar node.
 

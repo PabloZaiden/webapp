@@ -56,6 +56,10 @@ function sidebarCollapsedStorageKey(appName: string): string {
   return `webapp.${appName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.sidebar.collapsed`;
 }
 
+function sidebarDesktopCollapsedStorageKey(appName: string): string {
+  return `webapp.${appName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.sidebar.desktop-collapsed`;
+}
+
 function isSidebarCollapsedState(value: unknown): value is SidebarCollapsedState {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return false;
@@ -74,6 +78,20 @@ function decodeStoredCollapsedState(raw: string | null): StorageDecode<SidebarCo
       : { value: {}, valid: false };
   } catch {
     return { value: {}, valid: false };
+  }
+}
+
+function decodeStoredBoolean(raw: string | null): StorageDecode<boolean> {
+  if (raw === null) {
+    return { value: false, valid: true };
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === "boolean"
+      ? { value: parsed, valid: true }
+      : { value: false, valid: false };
+  } catch {
+    return { value: false, valid: false };
   }
 }
 
@@ -345,6 +363,31 @@ export function useSidebarCollapsedState(appName: string) {
   }, []);
 
   return { collapsed, toggleCollapsed };
+}
+
+export function useSidebarDesktopCollapsedState(appName: string) {
+  const key = sidebarDesktopCollapsedStorageKey(appName);
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    const result = readStorage(key);
+    if (!result.ok) {
+      return false;
+    }
+    const decoded = decodeStoredBoolean(result.value);
+    if (!decoded.valid) {
+      warnStorageIssue(key, "invalid-value");
+    }
+    return decoded.value;
+  });
+
+  useEffect(() => {
+    writeStorage(key, JSON.stringify(collapsed));
+  }, [collapsed, key]);
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((current) => !current);
+  }, []);
+
+  return { collapsed, toggleCollapsed, setCollapsed };
 }
 
 function sidebarTabStorageKey(appName: string): string {
