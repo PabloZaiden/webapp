@@ -336,7 +336,7 @@ export function AppShell({
       <section ref={mainRef} className="wapp-main">
         <header className="wapp-main-header">
           <div className="wapp-main-header-title">
-            {isMobile ? <IconButton className="wapp-sidebar-top-button" style={drawerOverlay.mounted ? { zIndex: drawerLayerZIndex } : undefined} aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton> : sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
+            {isMobile ? <IconButton className="wapp-sidebar-top-button" style={!drawerOpen && drawerOverlay.mounted ? { zIndex: drawerLayerZIndex } : undefined} aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton> : sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
             <h1 key={routeKey} className="wapp-route-fade">{headerTitle}</h1>
           </div>
           {primaryHeaderActions || headerActions.length ? (
