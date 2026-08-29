@@ -1,9 +1,21 @@
 import type { BunPlugin } from "bun";
 import tailwindPlugin from "bun-plugin-tailwind";
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
 import { findPackageRoot, resolveReactDomClient } from "../package-resolution";
-import { compileWebAppPublicAsset, type WebAppPublicAssetOptions } from "../server/public-assets";
+import {
+  compileWebAppPublicAsset,
+  serializePublicAssetBundles,
+  type WebAppPublicAssetOptions,
+} from "../server/public-assets";
+import {
+  assertUniquePublicAssetPaths,
+  buildOutputRelativePath,
+  contentTypeForPublicAssetPath,
+  normalizePublicAssetPath,
+  publicAssetKindForBuildArtifact,
+  type WebAppPublicAssetBundle,
+} from "../server/public-asset-manifest";
 
 export const BUN_COMPILE_TARGETS = [
   "bun-linux-x64",
@@ -35,11 +47,6 @@ export interface BuildWebAppBinaryOptions {
       disableDefaultPlugins?: boolean;
     };
   };
-}
-
-interface CompiledPublicAsset {
-  path: string;
-  body: string;
 }
 
 function formatTargetValue(value: unknown): string {
@@ -132,35 +139,38 @@ configureWebAppRenderer(createRoot);
       }
       throw new Error("Browser build failed");
     }
-    const publicAssets: CompiledPublicAsset[] = [];
+    const publicAssetBundles: WebAppPublicAssetBundle[] = [];
     for (const publicAsset of options.web?.publicAssets ?? []) {
-      const body = await compileWebAppPublicAsset({
+      const bundle = await compileWebAppPublicAsset({
         ...publicAsset,
         define: { ...options.define, ...publicAsset.define },
       });
-      publicAssets.push({
-        path: publicAsset.path,
-        body: Buffer.from(body).toString("base64"),
-      });
+      publicAssetBundles.push(bundle);
     }
-    const assets = browserBuild.outputs
-      .filter((output) => extname(output.path).toLowerCase() !== ".map")
-      .map((output) => {
-        const ext = extname(output.path).toLowerCase();
+    const assets = await Promise.all(browserBuild.outputs.map(async (output) => {
+        const relativePath = buildOutputRelativePath(browserOutDir, output);
+        const ext = extname(relativePath).toLowerCase();
+        const kind = publicAssetKindForBuildArtifact(output);
         const fileName = basename(output.path);
-        const publicPath = `/webapp-compiled/${basename(output.path)}`;
-        const scriptKind = ext === ".js" ? compiledScriptKind(fileName) : undefined;
+        const publicPath = normalizePublicAssetPath(`/webapp-compiled/${relativePath}`);
+        const scriptKind = [".js", ".mjs", ".cjs"].includes(ext) ? compiledScriptKind(fileName) : undefined;
         return {
           path: publicPath,
-          contentType: contentTypeForOutput(ext),
+          contentType: contentTypeForPublicAssetPath(publicPath, kind),
+          kind,
           role: ext === ".css" ? "style" : scriptKind ? "script" : "asset",
           ...(scriptKind ? { scriptOrder: scriptKind === "renderer" ? 0 : 1 } : {}),
-          body: readFileSync(output.path).toString("base64"),
+          body: Buffer.from(await output.arrayBuffer()).toString("base64"),
         };
-      });
+      }));
+    assertUniquePublicAssetPaths(assets.map((asset) => asset.path), "compiled browser outputs");
+    assertUniquePublicAssetPaths([
+      ...assets.map((asset) => asset.path),
+      ...publicAssetBundles.flatMap((bundle) => bundle.artifacts.map((artifact) => artifact.path)),
+    ], "compiled webapp assets");
     const compiledAssetsModule = resolve(cacheDir, "compiled-webapp-assets.ts");
     writeFileSync(compiledAssetsModule, `globalThis[Symbol.for("webapp.compiledClient")] = ${JSON.stringify({ packageRoot, assets })};
-globalThis[Symbol.for("webapp.compiledPublicAssets")] = ${JSON.stringify({ assets: publicAssets })};
+globalThis[Symbol.for("webapp.compiledPublicAssets")] = ${JSON.stringify(serializePublicAssetBundles(publicAssetBundles))};
 `);
     const compiledEntrypoint = resolve(cacheDir, "entrypoint.ts");
     writeFileSync(compiledEntrypoint, `import "./compiled-webapp-assets";
@@ -186,17 +196,6 @@ import ${JSON.stringify(entrypoint)};
   } finally {
     rmSync(cacheDir, { recursive: true, force: true });
   }
-}
-
-function contentTypeForOutput(ext: string): string {
-  if (ext === ".js") return "text/javascript; charset=utf-8";
-  if (ext === ".css") return "text/css; charset=utf-8";
-  if (ext === ".svg") return "image/svg+xml; charset=utf-8";
-  if (ext === ".png") return "image/png";
-  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
-  if (ext === ".webp") return "image/webp";
-  if (ext === ".map") return "application/json; charset=utf-8";
-  return "application/octet-stream";
 }
 
 function compiledScriptKind(fileName: string): "renderer" | "client" | undefined {
