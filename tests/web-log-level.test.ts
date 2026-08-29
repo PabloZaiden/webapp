@@ -10,6 +10,7 @@ import { WebAppRoot } from "../src/web/WebAppRoot";
 import { configureWebAppRenderer } from "../src/web/render";
 import { getLogLevel, setLogLevel } from "../src/web/logger";
 import type { WebAppRootProps } from "../src/web/root-types";
+import { parseWebAppConfigResponse } from "../src/web/webapp-config";
 
 if (!GlobalRegistrator.isRegistered) {
   GlobalRegistrator.register({ url: "http://localhost/" });
@@ -271,6 +272,25 @@ describe("web log-level state", () => {
       expect(view.getByText("Web app configuration response was invalid.")).toBeTruthy();
     } finally {
       restoreFetch();
+    }
+  });
+
+  test("config validation rejects literal and encoded dot-segment public base paths", () => {
+    for (const publicBasePath of ["/", "/tools/notes"]) {
+      expect(() => parseWebAppConfigResponse({ ...makeConfig(), publicBasePath })).not.toThrow();
+    }
+
+    for (const publicBasePath of [
+      "/.",
+      "/..",
+      "/tools/./notes",
+      "/tools/../notes",
+      "/tools/%2e/notes",
+      "/tools/%2E%2E/notes",
+    ]) {
+      expect(() => parseWebAppConfigResponse({ ...makeConfig(), publicBasePath })).toThrow(
+        "Web app configuration response was invalid.",
+      );
     }
   });
 

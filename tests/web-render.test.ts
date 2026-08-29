@@ -985,6 +985,13 @@ test("legacy pinned routes retain string values while discarding invalid paramet
       object: { nested: "value" },
       nullValue: null,
     },
+  }, {
+    id: "valid-legacy-item",
+    title: "Valid legacy item",
+    route: {
+      view: "valid-legacy",
+      value: "42",
+    },
   }]));
 
   try {
@@ -1002,11 +1009,14 @@ test("legacy pinned routes retain string values while discarding invalid paramet
           null,
           `${route["kept"] ?? "missing"}:${route["numeric"] ?? "missing"}:${route["boolean"] ?? "missing"}:${route["object"] ?? "missing"}`,
         ),
+        "valid-legacy": (route) => createElement("p", null, `valid:${route["value"] ?? "missing"}`),
       },
     }));
 
     fireEvent.click(await waitFor(() => view.getByRole("button", { name: "Legacy item" })));
     await waitFor(() => expect(view.getByText("true:missing:missing:missing")).toBeTruthy());
+    fireEvent.click(view.getByRole("button", { name: "Valid legacy item" }));
+    await waitFor(() => expect(view.getByText("valid:42")).toBeTruthy());
   } finally {
     restoreFetch();
   }
