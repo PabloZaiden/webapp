@@ -28,6 +28,10 @@ export type DeviceCredentialsStore =
     })
   | ReadableDeviceCredentialsStore;
 
+export interface DeviceCredentialsForceRefresh {
+  rejectedAccessToken: string;
+}
+
 export function normalizeBaseUrl(value: string): string {
   const url = new URL(value.trim());
   if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -169,11 +173,12 @@ async function refreshCredentialsOnce(
 export async function refreshDeviceCredentials(input: {
   credentials: StoredDeviceCredentials;
   store?: DeviceCredentialsStore;
+  forceRefresh?: DeviceCredentialsForceRefresh;
   fetchFn?: typeof fetch;
   now?: () => Date;
 }): Promise<StoredDeviceCredentials | undefined> {
   const now = input.now ?? (() => new Date());
-  if (!isExpired(input.credentials, now())) {
+  if (!input.forceRefresh && !isExpired(input.credentials, now())) {
     return input.credentials;
   }
   const fetchFn = input.fetchFn ?? fetch;
@@ -184,7 +189,13 @@ export async function refreshDeviceCredentials(input: {
       if (!current) {
         throw new Error("Credentials store is unavailable after acquiring refresh lock");
       }
-      if (!isExpired(current, now())) {
+      if (
+        input.forceRefresh &&
+        current.accessToken !== input.forceRefresh.rejectedAccessToken
+      ) {
+        return current;
+      }
+      if (!input.forceRefresh && !isExpired(current, now())) {
         return current;
       }
       return refreshCredentialsOnce(current, store, fetchFn, now);

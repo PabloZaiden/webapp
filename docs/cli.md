@@ -80,7 +80,9 @@ pair is ignored. Environment API keys remain in memory and are never written to
 profile storage or printed.
 
 `status` calls `GET /api/auth/status` and succeeds only when the server confirms
-that the selected profile or environment credentials are authenticated.
+that the selected profile or environment credentials are authenticated. A
+device-authenticated status request uses the same bounded recovery behavior as
+`api`.
 
 ## API, schema, and logs
 
@@ -94,8 +96,13 @@ createWebAppCli({
 });
 ```
 
-`api` lists endpoints, calls a selected route with `--method` and `--payload`,
-and refreshes device credentials once after a `401`. `schema` prints route and
+`api` lists endpoints and calls a selected route with `--method` and `--payload`.
+If a device bearer request receives `401`, the CLI makes at most one conditional
+refresh and one retry. While holding the profile lock, it refreshes only when
+the persisted access token is still the token that was rejected; if another
+caller already replaced that token, it reuses the newer persisted credentials
+without a redundant refresh. A final `401` is returned unchanged. Environment
+API-key requests are never refreshed or retried. `schema` prints route and
 schema metadata. `logs` reuses the same selected profile/environment
 authentication and requests `GET /api/server/logs`.
 
@@ -142,7 +149,13 @@ errors, and abnormal closes produce a non-zero result.
 
 `createJsonFileStore()` coordinates access with an adjacent lock file.
 `createDeviceCredentialsStore()` uses it for refresh-token writes. Lock
-metadata contains only process ownership information, never tokens.
+metadata contains only process ownership information, never tokens. Stale-lock
+recovery first claims the existing lock ownership atomically; it never deletes
+the shared lock path solely because an earlier metadata read matched. Active
+reclaim claims block new publishers, and a replacement lock is left intact if
+ownership changes. Corrupted or structurally invalid reclaim-gate files are
+discarded during acquisition so they cannot permanently block the credential
+store.
 
 ```ts
 await store.withLock(async () => {

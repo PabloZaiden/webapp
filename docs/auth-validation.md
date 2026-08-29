@@ -67,6 +67,25 @@ Run this checklist before releasing a framework app or cutting a checkpoint.
 4. Use an expired, invalid, or insufficient-scope key and confirm the CLI
    reports the server rejection without refreshing or retrying the key.
 
+## CLI device-token recovery and lock coordination
+
+1. Store a non-expired device access token, make its protected API request
+   return `401`, and confirm the CLI refreshes once and retries with the
+   replacement access token.
+2. Make the retry return `401` as well and confirm the CLI returns that final
+   response without issuing another refresh or entering a retry loop.
+3. Start competing CLI callers with the same rejected token and confirm only
+   one refresh-token request is sent; all callers use the resulting persisted
+   credentials.
+4. Replace the persisted token while a forced refresh waits for the profile
+   lock and confirm the waiting caller uses the newer token without a
+   redundant refresh.
+5. Leave a stale profile lock from a terminated process, start competing
+   callers, and confirm only one callback enters at a time. Confirm stale
+   recovery cannot remove a lock published by the current owner.
+6. Place malformed or structurally invalid reclaim-gate state beside a profile
+   lock and confirm the next caller discards it and acquires the lock.
+
 ## Device auth
 
 1. Call `POST /api/auth/device` with `client_id` and `scope`.

@@ -41,12 +41,21 @@ interface LockMetadata {
   owner: string;
 }
 
+interface ReclaimMetadata {
+  version: typeof LOCK_METADATA_VERSION;
+  pid: number;
+  createdAt: number;
+  owner: string;
+  expected: LockMetadata;
+}
+
 interface OwnedLock {
   path: string;
   metadata: LockMetadata;
 }
 
 type LockState = LockMetadata | "invalid" | undefined;
+type ReclaimState = ReclaimMetadata | "invalid" | undefined;
 
 function errorCode(error: unknown): string | undefined {
   if (!error || typeof error !== "object" || !("code" in error)) return undefined;
@@ -78,25 +87,68 @@ function lockPathFor(target: string): string {
   return `${target}.lock`;
 }
 
+function reclaimPathFor(lockPath: string): string {
+  return `${lockPath}.reclaim`;
+}
+
+function reclaimCleanupPathFor(lockPath: string): string {
+  return `${reclaimPathFor(lockPath)}.cleanup`;
+}
+
 function lockCandidatePath(lockPath: string): string {
   const dir = dirname(lockPath);
   return join(dir, `.${basename(lockPath)}.${process.pid}.${crypto.randomUUID()}.tmp`);
+}
+
+function parseLockMetadataRecord(record: Record<string, unknown>): LockMetadata | "invalid" {
+  if (
+    record["version"] !== LOCK_METADATA_VERSION ||
+    !Number.isSafeInteger(record["pid"]) ||
+    Number(record["pid"]) <= 0 ||
+    typeof record["createdAt"] !== "number" ||
+    !Number.isFinite(record["createdAt"]) ||
+    typeof record["owner"] !== "string" ||
+    record["owner"].length === 0
+  ) {
+    return "invalid";
+  }
+  return {
+    version: LOCK_METADATA_VERSION,
+    pid: record["pid"] as number,
+    createdAt: record["createdAt"],
+    owner: record["owner"],
+  };
 }
 
 function parseLockMetadata(value: string): LockMetadata | "invalid" {
   if (value.length > 4096) return "invalid";
   try {
     const parsed = JSON.parse(value) as unknown;
-    if (!parsed || typeof parsed !== "object") return "invalid";
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "invalid";
+    return parseLockMetadataRecord(parsed as Record<string, unknown>);
+  } catch {
+    return "invalid";
+  }
+}
+
+function parseReclaimMetadata(value: string): ReclaimMetadata | "invalid" {
+  if (value.length > 8192) return "invalid";
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "invalid";
     const record = parsed as Record<string, unknown>;
+    const expected = record["expected"];
+    if (!expected || typeof expected !== "object" || Array.isArray(expected)) return "invalid";
+    const expectedMetadata = parseLockMetadataRecord(expected as Record<string, unknown>);
     if (
-      record["version"] !== LOCK_METADATA_VERSION ||
+      expectedMetadata === "invalid" ||
       !Number.isSafeInteger(record["pid"]) ||
       Number(record["pid"]) <= 0 ||
       typeof record["createdAt"] !== "number" ||
       !Number.isFinite(record["createdAt"]) ||
       typeof record["owner"] !== "string" ||
-      record["owner"].length === 0
+      record["owner"].length === 0 ||
+      record["version"] !== LOCK_METADATA_VERSION
     ) {
       return "invalid";
     }
@@ -105,6 +157,7 @@ function parseLockMetadata(value: string): LockMetadata | "invalid" {
       pid: record["pid"] as number,
       createdAt: record["createdAt"],
       owner: record["owner"],
+      expected: expectedMetadata,
     };
   } catch {
     return "invalid";
@@ -114,6 +167,15 @@ function parseLockMetadata(value: string): LockMetadata | "invalid" {
 async function readLockMetadata(path: string): Promise<LockState> {
   try {
     return parseLockMetadata(await readFile(path, "utf8"));
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+async function readReclaimMetadata(path: string): Promise<ReclaimState> {
+  try {
+    return parseReclaimMetadata(await readFile(path, "utf8"));
   } catch (error) {
     if (errorCode(error) === "ENOENT") return undefined;
     throw error;
@@ -133,13 +195,73 @@ function sameOwner(left: LockMetadata, right: LockMetadata): boolean {
   return left.version === right.version && left.pid === right.pid && left.createdAt === right.createdAt && left.owner === right.owner;
 }
 
+function sameReclaimOwner(left: ReclaimMetadata, right: ReclaimMetadata): boolean {
+  return left.version === right.version && left.pid === right.pid && left.createdAt === right.createdAt && left.owner === right.owner;
+}
+
 async function removePublishedLock(path: string, metadata: LockMetadata): Promise<void> {
   const current = await readLockMetadata(path);
   if (!current || current === "invalid" || !sameOwner(current, metadata)) return;
   await rm(path, { force: true });
 }
 
+async function removeReclaimGate(path: string, metadata: ReclaimMetadata): Promise<void> {
+  const current = await readReclaimMetadata(path);
+  if (!current || current === "invalid" || !sameReclaimOwner(current, metadata)) return;
+  await rm(path, { force: true });
+}
+
+async function publishReclaimGate(
+  lockPath: string,
+  expected: LockMetadata,
+): Promise<ReclaimMetadata | undefined> {
+  const path = reclaimPathFor(lockPath);
+  const metadata: ReclaimMetadata = {
+    version: LOCK_METADATA_VERSION,
+    pid: process.pid,
+    createdAt: Date.now(),
+    owner: crypto.randomUUID(),
+    expected,
+  };
+  const candidate = lockCandidatePath(path);
+  let linked = false;
+  let operationError: unknown;
+  try {
+    await Bun.write(candidate, `${JSON.stringify(metadata)}\n`);
+    chmodIfPossible(candidate, 0o600);
+    try {
+      await link(candidate, path);
+      linked = true;
+    } catch (error) {
+      if (errorCode(error) !== "EEXIST") operationError = error;
+    }
+  } catch (error) {
+    operationError = error;
+  }
+  let cleanupError: unknown;
+  try {
+    await rm(candidate, { force: true });
+  } catch (error) {
+    cleanupError = error;
+  }
+  if (cleanupError !== undefined) {
+    const errors: unknown[] = [cleanupError];
+    if (operationError !== undefined) errors.unshift(operationError);
+    if (linked) {
+      try {
+        await removeReclaimGate(path, metadata);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    throw new AggregateError(errors, "Unable to create credentials lock reclaim gate");
+  }
+  if (operationError !== undefined) throw operationError;
+  return linked ? metadata : undefined;
+}
+
 async function publishLock(path: string, metadata: LockMetadata): Promise<boolean> {
+  if (await readReclaimMetadata(reclaimPathFor(path)) !== undefined) return false;
   const candidate = lockCandidatePath(path);
   let linked = false;
   let operationError: unknown;
@@ -178,15 +300,83 @@ async function publishLock(path: string, metadata: LockMetadata): Promise<boolea
 }
 
 async function reclaimStaleLock(path: string, expected: LockMetadata): Promise<void> {
-  const current = await readLockMetadata(path);
-  if (!current || current === "invalid" || !sameOwner(current, expected) || isProcessAlive(current.pid)) return;
-  const confirmed = await readLockMetadata(path);
-  if (!confirmed || confirmed === "invalid" || !sameOwner(confirmed, expected) || isProcessAlive(confirmed.pid)) return;
-  try {
-    await rm(path);
-  } catch (error) {
-    if (errorCode(error) !== "ENOENT") throw error;
+  const reclaimPath = reclaimPathFor(path);
+  const existing = await readReclaimMetadata(reclaimPath);
+  if (existing !== undefined) {
+    if (existing === "invalid" || !sameOwner(existing.expected, expected) || isProcessAlive(existing.pid)) return;
+    await removeReclaimGate(reclaimPath, existing);
+    return;
   }
+
+  const gate = await publishReclaimGate(path, expected);
+  if (!gate) return;
+
+  const claimPath = lockCandidatePath(path);
+  let claimed = false;
+  try {
+    try {
+      await link(path, claimPath);
+      claimed = true;
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") return;
+      throw error;
+    }
+    const claimedMetadata = await readLockMetadata(claimPath);
+    if (
+      !claimedMetadata ||
+      claimedMetadata === "invalid" ||
+      !sameOwner(claimedMetadata, expected) ||
+      isProcessAlive(claimedMetadata.pid)
+    ) {
+      return;
+    }
+    const current = await readLockMetadata(path);
+    if (
+      !current ||
+      current === "invalid" ||
+      !sameOwner(current, expected) ||
+      isProcessAlive(current.pid)
+    ) {
+      return;
+    }
+    try {
+      await rm(path);
+    } catch (error) {
+      if (errorCode(error) !== "ENOENT") throw error;
+    }
+  } finally {
+    if (claimed) await rm(claimPath, { force: true });
+    await removeReclaimGate(reclaimPath, gate);
+  }
+}
+
+async function clearAbandonedReclaimGate(path: string): Promise<boolean> {
+  const reclaimPath = reclaimPathFor(path);
+  const current = await readReclaimMetadata(reclaimPath);
+  if (!current) return false;
+  if (current === "invalid") {
+    let cleanupLock: OwnedLock;
+    try {
+      cleanupLock = await acquireFileLock(reclaimCleanupPathFor(path), {
+        timeoutMs: 0,
+        staleAfterMs: 0,
+        pollIntervalMs: 1,
+      });
+    } catch (error) {
+      if (error instanceof JsonFileStoreLockError && error.code === "timeout") return false;
+      throw error;
+    }
+    try {
+      if (await readReclaimMetadata(reclaimPath) !== "invalid") return false;
+      await rm(reclaimPath, { force: true });
+      return true;
+    } finally {
+      await releaseFileLock(cleanupLock);
+    }
+  }
+  if (isProcessAlive(current.pid)) return false;
+  await removeReclaimGate(reclaimPath, current);
+  return true;
 }
 
 function waitForLock(ms: number): Promise<void> {
@@ -207,6 +397,8 @@ async function acquireFileLock(target: string, options?: JsonFileStoreLockOption
 
   while (true) {
     if (await publishLock(path, metadata)) return { path, metadata };
+
+    if (await clearAbandonedReclaimGate(path)) continue;
 
     const current = await readLockMetadata(path);
     const now = Date.now();

@@ -69,6 +69,7 @@ interface ResolvedApiCliAuth {
   headers: Headers;
   source: CliAuthSource;
   baseUrl?: string;
+  accessToken?: string;
 }
 
 async function resolveAuth(input: ApiCliCommandOptions): Promise<ResolvedApiCliAuth> {
@@ -105,6 +106,7 @@ export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<Cli
   const baseUrl = (input.baseUrl ?? auth.baseUrl ?? "http://localhost:3000").replace(/\/+$/, "");
   const url = new URL(`${baseUrl}${match.path}`);
   const headers = auth.headers;
+  const rejectedAccessToken = auth.accessToken;
   let body: string | undefined;
   if (payload !== undefined) {
     JSON.parse(payload) as unknown;
@@ -113,9 +115,15 @@ export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<Cli
   }
   const send = () => (input.fetchFn ?? fetch)(url, { method, headers, body });
   let response = await send();
-  if (response.status === 401 && auth.source === "device" && input.credentials) {
+  if (
+    response.status === 401 &&
+    auth.source === "device" &&
+    input.credentials &&
+    rejectedAccessToken
+  ) {
     const refreshed = await forceRefreshCliAuth({
       credentials: input.credentials,
+      rejectedAccessToken,
       fetchFn: input.fetchFn,
       now: input.now,
     });
