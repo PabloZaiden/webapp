@@ -12,7 +12,7 @@ import { useWebAppConfig } from "../src/web/webapp-config";
 import { useTheme, type WebAppRootController } from "../src/web";
 import { WebAppRoot } from "../src/web/WebAppRoot";
 import { PasskeyAuthScreen, UserSetupScreen } from "../src/web/auth-screens";
-import { configureWebAppRenderer, renderWebApp } from "../src/web/render";
+import { configureWebAppRenderer, renderWebApp, type WebAppRootHandle } from "../src/web/render";
 import { replaceWebAppRoute, routeToHash, useRoute } from "../src/web/routing";
 
 if (!GlobalRegistrator.isRegistered) {
@@ -1310,9 +1310,96 @@ test("sidebar navigation replaces hash history entries", async () => {
   }
 });
 
-test("renderWebApp renders the latest content when called repeatedly", () => {
+test("renderWebApp supports repeated renders and public unmount/remount", () => {
   const container = document.createElement("div");
   document.body.append(container);
+  let handle: WebAppRootHandle | undefined;
+
+  try {
+    act(() => {
+      handle = renderWebApp(createElement("div", null, "first"), container);
+      renderWebApp(createElement("div", null, "second"), container);
+    });
+    expect(container.textContent).toBe("second");
+
+    act(() => {
+      handle?.unmount();
+    });
+
+    act(() => {
+      handle = renderWebApp(createElement("div", null, "remounted"), container);
+    });
+    expect(container.textContent).toBe("remounted");
+  } finally {
+    act(() => {
+      handle?.unmount();
+    });
+  }
+});
+
+test("renderWebApp applies renderer reconfiguration after unmount", () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  let firstHandle: WebAppRootHandle | undefined;
+  let currentHandle: WebAppRootHandle | undefined;
+  let firstRendererCalls = 0;
+  let secondRendererCalls = 0;
+  const firstRenderer = (target: Element) => {
+    firstRendererCalls += 1;
+    return createRoot(target);
+  };
+  const secondRenderer = (target: Element) => {
+    secondRendererCalls += 1;
+    return createRoot(target);
+  };
+
+  try {
+    configureWebAppRenderer(firstRenderer);
+    act(() => {
+      firstHandle = renderWebApp(createElement("div", null, "first"), container);
+      currentHandle = firstHandle;
+    });
+
+    configureWebAppRenderer(secondRenderer);
+    act(() => {
+      currentHandle = renderWebApp(createElement("div", null, "updated"), container);
+    });
+    expect(container.textContent).toBe("updated");
+    expect(firstRendererCalls).toBe(1);
+    expect(secondRendererCalls).toBe(0);
+
+    act(() => {
+      currentHandle?.unmount();
+      currentHandle = renderWebApp(createElement("div", null, "remounted"), container);
+    });
+    expect(container.textContent).toBe("remounted");
+    expect(firstRendererCalls).toBe(1);
+    expect(secondRendererCalls).toBe(1);
+  } finally {
+    act(() => {
+      currentHandle?.unmount();
+    });
+    configureWebAppRenderer(createRoot);
+  }
+});
+
+test("WebAppRoot routes built-in requests through the configured API base URL", async () => {
+  const requested: string[] = [];
+  configureWebAppClient({ apiBaseUrl: "https://api.example.test/root" });
+  const restoreFetch = mockConfigFetch((input) => requested.push(String(input)));
+
+  try {
+    await renderShortcutWebApp();
+    expect(requested).toContain("https://api.example.test/api/config");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("renderWebApp preserves state across repeated renders", () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+
   function StatefulContent({ label }: { label: string }) {
     const [count, setCount] = useState(0);
     return createElement(
@@ -1324,22 +1411,25 @@ test("renderWebApp renders the latest content when called repeatedly", () => {
     );
   }
 
-  let root: ReturnType<typeof renderWebApp>;
-  act(() => {
-    root = renderWebApp(createElement(StatefulContent, { label: "first" }), container);
-  });
-  fireEvent.click(within(container).getByRole("button", { name: "Increment persistent state" }));
-  expect(within(container).getByText("Persistent count: 1")).toBeTruthy();
+  let root: WebAppRootHandle | undefined;
+  try {
+    act(() => {
+      root = renderWebApp(createElement(StatefulContent, { label: "first" }), container);
+    });
+    fireEvent.click(within(container).getByRole("button", { name: "Increment persistent state" }));
+    expect(within(container).getByText("Persistent count: 1")).toBeTruthy();
 
-  act(() => {
-    renderWebApp(createElement(StatefulContent, { label: "second" }), container);
-  });
+    act(() => {
+      renderWebApp(createElement(StatefulContent, { label: "second" }), container);
+    });
 
-  expect(within(container).getByText("second")).toBeTruthy();
-  expect(within(container).getByText("Persistent count: 1")).toBeTruthy();
-  act(() => {
-    root.unmount();
-  });
+    expect(within(container).getByText("second")).toBeTruthy();
+    expect(within(container).getByText("Persistent count: 1")).toBeTruthy();
+  } finally {
+    act(() => {
+      root?.unmount();
+    });
+  }
 });
 
 test("WebAppRoot forwards auth-required responses from built-in requests", async () => {

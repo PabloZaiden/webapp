@@ -156,7 +156,14 @@ renderWebApp(
 );
 ```
 
-`renderWebApp` renders into `#root` by default and reuses the existing React root across hot reloads. Pass a custom element id or `Element` only when the app uses a different mount point.
+`renderWebApp` renders into `#root` by default and reuses the existing
+framework-managed root across hot reloads. Repeated calls update the mounted
+container; when the caller disposes the application, call `unmount()` on the
+returned handle before rendering into that container again. This removes the
+old registry entry so remounting creates a usable root. Renderer
+reconfiguration applies to newly created roots after that lifecycle transition,
+not to an already-mounted container. Pass a custom element id or `Element` only
+when the app uses a different mount point.
 
 ### Theme state
 
