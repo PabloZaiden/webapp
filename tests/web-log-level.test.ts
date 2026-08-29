@@ -10,6 +10,7 @@ import { WebAppRoot } from "../src/web/WebAppRoot";
 import { configureWebAppRenderer } from "../src/web/render";
 import { getLogLevel, setLogLevel } from "../src/web/logger";
 import type { WebAppRootProps } from "../src/web/root-types";
+import { parseWebAppConfigResponse } from "../src/web/webapp-config";
 
 if (!GlobalRegistrator.isRegistered) {
   GlobalRegistrator.register({ url: "http://localhost/" });
@@ -42,6 +43,7 @@ function makeConfig(level: LogLevelName = "info", fromEnv = false, inMemoryLogsE
   return {
     appName: "Test App",
     version: "1.0.0",
+    publicBasePath: "/",
     currentUser: {
       id: isAdmin ? "owner" : "user",
       username: isAdmin ? "owner" : "user",
@@ -253,6 +255,42 @@ describe("web log-level state", () => {
       expect(view.queryByLabelText("log level state")).toBeNull();
     } finally {
       restoreFetch();
+    }
+  });
+
+  test("rejects malformed public base path configuration", async () => {
+    const restoreFetch = installFetch((path) => {
+      if (path === "/api/config") {
+        return Response.json({ ...makeConfig(), publicBasePath: "/tools/notes/" });
+      }
+      return Response.json({ error: "not_found", message: "Not found" }, { status: 404 });
+    });
+
+    try {
+      const view = renderApp();
+      await waitFor(() => expect(view.getByText("Unable to load app")).toBeTruthy());
+      expect(view.getByText("Web app configuration response was invalid.")).toBeTruthy();
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("config validation rejects literal and encoded dot-segment public base paths", () => {
+    for (const publicBasePath of ["/", "/tools/notes"]) {
+      expect(() => parseWebAppConfigResponse({ ...makeConfig(), publicBasePath })).not.toThrow();
+    }
+
+    for (const publicBasePath of [
+      "/.",
+      "/..",
+      "/tools/./notes",
+      "/tools/../notes",
+      "/tools/%2e/notes",
+      "/tools/%2E%2E/notes",
+    ]) {
+      expect(() => parseWebAppConfigResponse({ ...makeConfig(), publicBasePath })).toThrow(
+        "Web app configuration response was invalid.",
+      );
     }
   });
 

@@ -24,7 +24,7 @@ export type SidebarItemLayout = "default" | "subtitle-above-title";
 
 export interface WebAppRoute {
   view: string;
-  [key: string]: string | number | boolean | undefined;
+  [key: string]: string | undefined;
 }
 
 export interface SidebarAction {

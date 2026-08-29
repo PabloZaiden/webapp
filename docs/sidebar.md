@@ -97,6 +97,38 @@ error, and set it to `true` only when the returned tree is authoritative.
 Native pinning does not expose Pin/Unpin actions or reconcile storage until the
 base snapshots for every configured tab are ready.
 
+### Hash routes and route values
+
+`WebAppRoute` is a URL-shaped object: `view` and every optional value are
+strings, or `undefined` while a route is being assembled. The framework keeps
+query values as strings when it parses the hash, including values that look
+numeric or boolean. Decode domain-specific values explicitly in the route
+handler:
+
+```tsx
+import { replaceWebAppRoute, type WebAppRoute } from "@pablozaiden/webapp/web";
+
+function ProjectRoute({ route }: { route: WebAppRoute }) {
+  const projectId = route.projectId;
+  const archived = route.archived === "true";
+  const page = route.page ? Number.parseInt(route.page, 10) : 1;
+
+  return <ProjectView projectId={projectId} archived={archived} page={page} />;
+}
+
+replaceWebAppRoute({ view: "project", projectId: "42" });
+```
+
+`routeToHash` and `replaceWebAppRoute` URL-encode values, omit only
+`undefined`, preserve unknown query keys during parsing, and serialize keys in
+a deterministic order. A route such as `{ view: "project", projectId: "42" }`
+therefore keeps `"42"` as a string after navigation and reload. Do not create
+application-local hash serializers or rely on framework-wide coercion for
+numbers and booleans. Pinned routes use the same string-only contract. When
+reading legacy persisted pins, the framework keeps the required string `view`
+and each valid string parameter while discarding only route keys whose values
+are no longer valid; one legacy value cannot discard the whole pin.
+
 ### Custom item rendering
 
 For an application-owned layout on an item node, provide `render`. The callback

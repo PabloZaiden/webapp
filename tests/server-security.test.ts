@@ -493,7 +493,7 @@ describe("server security defaults", () => {
 
     expect(config.appName).toBe("Test");
     expect(config.passkeyAuth).toMatchObject({ enabled: false, authenticated: true });
-    expect(config.publicBasePath).toBe("/proxy");
+    expect(config.publicBasePath).toBe("/");
   });
 
   test("auth status reports anonymous requests as unauthenticated", async () => {
@@ -1170,6 +1170,34 @@ describe("server security defaults", () => {
         pathPrefix: "/proxy",
       });
       expect(getRequestBaseUrl(request, config)).toBe("https://public.example.test/proxy");
+    });
+  });
+
+  test("framework config exposes the trusted public base path", async () => {
+    await withEnv({
+      TEST_CONFIG_PUBLIC_PATH_TRUST_PROXY: "true",
+      TEST_CONFIG_PUBLIC_PATH_TRUST_PROXY_HEADERS: "prefix",
+      TEST_CONFIG_PUBLIC_PATH_TRUST_PROXY_CHAIN: "first",
+    }, async () => {
+      const app = createWebAppServer({
+        appName: "Test",
+        envPrefix: "TEST_CONFIG_PUBLIC_PATH",
+        store: testStore("config-public-path"),
+        auth: { passkeys: false },
+        routes: defineRoutes({}),
+      });
+
+      const prefixed = await responseJson<{ publicBasePath: string }>(
+        await app.handleRequest(new Request("http://internal.example.test/api/config", {
+          headers: { "x-forwarded-prefix": "/tools/notes/" },
+        })),
+      );
+      expect(prefixed.publicBasePath).toBe("/tools/notes");
+
+      const root = await responseJson<{ publicBasePath: string }>(
+        await app.handleRequest(new Request("http://internal.example.test/api/config")),
+      );
+      expect(root.publicBasePath).toBe("/");
     });
   });
 
