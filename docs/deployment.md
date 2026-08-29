@@ -100,7 +100,7 @@ docker buildx build \
 
 Use the same mapping for either example: Docker `linux/amd64` requires the Bun `bun-linux-x64` build and `*-linux-x64` artifact, while Docker `linux/arm64` requires `bun-linux-arm64` and `*-linux-arm64`. To build an x64 image from an ARM64 host, select `--platform linux/amd64` and the x64 artifact explicitly; Docker Desktop or Buildx may need emulation enabled. Omitting `APP_BINARY`, selecting an unsupported target, or pairing the wrong artifact with the target fails during the image build.
 
-The example Dockerfiles default to `node:22-bookworm` as a readily available Linux runtime base because the app itself is already a self-contained Bun binary. The container writes both framework and example application data to `/app/data`; mount a Docker volume there when data must persist beyond the container.
+The example Dockerfiles default to `node:22-trixie` as a readily available Linux runtime base because the app itself is already a self-contained Bun binary. The container writes both framework and example application data to `/app/data`; mount a Docker volume there when data must persist beyond the container.
 
 ### Example application data files
 
