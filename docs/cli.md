@@ -96,6 +96,28 @@ createWebAppCli({
 });
 ```
 
+The catalog and runtime server use the same route grammar. Static segments,
+named parameters, and optional trailing wildcards are matched consistently;
+query strings and fragments are ignored for catalog lookup. A custom `cliPath`
+may use different parameter names from the API path, because captures are
+mapped by position:
+
+```ts
+{
+  "/api/projects/:projectId/files/*": {
+    cliPath: "project/:id/files/*",
+    GET: handler,
+  },
+}
+```
+
+Here `project/123/files/docs/readme.md` resolves to
+`/api/projects/123/files/docs/readme.md`. Dynamic values are decoded safely
+while matching and encoded again when the API URL is generated. Malformed
+percent escapes are rejected as an unknown/invalid CLI endpoint rather than
+being sent as a partially generated URL. Invalid or ambiguous route
+definitions fail when the server/catalog is compiled.
+
 `api` lists endpoints and calls a selected route with `--method` and `--payload`.
 If a device bearer request receives `401`, the CLI makes at most one conditional
 refresh and one retry. While holding the profile lock, it refreshes only when
