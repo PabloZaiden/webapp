@@ -15,6 +15,7 @@ import { inMemoryLogStorage, resetInMemoryLogStorage, setInMemoryLogStorageEnabl
 import { createWebDocumentProvider, htmlResponse } from "./web-document";
 import { createPublicRouteDispatcher } from "./public-route-dispatch";
 import { createRouteDispatcher } from "./route-dispatch";
+import { compileRouteTable } from "./routes";
 import { notFound, withSecurityHeaders } from "./responses";
 
 export const MAX_SERVER_IDLE_TIMEOUT_SECONDS = 255;
@@ -64,6 +65,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   if (config.appName !== input.appName || config.envPrefix !== input.envPrefix) {
     throw new Error("runtimeConfig appName and envPrefix must match the createWebAppServer inputs");
   }
+  const routes = compileRouteTable(input.routes ?? {});
   resetInMemoryLogStorage();
   setInMemoryLogStorageEnabled(config.inMemoryLogsEnabled);
   const store = input.store ?? sqliteWebAppStore({ dataDir: config.dataDir });
@@ -75,7 +77,6 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const realtime = createRealtimeBus<TEvent>();
   const version = input.version ?? "0.0.0-development";
   const wsPath = input.realtime?.path ?? "/api/ws";
-  const routes = input.routes ?? {};
   const publicRoutes = input.publicRoutes ?? {};
   const appWebsockets = input.websockets ?? {};
   const idleTimeout = resolveServerIdleTimeout(input.server?.idleTimeout);

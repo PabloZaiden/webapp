@@ -6,9 +6,9 @@ import type { RuntimeConfig } from "./runtime-config";
 import { createLogger } from "./logger";
 import { checkSameOrigin } from "./same-origin";
 import type { RealtimeBus } from "./realtime/bus";
-import { matchRoute, type HttpMethod, type RouteTable, type UserScopedRealtimePublisher } from "./routes";
+import { invalidPath, errorResponse, requestBodyErrorResponse, methodNotAllowed, responseForRequest, withSecurityHeaders } from "./responses";
+import { matchCompiledRouteTable, type CompiledRouteTable, type HttpMethod, type UserScopedRealtimePublisher } from "./routes";
 import type { WebAppWebSocketData } from "./server-types";
-import { errorResponse, requestBodyErrorResponse, methodNotAllowed, responseForRequest, withSecurityHeaders } from "./responses";
 
 export interface RouteDispatchResult {
   matched: boolean;
@@ -17,7 +17,7 @@ export interface RouteDispatchResult {
 
 export interface RouteDispatcherDependencies<TEvent = unknown> {
   config: RuntimeConfig;
-  routes: RouteTable<TEvent>;
+  routes: CompiledRouteTable<TEvent>;
   authentication: Authentication;
   realtime: RealtimeBus<TEvent>;
 }
@@ -25,8 +25,20 @@ export interface RouteDispatcherDependencies<TEvent = unknown> {
 const log = createLogger("webapp:routes");
 
 function method(req: Request): HttpMethod | undefined {
-  const value = req.method.toUpperCase();
-  return value === "GET" || value === "POST" || value === "PUT" || value === "PATCH" || value === "DELETE" ? value : undefined;
+  switch (req.method.toUpperCase()) {
+    case "GET":
+      return "GET";
+    case "POST":
+      return "POST";
+    case "PUT":
+      return "PUT";
+    case "PATCH":
+      return "PATCH";
+    case "DELETE":
+      return "DELETE";
+    default:
+      return undefined;
+  }
 }
 
 function routeHandlerErrorResponse(error: unknown): Response {
@@ -50,13 +62,22 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
 
   return {
     async dispatch(req: Request, server?: Server<WebAppWebSocketData>): Promise<RouteDispatchResult> {
-      const matched = matchRoute(routes, new URL(req.url).pathname);
-      if (!matched) {
+      const routeMatch = matchCompiledRouteTable(routes, new URL(req.url).pathname);
+      if (routeMatch.kind === "no-match") {
         return { matched: false };
       }
-      const handler = matched.route[method(req) ?? "GET"];
+      if (routeMatch.kind === "invalid-encoding") {
+        return { matched: true, response: routeResponse(req, invalidPath()) };
+      }
+      const matched = routeMatch.match;
+      const requestMethod = method(req);
+      const handler = req.method.toUpperCase() === "HEAD"
+        ? matched.route.GET
+        : requestMethod
+          ? matched.route[requestMethod]
+          : undefined;
       if (!handler) {
-        return { matched: true, response: routeResponse(req, methodNotAllowed()) };
+        return { matched: true, response: routeResponse(req, methodNotAllowed(matched.compiled.methods)) };
       }
       const routeAuth = matched.route.auth ?? "required";
       const auth = await authentication.authorize(req, requiresAuth(routeAuth));

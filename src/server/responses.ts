@@ -27,8 +27,16 @@ export function notFound(): Response {
   return errorResponse(404, "not_found", "The requested resource was not found");
 }
 
-export function methodNotAllowed(): Response {
-  return errorResponse(405, "method_not_allowed", "Method not allowed");
+export function methodNotAllowed(allowedMethods: readonly string[] = []): Response {
+  const headers = new Headers();
+  if (allowedMethods.length > 0) {
+    headers.set("allow", allowedMethods.join(", "));
+  }
+  return errorResponse(405, "method_not_allowed", "Method not allowed", undefined, { headers });
+}
+
+export function invalidPath(): Response {
+  return errorResponse(400, "invalid_path", "Request path contains malformed percent encoding");
 }
 
 export class InvalidJsonError extends Error {
