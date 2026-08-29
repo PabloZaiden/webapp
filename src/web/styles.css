@@ -2431,7 +2431,8 @@ textarea::placeholder {
 }
 
 .wapp-mobile-drawer-layer,
-.wapp-dialog-layer {
+.wapp-dialog-layer,
+.wapp-modal-layer {
   display: flex;
   align-items: center;
   justify-content: center;
