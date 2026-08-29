@@ -189,7 +189,7 @@ export function createAuthentication(dependencies: AuthenticationDependencies): 
         try {
           const claims = await verifyAccessToken(store, config, token);
           const user = store.getUserById(claims.sub);
-          if (user) {
+          if (user && !user.disabledAt) {
             return {
               kind: "bearer",
               claims,

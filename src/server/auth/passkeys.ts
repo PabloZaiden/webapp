@@ -9,7 +9,7 @@ import {
 import { isIP } from "node:net";
 import type { PasskeyAuthStatusResponse } from "../../contracts";
 import type { RuntimeConfig } from "../runtime-config";
-import type { UserRecord, WebAppStore } from "./store";
+import type { StoredPasskey, UserRecord, WebAppStore } from "./store";
 import { hmacSha256, isExpired, nowIso, randomToken, secureEqual, sha256 } from "./crypto";
 import { getCookiePath, getRequestOriginInfo } from "./request-origin";
 import { AuthError } from "./types";
@@ -162,7 +162,7 @@ async function beginRegistrationForUser(req: Request, store: WebAppStore, config
   return { options, headers: setChallengeHeaders(req, store, config, { challenge: options.challenge, type, userId: user.id, username: user.username, setupTokenHash }) };
 }
 
-async function verifyAndSavePasskey(req: Request, store: WebAppStore, config: RuntimeConfig, response: RegistrationResponseJSON, user: UserRecord, challenge: ChallengePayload): Promise<Headers> {
+async function verifyPasskey(req: Request, config: RuntimeConfig, response: RegistrationResponseJSON, user: UserRecord, challenge: ChallengePayload): Promise<StoredPasskey> {
   const origin = getRequestOriginInfo(req, config);
   const rpID = webauthnRpId(origin.hostname);
   const verification = await verifyRegistrationResponse({
@@ -177,7 +177,7 @@ async function verifyAndSavePasskey(req: Request, store: WebAppStore, config: Ru
   }
   const info = verification.registrationInfo;
   const timestamp = nowIso();
-  store.savePasskey({
+  return {
     id: crypto.randomUUID(),
     userId: user.id,
     name: "Primary passkey",
@@ -189,10 +189,18 @@ async function verifyAndSavePasskey(req: Request, store: WebAppStore, config: Ru
     transports: info.credential.transports ?? response.response.transports ?? [],
     createdAt: timestamp,
     updatedAt: timestamp,
-  });
-  store.incrementUserAuthVersion(user.id, timestamp);
-  const updatedUser = store.getUserById(user.id) ?? user;
-  return createBrowserSessionHeaders(req, store, config, updatedUser);
+  };
+}
+
+function persistPasskey(store: WebAppStore, passkey: StoredPasskey, updatedAt: string): UserRecord {
+  const result = store.savePasskeyAndIncrementUserAuthVersion(passkey, updatedAt);
+  if (result.kind === "saved") {
+    return result.user;
+  }
+  if (result.kind === "credential_conflict") {
+    throw new AuthError("registration_failed", "Passkey credential is already registered", 400);
+  }
+  throw new AuthError("registration_failed", "Passkey registration could not be saved", 400);
 }
 
 export function getPasskeySessionUser(req: Request, store: WebAppStore, config: RuntimeConfig) {
@@ -257,8 +265,10 @@ export async function completeBootstrapRegistration(req: Request, store: WebAppS
   }
   const owner = createUserRecord({ username: challenge.username, role: "owner" });
   owner.id = challenge.userId;
+  const passkey = await verifyPasskey(req, config, response, owner, challenge);
   store.createUser(owner);
-  const headers = await verifyAndSavePasskey(req, store, config, response, owner, challenge);
+  const updatedUser = persistPasskey(store, passkey, passkey.updatedAt);
+  const headers = createBrowserSessionHeaders(req, store, config, updatedUser);
   audit(store, { eventType: "owner_created", targetUserId: owner.id });
   return headers;
 }
@@ -277,7 +287,9 @@ export async function completeOwnerPasskeySetup(req: Request, store: WebAppStore
   if (!owner || owner.role !== "owner" || owner.passkeyConfigured) {
     throw new AuthError("owner_setup_unavailable", "Owner passkey setup is not available", 409);
   }
-  const headers = await verifyAndSavePasskey(req, store, config, response, owner, challenge);
+  const passkey = await verifyPasskey(req, config, response, owner, challenge);
+  const updatedUser = persistPasskey(store, passkey, passkey.updatedAt);
+  const headers = createBrowserSessionHeaders(req, store, config, updatedUser);
   audit(store, { eventType: "owner_passkey_configured", targetUserId: owner.id });
   return headers;
 }
@@ -323,8 +335,20 @@ export async function completeSetupRegistration(req: Request, store: WebAppStore
   if (!link || !user || link.consumedAt || isExpired(link.expiresAt) || user.id !== challenge.userId) {
     throw new AuthError("setup_link_invalid", "Setup link is invalid or expired", 404);
   }
-  const headers = await verifyAndSavePasskey(req, store, config, response, user, challenge);
-  store.consumeSetupLink(link.id, nowIso());
+  const passkey = await verifyPasskey(req, config, response, user, challenge);
+  const result = store.completeSetupLink(tokenHash, user.id, passkey, nowIso());
+  if (result.kind !== "completed") {
+    switch (result.kind) {
+      case "not_found":
+      case "expired":
+      case "consumed":
+      case "user_mismatch":
+        throw new AuthError("setup_link_invalid", "Setup link is invalid or expired", 404);
+      case "conflict":
+        throw new AuthError("registration_failed", "Passkey setup could not be completed", 400);
+    }
+  }
+  const headers = createBrowserSessionHeaders(req, store, config, result.user);
   audit(store, { eventType: link.kind === "reset" ? "user_reset_completed" : "user_invite_completed", targetUserId: user.id });
   return headers;
 }

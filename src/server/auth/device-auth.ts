@@ -9,7 +9,7 @@ import {
 } from "jose";
 import type { AuthSessionSummary, CurrentUser, DeviceAuthorizationResponse, DeviceVerificationDetails, TokenResponse } from "../../contracts";
 import type { RuntimeConfig } from "../runtime-config";
-import type { RefreshSessionRecord, WebAppStore } from "./store";
+import type { DeviceAuthExchangeCandidate, RefreshSessionRecord, SigningKeyRecord, WebAppStore } from "./store";
 import { addSeconds, isExpired, nowIso, randomToken, sha256 } from "./crypto";
 import { getRequestBaseUrl } from "./request-origin";
 import { AuthError, type AccessTokenClaims } from "./types";
@@ -43,6 +43,23 @@ function getPublicBaseUrl(req: Request, config: RuntimeConfig): string {
   return getRequestBaseUrl(req, config);
 }
 
+function deviceVerificationDetails(record: {
+  userCode: string;
+  clientId: string;
+  scope: string;
+  status: DeviceVerificationDetails["status"];
+  expiresAt: string;
+}, passkeyRequired: boolean): DeviceVerificationDetails {
+  return {
+    userCode: record.userCode,
+    clientId: record.clientId,
+    scope: record.scope,
+    status: record.status,
+    expiresAt: record.expiresAt,
+    passkeyRequired,
+  };
+}
+
 async function createSigningKey(): Promise<SigningKeyPair> {
   try {
     const pair = await generateKeyPair("EdDSA", { extractable: true });
@@ -59,27 +76,31 @@ async function createSigningKey(): Promise<SigningKeyPair> {
   }
 }
 
+async function importSigningKey(stored: SigningKeyRecord): Promise<SigningKeyPair> {
+  return {
+    alg: stored.alg,
+    kid: stored.kid,
+    publicJwk: stored.publicJwk as JWK,
+    privateJwk: stored.privateJwk as JWK,
+    publicKey: await importJWK(stored.publicJwk as JWK, stored.alg) as CryptoKey,
+    privateKey: await importJWK(stored.privateJwk as JWK, stored.alg) as CryptoKey,
+  };
+}
+
 async function getSigningKey(store: WebAppStore): Promise<SigningKeyPair> {
-  const stored = store.getSigningKey();
-  if (stored) {
-    return {
-      alg: stored.alg,
-      kid: stored.kid,
-      publicJwk: stored.publicJwk as JWK,
-      privateJwk: stored.privateJwk as JWK,
-      publicKey: await importJWK(stored.publicJwk as JWK, stored.alg) as CryptoKey,
-      privateKey: await importJWK(stored.privateJwk as JWK, stored.alg) as CryptoKey,
-    };
+  const existing = store.getSigningKey();
+  if (existing) {
+    return importSigningKey(existing);
   }
   const created = await createSigningKey();
-  store.saveSigningKey({
+  const stored = store.getOrCreateSigningKey({
     alg: created.alg,
     kid: created.kid,
     publicJwk: created.publicJwk as Record<string, unknown>,
     privateJwk: created.privateJwk as Record<string, unknown>,
     createdAt: nowIso(),
   });
-  return created;
+  return importSigningKey(stored);
 }
 
 function issuer(config: RuntimeConfig): string {
@@ -152,40 +173,43 @@ export function createDeviceAuthorization(req: Request, store: WebAppStore, conf
 }
 
 export function getDeviceVerificationDetails(store: WebAppStore, userCode: string, passkeyRequired: boolean): DeviceVerificationDetails {
-  store.deleteExpiredDeviceAuthRequests(nowIso());
   const record = store.getDeviceAuthByUserCode(userCode);
   if (!record || isExpired(record.expiresAt)) {
     throw new AuthError("invalid_user_code", "Device authorization code is invalid or expired", 404);
   }
-  return {
-    userCode: record.userCode,
-    clientId: record.clientId,
-    scope: record.scope,
-    status: record.status,
-    expiresAt: record.expiresAt,
-    passkeyRequired,
-  };
+  return deviceVerificationDetails(record, passkeyRequired);
 }
 
 export function approveDevice(store: WebAppStore, userCode: string, userId: string): DeviceVerificationDetails {
-  const record = store.getDeviceAuthByUserCode(userCode);
-  if (!record || isExpired(record.expiresAt)) {
-    throw new AuthError("invalid_user_code", "Device authorization code is invalid or expired", 404);
+  const result = store.approveDeviceAuth(userCode, userId, nowIso());
+  switch (result.kind) {
+    case "approved":
+    case "already_approved":
+      return deviceVerificationDetails(result.record, false);
+    case "not_found":
+    case "expired":
+      throw new AuthError("invalid_user_code", "Device authorization code is invalid or expired", 404);
+    case "denied":
+    case "consumed":
+    case "conflict":
+      throw new AuthError("invalid_request", "Device authorization can no longer be approved", 400);
   }
-  if (record.status !== "pending" && record.status !== "approved") {
-    throw new AuthError("invalid_request", "Device authorization can no longer be approved", 400);
-  }
-  store.updateDeviceAuthStatus(userCode, "approved", nowIso(), userId);
-  return getDeviceVerificationDetails(store, userCode, false);
 }
 
 export function denyDevice(store: WebAppStore, userCode: string): DeviceVerificationDetails {
-  const record = store.getDeviceAuthByUserCode(userCode);
-  if (!record || isExpired(record.expiresAt)) {
-    throw new AuthError("invalid_user_code", "Device authorization code is invalid or expired", 404);
+  const result = store.denyDeviceAuth(userCode, nowIso());
+  switch (result.kind) {
+    case "denied":
+    case "already_denied":
+      return deviceVerificationDetails(result.record, false);
+    case "not_found":
+    case "expired":
+      throw new AuthError("invalid_user_code", "Device authorization code is invalid or expired", 404);
+    case "approved":
+    case "consumed":
+    case "conflict":
+      throw new AuthError("invalid_request", "Device authorization can no longer be denied", 400);
   }
-  store.updateDeviceAuthStatus(userCode, "denied", nowIso());
-  return getDeviceVerificationDetails(store, userCode, false);
 }
 
 function createRefreshRecord(userId: string, clientId: string, scope: string, familyId: string = crypto.randomUUID()): { token: string; record: RefreshSessionRecord } {
@@ -208,12 +232,12 @@ function createRefreshRecord(userId: string, clientId: string, scope: string, fa
   };
 }
 
-function revokeExistingClientSessions(store: WebAppStore, userId: string, clientId: string, revokedAt: string): void {
-  for (const session of store.listRefreshSessions(userId)) {
-    if (session.clientId === clientId && !session.revokedAt && !isExpired(session.expiresAt)) {
-      store.revokeRefreshSession(session.id, revokedAt, userId);
-    }
-  }
+function createDeviceRefreshCandidate(clientId: string, scope: string, userId?: string): { token: string; record: DeviceAuthExchangeCandidate } {
+  const refresh = createRefreshRecord(userId ?? "", clientId, scope);
+  return {
+    token: refresh.token,
+    record: { ...refresh.record, userId: userId || undefined },
+  };
 }
 
 function activeRefreshSessions(store: WebAppStore, userId: string): RefreshSessionRecord[] {
@@ -238,45 +262,42 @@ function uniqueActiveClientSessions(store: WebAppStore, userId: string): Refresh
 }
 
 export async function exchangeDeviceCode(store: WebAppStore, config: RuntimeConfig, deviceCode: string, clientId?: string): Promise<TokenResponse> {
-  store.deleteExpiredDeviceAuthRequests(nowIso());
-  const record = store.getDeviceAuthByDeviceCodeHash(sha256(deviceCode));
+  const deviceCodeHash = sha256(deviceCode);
+  const record = store.getDeviceAuthByDeviceCodeHash(deviceCodeHash);
   if (!record) {
     throw new AuthError("invalid_grant", "Device code is invalid", 400);
   }
-  if (isExpired(record.expiresAt)) {
-    throw new AuthError("expired_token", "Device code has expired", 400);
+  const refresh = createDeviceRefreshCandidate(record.clientId, record.scope, record.approvedByUserId);
+  const result = store.exchangeDeviceAuth(deviceCodeHash, clientId, refresh.record, nowIso());
+  switch (result.kind) {
+    case "not_found":
+      throw new AuthError("invalid_grant", "Device code is invalid", 400);
+    case "pending":
+      throw new AuthError("authorization_pending", "Device authorization is still pending", 400);
+    case "denied":
+      throw new AuthError("access_denied", "Device authorization was denied", 400);
+    case "expired":
+      throw new AuthError("expired_token", "Device code has expired", 400);
+    case "consumed":
+      throw new AuthError("invalid_grant", "Device code has already been used", 400);
+    case "client_mismatch":
+      throw new AuthError("invalid_client", "client_id does not match device authorization", 400);
+    case "missing_user":
+      throw new AuthError("invalid_grant", "Approving user no longer exists", 400);
+    case "disabled_user":
+      throw new AuthError("invalid_grant", "Approving user is disabled", 400);
+    case "conflict":
+      throw new AuthError("invalid_grant", "Device authorization could not be completed", 400);
+    case "exchanged": {
+      const access = await issueAccessToken(store, config, {
+        sessionId: result.session.id,
+        user: toCurrentUser(result.user),
+        clientId: result.session.clientId,
+        scope: result.session.scope,
+      });
+      return tokenSet(access.accessToken, refresh.token, result.session.scope);
+    }
   }
-  if (clientId && clientId !== record.clientId) {
-    throw new AuthError("invalid_client", "client_id does not match device authorization", 400);
-  }
-  if (record.status === "pending") {
-    throw new AuthError("authorization_pending", "Device authorization is still pending", 400);
-  }
-  if (record.status === "denied") {
-    throw new AuthError("access_denied", "Device authorization was denied", 400);
-  }
-  if (record.status === "consumed") {
-    throw new AuthError("invalid_grant", "Device code has already been used", 400);
-  }
-  if (!record.approvedByUserId) {
-    throw new AuthError("invalid_grant", "Device authorization was not approved by a user", 400);
-  }
-  const userRecord = store.getUserById(record.approvedByUserId);
-  if (!userRecord) {
-    throw new AuthError("invalid_grant", "Approving user no longer exists", 400);
-  }
-  const user = toCurrentUser(userRecord);
-  revokeExistingClientSessions(store, user.id, record.clientId, nowIso());
-  const refresh = createRefreshRecord(user.id, record.clientId, record.scope);
-  store.saveRefreshSession(refresh.record);
-  const access = await issueAccessToken(store, config, {
-    sessionId: refresh.record.id,
-    user,
-    clientId: record.clientId,
-    scope: record.scope,
-  });
-  store.updateDeviceAuthStatus(record.userCode, "consumed", nowIso());
-  return tokenSet(access.accessToken, refresh.token, record.scope);
 }
 
 export async function exchangeRefreshToken(store: WebAppStore, config: RuntimeConfig, refreshToken: string, clientId?: string): Promise<TokenResponse> {
@@ -285,34 +306,33 @@ export async function exchangeRefreshToken(store: WebAppStore, config: RuntimeCo
   if (!session) {
     throw new AuthError("invalid_grant", "Refresh token is invalid", 400);
   }
-  if (session.revokedAt) {
-    store.revokeRefreshFamily(session.familyId, nowIso());
-    throw new AuthError("invalid_grant", "Refresh token has been revoked", 400);
-  }
-  if (isExpired(session.expiresAt)) {
-    throw new AuthError("invalid_grant", "Refresh token has expired", 400);
-  }
-  if (clientId && clientId !== session.clientId) {
-    throw new AuthError("invalid_client", "client_id does not match refresh session", 400);
-  }
-  const userRecord = store.getUserById(session.userId);
-  if (!userRecord) {
-    store.revokeRefreshFamily(session.familyId, nowIso());
-    throw new AuthError("invalid_grant", "Refresh token user no longer exists", 400);
-  }
-  const user = toCurrentUser(userRecord);
   const next = createRefreshRecord(session.userId, session.clientId, session.scope, session.familyId);
-  const rotated = store.rotateRefreshSession(hash, next.record, nowIso());
-  if (!rotated) {
-    throw new AuthError("invalid_grant", "Refresh token is invalid", 400);
+  const result = store.rotateRefreshSession(hash, next.record, nowIso(), clientId);
+  switch (result.kind) {
+    case "not_found":
+      throw new AuthError("invalid_grant", "Refresh token is invalid", 400);
+    case "expired":
+      throw new AuthError("invalid_grant", "Refresh token has expired", 400);
+    case "client_mismatch":
+      throw new AuthError("invalid_client", "client_id does not match refresh session", 400);
+    case "replayed":
+      throw new AuthError("invalid_grant", "Refresh token has been revoked", 400);
+    case "missing_user":
+      throw new AuthError("invalid_grant", "Refresh token user no longer exists", 400);
+    case "disabled_user":
+      throw new AuthError("invalid_grant", "Refresh token user is disabled", 400);
+    case "conflict":
+      throw new AuthError("invalid_grant", "Refresh token is invalid", 400);
+    case "rotated": {
+      const access = await issueAccessToken(store, config, {
+        sessionId: result.session.id,
+        user: toCurrentUser(result.user),
+        clientId: result.session.clientId,
+        scope: result.session.scope,
+      });
+      return tokenSet(access.accessToken, next.token, result.session.scope);
+    }
   }
-  const access = await issueAccessToken(store, config, {
-    sessionId: next.record.id,
-    user,
-    clientId: next.record.clientId,
-    scope: next.record.scope,
-  });
-  return tokenSet(access.accessToken, next.token, next.record.scope);
 }
 
 export async function verifyAccessToken(store: WebAppStore, config: RuntimeConfig, token: string): Promise<AccessTokenClaims> {

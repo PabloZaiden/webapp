@@ -13,6 +13,21 @@ Passkeys are multi-user. The first run creates the immutable owner user and that
 5. Admin resets clear the user's passkey, API keys and device sessions, then issue a new one-time setup link.
 6. If the owner passkey is deleted, the owner setup screen is shown again.
 
+Setup-link completion verifies WebAuthn before opening a short SQLite transaction.
+The transaction claims the unconsumed, unexpired link, persists the verified
+passkey, increments the user's `authVersion`, and commits all three changes
+together. Only the transaction winner receives a browser session and a setup
+completion audit event; a concurrent or reused link is rejected without
+replacing the winner's passkey.
+
+Account disabling is a store-level lifecycle operation rather than a public
+framework endpoint. `WebAppStore.disableUser(userId, disabledAt)` atomically
+sets `disabledAt`, increments `authVersion`, and revokes every unrevoked
+refresh session for the user. It is idempotent for an already-disabled user
+and rejects the immutable owner. Disabled users cannot use passkey sessions,
+API keys, device-code exchange, refresh tokens, or already-issued bearer
+access tokens.
+
 Route handlers get `ctx.auth.user` plus helpers:
 
 ```ts
@@ -111,7 +126,42 @@ Device auth is included in V1:
 4. Client exchanges the approved code at `/api/auth/token`.
 5. Access tokens are JWT bearer tokens whose `sub` is the approving user id; refresh tokens rotate on every refresh.
 
-Device codes are one-use. Device sessions are self-only in Settings, and only active refresh-token sessions are listed. Revoked or expired sessions are hidden; expired sessions are purged, while revoked session records can remain stored to detect stale refresh-token reuse. Reusing a consumed device code or stale refresh token returns `invalid_grant`.
+Device approval is first-wins: a pending request can become approved once,
+and a competing approver cannot replace the original approver. Device-code
+exchange uses one SQLite transaction to verify the approved, unexpired request,
+reject disabled or missing approvers, consume the request, revoke active
+same-client sessions, and insert the new refresh session. The access token is
+issued only after that transaction commits, so a concurrent exchange produces
+one token set at most.
+
+Device codes are one-use. Device sessions are self-only in Settings, and only
+active refresh-token sessions are listed. Revoked or expired sessions are
+hidden; expired device-auth requests are purged when a new authorization
+request is created, before user-code collision checks. Verification and
+exchange paths do not delete requests, so consumed or revoked state remains
+available long enough to classify replays until the next creation cleanup.
+Reusing a consumed device code or stale refresh token returns `invalid_grant`.
+
+Refresh rotation also uses a conditional SQLite transition. The old row must
+match the presented hash, be unrevoked, unexpired, and belong to the requested
+client before it is revoked and replaced. A replayed token revokes its entire
+family and never inserts a successor. A disabled or missing user follows the
+same no-successor rule.
+
+Signing keys are stored with a database-backed active marker and a unique
+partial index, so the active key is a singleton across processes. First-use
+initialization uses conflict-safe get-or-create semantics and every caller
+imports the durable winner returned by the database. Existing databases add
+the marker idempotently and retain the key selected by the previous
+newest-created behavior as the sole active key; historical rows remain
+inactive.
+
+Custom `WebAppStore` implementations must provide the same conditional
+transition result contract for device approval/denial/exchange, setup-link
+completion, passkey persistence with auth-version invalidation, refresh
+rotation, signing-key get-or-create, and account disabling. Callers must not
+compose the read-only lookup methods with low-level writes to implement these
+transitions.
 
 ## Same-origin policy
 
