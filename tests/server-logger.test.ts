@@ -122,8 +122,24 @@ describe("in-memory server logs", () => {
       expect(entries[0]?.message).toBe("entry-5");
       expect(entries.at(-1)?.message).toBe(`entry-${MAX_IN_MEMORY_LOG_ENTRIES + 4}`);
 
+      setInMemoryLogStorageEnabled(false);
+      setInMemoryLogStorageEnabled(true);
+      const payload = "x".repeat(Math.floor(MAX_IN_MEMORY_LOG_BYTES / 3));
+      const byteBoundMessages = [0, 1, 2].map((index) => `byte-entry-${index}:${payload}`);
+      for (const message of byteBoundMessages) {
+        logger.info(message);
+      }
+      const byteBoundEntries = getInMemoryLogEntries();
+      const retainedBytes = byteBoundEntries.reduce(
+        (total, entry) => total + new TextEncoder().encode(entry.line).byteLength,
+        0,
+      );
+      expect(byteBoundEntries.map((entry) => entry.message)).toEqual(byteBoundMessages.slice(1));
+      expect(retainedBytes).toBeLessThanOrEqual(MAX_IN_MEMORY_LOG_BYTES);
+      expect(byteBoundEntries.every((entry) => byteBoundMessages.includes(entry.message))).toBe(true);
+
       logger.info("x".repeat(MAX_IN_MEMORY_LOG_BYTES));
-      expect(getInMemoryLogEntries()).toEqual(entries);
+      expect(getInMemoryLogEntries()).toEqual(byteBoundEntries);
     } finally {
       restoreConsole();
     }

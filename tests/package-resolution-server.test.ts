@@ -45,20 +45,61 @@ function createStore(root: string, name: string) {
 
 test("native server documents load an application-local react-dom export", async () => {
   const fixture = createAppFixture(true);
+  const envPrefix = "PACKAGE_RESOLUTION_NATIVE";
 
   try {
     const app = createWebAppServer({
       appName: "Native Resolution Fixture",
-      envPrefix: "PACKAGE_RESOLUTION_NATIVE",
+      envPrefix,
+      runtimeConfig: {
+        appName: "Native Resolution Fixture",
+        envPrefix,
+        host: "127.0.0.1",
+        port: 0,
+        dataDir: join(fixture.root, "data", "native"),
+        logLevel: "info",
+        logLevelFromEnv: false,
+        inMemoryLogsEnabled: false,
+        passkeyDisabled: true,
+        sameOriginDisabled: true,
+        trustProxy: { enabled: false, headers: [], chain: "first" },
+        development: false,
+      },
       web: { entry: pathToFileURL(fixture.entrypoint) },
       store: createStore(fixture.root, "native"),
       auth: { passkeys: false },
       routes: defineRoutes({}),
     });
 
-    const response = await app.handleRequest(new Request("http://localhost/"));
-    expect(response?.status).toBe(200);
-    expect(await response?.text()).toContain('<div id="root"></div>');
+    const server = await app.start();
+    try {
+      const response = await fetch(new URL("/", server.url));
+      expect(response.status).toBe(200);
+      const html = await response.text();
+      const scriptPaths = Array.from(
+        html.matchAll(/<script[^>]+type="module"[^>]+src="([^"]+)"/g),
+        (match) => match[1],
+      );
+      expect(scriptPaths.length).toBeGreaterThan(0);
+
+      const scriptNames = scriptPaths.map((path) => {
+        const name = path?.split("/").pop();
+        if (!name) {
+          throw new Error(`Generated module path has no filename: ${String(path)}`);
+        }
+        return name;
+      });
+      const scriptResponses = await Promise.all(
+        scriptNames.map(async (name) => await fetch(new URL(`/${name}`, server.url), {
+          headers: { accept: "text/javascript" },
+        })),
+      );
+      expect(scriptResponses.every((response) => response.status === 200)).toBe(true);
+      const scriptBodies = await Promise.all(scriptResponses.map((response) => response.text()));
+      expect(scriptBodies.some((body) => body.includes("native-app-react-dom"))).toBe(true);
+    } finally {
+      await server.stop(true);
+    }
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
