@@ -1,11 +1,10 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { act, createElement } from "react";
-import type { Root } from "react-dom/client";
 import { createRoot } from "react-dom/client";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { useToast, type ToastService } from "../src/web";
-import { renderWebApp, configureWebAppRenderer } from "../src/web/render";
+import { configureWebAppRenderer, renderWebApp, type WebAppRootHandle } from "../src/web/render";
 import { ToastProvider } from "../src/web/toast";
 
 async function ensureHappyDom() {
@@ -206,7 +205,7 @@ describe("framework toast service", () => {
 
     const container = document.createElement("div");
     document.body.append(container);
-    let root: Root | undefined;
+    let root: WebAppRootHandle | undefined;
     act(() => {
       root = renderWebApp(createElement(Application), container);
     });
