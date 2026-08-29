@@ -17,6 +17,7 @@ export interface ServerLifecycleDependencies<TEvent = unknown> {
   publicRoutes: Readonly<Record<string, unknown>>;
   appWebsockets: NonNullable<WebAppServerConfig["websockets"]>;
   realtime: RealtimeBus<TEvent>;
+  ensurePublicAssetPaths: () => Promise<ReadonlySet<string>>;
   ensureWebDocument: () => Promise<WebDocument>;
   documentProvider: WebDocumentProvider;
   handleRequest: (req: Request, server?: Server<WebAppWebSocketData>) => Promise<Response | undefined>;
@@ -33,6 +34,7 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     publicRoutes,
     appWebsockets,
     realtime,
+    ensurePublicAssetPaths,
     ensureWebDocument,
     documentProvider,
     handleRequest,
@@ -51,11 +53,16 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     }
     await hooks?.beforeStart?.();
     const webDocument = await ensureWebDocument();
+    const publicAssetPaths = await ensurePublicAssetPaths();
     const dynamicHandler = (req: Request, server: Server<WebAppWebSocketData>) => handleRequest(req, server);
-    const publicRouteHandlers = Object.fromEntries([
+    const publicRoutePaths = new Set([
       ...Object.keys(webDocument.generatedPublicRoutes),
       ...Object.keys(publicRoutes),
-    ].map((path) => [path, dynamicHandler]));
+      ...publicAssetPaths,
+    ]);
+    const publicRouteHandlers = Object.fromEntries(
+      Array.from(publicRoutePaths, (path) => [path, dynamicHandler]),
+    );
     const spaFallbackRoute = {
       GET: dynamicHandler,
       HEAD: dynamicHandler,

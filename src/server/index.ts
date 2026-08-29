@@ -3,6 +3,7 @@ export * from "./routes";
 export * from "./route-catalog";
 export * from "./responses";
 export * from "./public-assets";
+export * from "./public-asset-manifest";
 export * from "./create-web-app-server";
 export {
   DEFAULT_LOG_LEVEL,

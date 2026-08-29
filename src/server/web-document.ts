@@ -12,6 +12,13 @@ import { findPackageRoot, resolveReactDomClient } from "../package-resolution";
 import { MOBILE_MEDIA_QUERY, MOBILE_STATE_ATTRIBUTE } from "../web/mobile";
 import { notFound, withSecurityHeaders } from "./responses";
 import type { RuntimeConfig } from "./runtime-config";
+import {
+  assertUniquePublicAssetPaths,
+  decodePublicAssetBody,
+  normalizePublicAssetPath,
+  publicAssetKind,
+  type WebAppPublicAssetKind,
+} from "./public-asset-manifest";
 
 type HtmlBundleIndex = { index: string };
 
@@ -40,9 +47,10 @@ export interface WebDocumentProvider {
 type CompiledClientAsset = {
   path: string;
   contentType: string;
+  kind: WebAppPublicAssetKind;
   role: "script" | "style" | "asset";
   scriptOrder?: number;
-  body: string;
+  content: Uint8Array;
 };
 
 type CompiledClient = {
@@ -293,9 +301,58 @@ function iconConfig(value: string | URL | WebAppIconConfig | undefined): WebAppI
 
 function compiledClient(): CompiledClient | undefined {
   const value = (globalThis as { [key: symbol]: unknown })[Symbol.for("webapp.compiledClient")];
-  if (!value || typeof value !== "object") return undefined;
-  const candidate = value as Partial<CompiledClient>;
-  return typeof candidate.packageRoot === "string" && Array.isArray(candidate.assets) ? candidate as CompiledClient : undefined;
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null) {
+    throw new Error("Invalid compiled client manifest");
+  }
+  const candidate = value as { packageRoot?: unknown; assets?: unknown };
+  if (typeof candidate.packageRoot !== "string" || !candidate.packageRoot || !Array.isArray(candidate.assets)) {
+    throw new Error("Invalid compiled client manifest metadata");
+  }
+  const assets = candidate.assets.map((asset, index) => {
+    if (typeof asset !== "object" || asset === null) {
+      throw new Error(`Invalid compiled client asset at assets[${index}]`);
+    }
+    const record = asset as Record<string, unknown>;
+    const path = record["path"];
+    const contentType = record["contentType"];
+    const roleValue = record["role"];
+    const body = record["body"];
+    if (
+      typeof path !== "string"
+      || typeof contentType !== "string"
+      || !contentType.trim()
+      || (roleValue !== "script" && roleValue !== "style" && roleValue !== "asset")
+      || typeof body !== "string"
+    ) {
+      throw new Error(`Invalid compiled client asset metadata at assets[${index}]`);
+    }
+    const role: CompiledClientAsset["role"] = roleValue;
+    const normalizedPath = normalizePublicAssetPath(path);
+    if (normalizedPath !== path) {
+      throw new Error(`Compiled client asset path is not normalized at assets[${index}]: ${path}`);
+    }
+    const rawKind = record["kind"];
+    const kind = rawKind === undefined ? "asset" : publicAssetKind(record, path);
+    const scriptOrderValue = record["scriptOrder"];
+    let scriptOrder: number | undefined;
+    if (scriptOrderValue !== undefined) {
+      if (typeof scriptOrderValue !== "number" || !Number.isInteger(scriptOrderValue) || scriptOrderValue < 0) {
+        throw new Error(`Invalid compiled client script order at assets[${index}]`);
+      }
+      scriptOrder = scriptOrderValue;
+    }
+    return {
+      path,
+      contentType,
+      kind,
+      role,
+      ...(scriptOrder === undefined ? {} : { scriptOrder }),
+      content: decodePublicAssetBody(body, `compiledClient.assets[${index}].body`),
+    };
+  });
+  assertUniquePublicAssetPaths(assets.map((asset) => asset.path), "compiled client assets");
+  return { packageRoot: candidate.packageRoot, assets };
 }
 
 function generatedHtml(
@@ -435,10 +492,9 @@ configureWebAppRenderer(createRoot);
   };
   if (compiledAssets) {
     for (const asset of compiledAssets) {
-      const body = Buffer.from(asset.body, "base64");
       generatedPublicRoutes[asset.path] = {
         headers: { "content-type": asset.contentType },
-        GET: () => body,
+        GET: () => asset.content.slice(),
       };
     }
   }

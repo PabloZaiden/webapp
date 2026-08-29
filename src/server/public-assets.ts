@@ -3,9 +3,24 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  assertUniquePublicAssetPaths,
+  buildOutputRelativePath,
+  contentTypeForPublicAssetPath,
+  decodePublicAssetBody,
+  decodePublicAssetBundle,
+  encodePublicAssetBundle,
+  normalizePublicAssetPath,
+  publicAssetKindForBuildArtifact,
+  publicAssetSidecarPath,
+  type SerializedWebAppPublicAssetArtifact,
+  type SerializedWebAppPublicAssetBundle,
+  type WebAppPublicAssetBundle,
+} from "./public-asset-manifest";
 import type { PublicRouteDefinition } from "./server-types";
 
 const COMPILED_PUBLIC_ASSETS_SYMBOL = Symbol.for("webapp.compiledPublicAssets");
+export const WEBAPP_PUBLIC_ASSET_ROUTE = Symbol.for("webapp.publicAssetRoute");
 
 export interface WebAppPublicAssetOptions {
   path: string;
@@ -17,21 +32,48 @@ export interface WebAppPublicAssetOptions {
   plugins?: BunPlugin[];
 }
 
-interface CompiledPublicAsset {
+export interface WebAppPublicAssetRouteMetadata {
+  primaryPath: string;
+  getBundle: () => Promise<WebAppPublicAssetBundle>;
+}
+
+type PublicAssetRoute = PublicRouteDefinition & {
+  readonly [WEBAPP_PUBLIC_ASSET_ROUTE]: WebAppPublicAssetRouteMetadata;
+};
+
+interface LegacyCompiledPublicAsset {
   path: string;
   body: string;
 }
 
-interface CompiledPublicAssets {
-  assets: CompiledPublicAsset[];
+interface EmbeddedPublicAssets {
+  bundles: WebAppPublicAssetBundle[];
+  legacyAssets: LegacyCompiledPublicAsset[];
 }
 
-function normalizePublicAssetPath(path: string): string {
-  const trimmed = path.trim();
-  if (!trimmed.startsWith("/") || trimmed.includes("?") || trimmed.includes("#")) {
-    throw new Error(`Public asset path must be an absolute URL path without a query or fragment: ${path}`);
+function hasCompiledPublicAssetsSymbol(): boolean {
+  return Object.prototype.hasOwnProperty.call(globalThis, COMPILED_PUBLIC_ASSETS_SYMBOL);
+}
+
+function readLegacyCompiledPublicAssets(value: unknown): LegacyCompiledPublicAsset[] {
+  if (!Array.isArray(value)) {
+    throw new Error("Invalid compiled public asset manifest: assets must be an array");
   }
-  return trimmed;
+  return value.map((candidate, index) => {
+    if (typeof candidate !== "object" || candidate === null) {
+      throw new Error(`Invalid compiled public asset at assets[${index}]`);
+    }
+    const asset = candidate as Partial<LegacyCompiledPublicAsset>;
+    if (typeof asset.path !== "string" || typeof asset.body !== "string") {
+      throw new Error(`Invalid compiled public asset metadata at assets[${index}]`);
+    }
+    const path = normalizePublicAssetPath(asset.path);
+    if (path !== asset.path) {
+      throw new Error(`Compiled public asset path is not normalized at assets[${index}]: ${asset.path}`);
+    }
+    decodePublicAssetBody(asset.body, `assets[${index}].body`);
+    return { path, body: asset.body };
+  });
 }
 
 function resolveEntrypoint(entrypoint: string | URL): string {
@@ -47,25 +89,58 @@ function resolveEntrypoint(entrypoint: string | URL): string {
   return resolve(dirname(Bun.main || process.argv[1] || "."), entrypoint);
 }
 
-function responseHeaders(options: WebAppPublicAssetOptions): Record<string, string> {
+function customResponseHeaders(options: WebAppPublicAssetOptions): Record<string, string> {
   const headers = new Headers(options.headers);
-  headers.set("content-type", options.contentType);
+  headers.delete("content-type");
   return Object.fromEntries(headers.entries());
 }
 
-function compiledPublicAsset(path: string): Uint8Array | undefined {
+function readEmbeddedPublicAssets(): EmbeddedPublicAssets | undefined {
   const value = (globalThis as { [key: symbol]: unknown })[COMPILED_PUBLIC_ASSETS_SYMBOL];
-  if (!value || typeof value !== "object" || !("assets" in value) || !Array.isArray(value.assets)) {
+  if (value === undefined) {
     return undefined;
   }
-  const asset = (value as CompiledPublicAssets).assets.find((candidate) => candidate.path === path);
-  if (!asset || typeof asset.body !== "string") {
-    return undefined;
+  if (typeof value !== "object" || value === null) {
+    throw new Error("Invalid compiled public asset manifest");
   }
-  return new Uint8Array(Buffer.from(asset.body, "base64"));
+  const manifest = value as {
+    bundles?: unknown;
+    assets?: unknown;
+  };
+  if (manifest.bundles !== undefined) {
+    if (!Array.isArray(manifest.bundles)) {
+      throw new Error("Invalid compiled public asset manifest: bundles must be an array");
+    }
+    const bundles = manifest.bundles.map((bundle, index) => decodePublicAssetBundle(bundle, `bundles[${index}]`));
+    assertUniquePublicAssetPaths(bundles.map((bundle) => bundle.entry), "compiled public asset bundle entries");
+    return { bundles, legacyAssets: [] };
+  }
+  return { bundles: [], legacyAssets: readLegacyCompiledPublicAssets(manifest.assets) };
 }
 
-export async function compileWebAppPublicAsset(options: WebAppPublicAssetOptions): Promise<Uint8Array> {
+function embeddedPublicAssetBundle(path: string, contentType: string): WebAppPublicAssetBundle | undefined {
+  const embedded = readEmbeddedPublicAssets();
+  if (!embedded) return undefined;
+  const bundle = embedded.bundles.find((candidate) => candidate.entry === path);
+  if (bundle) return bundle;
+  const legacy = embedded.legacyAssets.find((candidate) => candidate.path === path);
+  if (!legacy) return undefined;
+  return {
+    entry: path,
+    artifacts: [{
+      path,
+      contentType,
+      kind: "entry-point",
+      content: decodePublicAssetBody(legacy.body, `assets.${path}.body`),
+    }],
+  };
+}
+
+export async function compileWebAppPublicAsset(options: WebAppPublicAssetOptions): Promise<WebAppPublicAssetBundle> {
+  const path = normalizePublicAssetPath(options.path);
+  if (!options.contentType.trim()) {
+    throw new Error(`Public asset content type must not be empty for ${path}`);
+  }
   const entrypoint = resolveEntrypoint(options.entrypoint);
   const outputDirectory = mkdtempSync(join(tmpdir(), "webapp-public-asset-"));
   try {
@@ -86,11 +161,35 @@ export async function compileWebAppPublicAsset(options: WebAppPublicAssetOptions
       }
       throw new Error(`Public asset build failed for ${entrypoint}`);
     }
-    const output = result.outputs[0];
-    if (!output) {
+    if (result.outputs.length === 0) {
       throw new Error(`Public asset build produced no output for ${entrypoint}`);
     }
-    return new Uint8Array(await output.arrayBuffer());
+    const outputs = result.outputs.map((output) => ({
+      output,
+      kind: publicAssetKindForBuildArtifact(output),
+      relativePath: buildOutputRelativePath(outputDirectory, output),
+    }));
+    const primaryOutputs = outputs.filter(({ kind }) => kind === "entry-point");
+    if (primaryOutputs.length !== 1) {
+      throw new Error(`Public asset build must produce exactly one entry-point for ${entrypoint}; received ${String(primaryOutputs.length)}`);
+    }
+    const primaryOutput = primaryOutputs[0];
+    if (!primaryOutput) {
+      throw new Error(`Public asset build produced no entry-point for ${entrypoint}`);
+    }
+    const artifacts = await Promise.all(outputs.map(async ({ output, kind, relativePath }) => {
+      const artifactPath = relativePath === primaryOutput.relativePath
+        ? path
+        : publicAssetSidecarPath(path, primaryOutput.relativePath, relativePath);
+      return {
+        path: artifactPath,
+        contentType: artifactPath === path ? options.contentType : contentTypeForPublicAssetPath(artifactPath, kind),
+        kind,
+        content: new Uint8Array(await output.arrayBuffer()),
+      };
+    }));
+    assertUniquePublicAssetPaths(artifacts.map((artifact) => artifact.path), `public asset build ${entrypoint}`);
+    return { entry: path, artifacts };
   } finally {
     rmSync(outputDirectory, { recursive: true, force: true });
   }
@@ -98,18 +197,56 @@ export async function compileWebAppPublicAsset(options: WebAppPublicAssetOptions
 
 export function createWebAppPublicAsset(options: WebAppPublicAssetOptions): PublicRouteDefinition {
   const path = normalizePublicAssetPath(options.path);
-  const headers = responseHeaders(options);
-  let assetPromise: Promise<Uint8Array> | undefined;
+  const headers = customResponseHeaders(options);
+  let assetPromise: Promise<WebAppPublicAssetBundle> | undefined;
+  const getBundle = async (): Promise<WebAppPublicAssetBundle> => {
+    const embedded = embeddedPublicAssetBundle(path, options.contentType);
+    if (embedded) return embedded;
+    if (hasCompiledPublicAssetsSymbol()) {
+      throw new Error(`Compiled public asset manifest does not contain configured entry ${path}`);
+    }
+    assetPromise ??= compileWebAppPublicAsset({ ...options, path });
+    return await assetPromise;
+  };
 
-  return {
+  const route: PublicAssetRoute = {
+    [WEBAPP_PUBLIC_ASSET_ROUTE]: { primaryPath: path, getBundle },
     headers,
-    GET: async () => {
-      const embedded = compiledPublicAsset(path);
-      if (embedded) {
-        return embedded;
+    GET: async (req) => {
+      const bundle = await getBundle();
+      const requestedPath = new URL(req.url).pathname;
+      const artifact = bundle.artifacts.find((candidate) => candidate.path === requestedPath);
+      if (!artifact) {
+        return undefined;
       }
-      assetPromise ??= compileWebAppPublicAsset(options);
-      return await assetPromise;
+      const headers = { "content-type": artifact.contentType };
+      if (req.method === "HEAD") {
+        return new Response(null, { headers });
+      }
+      return new Response(artifact.content.slice(), { headers });
     },
   };
+  return route;
 }
+
+export function webAppPublicAssetRouteMetadata(value: unknown): WebAppPublicAssetRouteMetadata | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const metadata = (value as Partial<PublicAssetRoute>)[WEBAPP_PUBLIC_ASSET_ROUTE];
+  if (
+    typeof metadata !== "object"
+    || metadata === null
+    || typeof metadata.primaryPath !== "string"
+    || typeof metadata.getBundle !== "function"
+  ) {
+    return undefined;
+  }
+  return metadata;
+}
+
+export function serializePublicAssetBundles(
+  bundles: WebAppPublicAssetBundle[],
+): { bundles: SerializedWebAppPublicAssetBundle[] } {
+  return { bundles: bundles.map(encodePublicAssetBundle) };
+}
+
+export type { SerializedWebAppPublicAssetArtifact, SerializedWebAppPublicAssetBundle };

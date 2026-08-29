@@ -8,9 +8,27 @@ import {
   buildWebAppBinary,
   getBunCompileTargetFromArgs,
 } from "../src/build/build-binary";
+import { createWebAppPublicAsset, createWebAppServer, defineRoutes, sqliteWebAppStore } from "../src/server";
+import { normalizePublicAssetPath, publicAssetKind } from "../src/server/public-asset-manifest";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function waitForOutput(stream: ReadableStream<Uint8Array>, marker: string): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let output = "";
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) {
+      throw new Error(`Process output ended before marker ${marker}`);
+    }
+    output += decoder.decode(chunk.value, { stream: true });
+    if (output.includes(marker)) {
+      return output;
+    }
+  }
 }
 
 test("getBunCompileTargetFromArgs accepts every supported target and no target", () => {
@@ -189,9 +207,11 @@ await Bun.write(outputPath, JSON.stringify(publicAssets));
 `);
   writeFileSync(join(srcDir, "frontend.tsx"), "export {};\n");
   writeFileSync(join(srcDir, "public-asset-helper.ts"), `export const marker = "embedded-public-asset";\n`);
-  writeFileSync(join(srcDir, "public-asset.ts"), `import { marker } from "./public-asset-helper";
+  writeFileSync(join(srcDir, "public-asset.ts"), `import "./public-asset-sidecar.css";
+import { marker } from "./public-asset-helper";
 globalThis[Symbol.for("fixture.publicAssetMarker")] = marker;
 `);
+  writeFileSync(join(srcDir, "public-asset-sidecar.css"), ".fixture-public-asset-sidecar { display: block; }\n");
 
   try {
     await buildWebAppBinary({
@@ -200,7 +220,7 @@ globalThis[Symbol.for("fixture.publicAssetMarker")] = marker;
       web: {
         entry: "./frontend.tsx",
         publicAssets: [{
-          path: "/fixture-public-asset.js",
+          path: "/fixture-public-bundle/entry.js",
           entrypoint: join(srcDir, "public-asset.ts"),
           contentType: "text/javascript; charset=utf-8",
           format: "iife",
@@ -222,12 +242,212 @@ globalThis[Symbol.for("fixture.publicAssetMarker")] = marker;
     expect(stderr).toBe("");
 
     const compiled = await Bun.file(assetsPath).json() as {
-      assets: Array<{ path: string; body: string }>;
+      bundles: Array<{
+        entry: string;
+        artifacts: Array<{ path: string; kind: string; contentType: string; body: string }>;
+      }>;
     };
-    expect(compiled.assets).toHaveLength(1);
-    expect(compiled.assets[0]?.path).toBe("/fixture-public-asset.js");
-    expect(Buffer.from(compiled.assets[0]?.body ?? "", "base64").byteLength).toBeGreaterThan(0);
+    expect(compiled.bundles).toHaveLength(1);
+    const bundle = compiled.bundles[0];
+    expect(bundle?.entry).toBe("/fixture-public-bundle/entry.js");
+    expect(bundle?.artifacts.length).toBeGreaterThanOrEqual(2);
+    expect(bundle?.artifacts.some((asset) => asset.path === "/fixture-public-bundle/entry.js" && asset.kind === "entry-point")).toBe(true);
+    const sidecar = bundle?.artifacts.find((asset) => asset.kind !== "entry-point");
+    expect(sidecar?.path).toContain("/fixture-public-bundle/");
+    expect(sidecar?.contentType).toContain("text/css");
+    expect(Buffer.from(sidecar?.body ?? "", "base64").byteLength).toBeGreaterThan(0);
   } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("buildWebAppBinary rejects duplicate public asset paths", async () => {
+  const fixtureRoot = resolve(".cache/tests/build-binary-duplicate-public-assets", crypto.randomUUID());
+  const srcDir = join(fixtureRoot, "src");
+  const outfile = join(fixtureRoot, "dist", "fixture-app");
+
+  rmSync(fixtureRoot, { recursive: true, force: true });
+  mkdirSync(srcDir, { recursive: true });
+  writeFileSync(join(srcDir, "index.ts"), "export {};\n");
+  writeFileSync(join(srcDir, "frontend.tsx"), "export {};\n");
+  writeFileSync(join(srcDir, "public-asset.ts"), "export const asset = true;\n");
+
+  try {
+    await expect(buildWebAppBinary({
+      entrypoint: join(srcDir, "index.ts"),
+      outfile,
+      web: {
+        entry: "./frontend.tsx",
+        publicAssets: [
+          {
+            path: "/duplicate-public-asset.js",
+            entrypoint: join(srcDir, "public-asset.ts"),
+            contentType: "text/javascript; charset=utf-8",
+          },
+          {
+            path: "/duplicate-public-asset.js",
+            entrypoint: join(srcDir, "public-asset.ts"),
+            contentType: "text/javascript; charset=utf-8",
+          },
+        ],
+      },
+    })).rejects.toThrow('Duplicate public asset path "/duplicate-public-asset.js"');
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("public asset build output validation rejects unsupported kinds", () => {
+  expect(() => publicAssetKind({ kind: "bytecode" }, "/fixture.bytecode")).toThrow(
+    'Unsupported public asset build output kind "bytecode"',
+  );
+  expect(() => publicAssetKind({ kind: "unknown" }, "/fixture.unknown")).toThrow(
+    'Unsupported public asset build output kind "unknown"',
+  );
+});
+
+test("public asset paths reject URL-encoded traversal", () => {
+  expect(() => normalizePublicAssetPath("/assets/%2e%2e/entry.js")).toThrow("traversal");
+  expect(() => normalizePublicAssetPath("/assets/%2E/entry.js")).toThrow("traversal");
+});
+
+test("compiled public asset bundles serve the same primary and sidecar paths as development", async () => {
+  const fixtureRoot = resolve(".cache/tests/build-binary-public-asset-parity", crypto.randomUUID());
+  const srcDir = join(fixtureRoot, "src");
+  const outfile = join(fixtureRoot, "dist", "fixture-app");
+  const assetsPath = join(fixtureRoot, "compiled-assets.json");
+  const dataDir = join(fixtureRoot, "data");
+  const publicPath = "/fixture-public-bundle/entry.js";
+  const publicAssetModule = resolve(process.cwd(), "src/server/public-assets.ts").replaceAll("\\", "/");
+  const publicRouteDispatcherModule = resolve(process.cwd(), "src/server/public-route-dispatch.ts").replaceAll("\\", "/");
+
+  rmSync(fixtureRoot, { recursive: true, force: true });
+  mkdirSync(srcDir, { recursive: true });
+  writeFileSync(join(srcDir, "index.ts"), `import { createWebAppPublicAsset } from ${JSON.stringify(publicAssetModule)};
+import { createPublicRouteDispatcher } from ${JSON.stringify(publicRouteDispatcherModule)};
+
+const publicPath = ${JSON.stringify(publicPath)};
+const route = createWebAppPublicAsset({
+  path: publicPath,
+  entrypoint: new URL("./public-asset.ts", import.meta.url),
+  contentType: "text/javascript; charset=utf-8",
+  headers: { "cache-control": "no-cache" },
+});
+const dispatch = createPublicRouteDispatcher({
+  publicRoutes: { [publicPath]: route },
+  generatedRoutePaths: new Set(),
+  ensureWebDocument: async () => {
+    throw new Error("Compiled parity fixture does not use a web document");
+  },
+});
+
+const outputPath = process.env["TEST_COMPILED_ASSETS_PATH"];
+if (outputPath) {
+  await Bun.write(outputPath, JSON.stringify(globalThis[Symbol.for("webapp.compiledPublicAssets")]));
+}
+const server = Bun.serve({
+  port: 0,
+  fetch: async (request) => {
+    const value = await dispatch(request);
+    return value ?? new Response("Not found", { status: 404 });
+  },
+});
+console.log("READY " + server.url.toString());
+await new Promise<void>(() => {});
+`);
+  writeFileSync(join(srcDir, "frontend.tsx"), "export {};\n");
+  writeFileSync(join(srcDir, "public-asset-helper.ts"), "export const marker = \"compiled-public-asset-parity\";\n");
+  writeFileSync(join(srcDir, "public-asset.ts"), `import "./public-asset-sidecar.css";
+import { marker } from "./public-asset-helper";
+globalThis[Symbol.for("fixture.publicAssetMarker")] = marker;
+`);
+  writeFileSync(join(srcDir, "public-asset-sidecar.css"), ".fixture-public-asset-parity { display: block; }\n");
+
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  try {
+    const entrypoint = join(srcDir, "public-asset.ts");
+    const bundle = await import("../src/server/public-assets").then(({ compileWebAppPublicAsset }) => compileWebAppPublicAsset({
+      path: publicPath,
+      entrypoint,
+      contentType: "text/javascript; charset=utf-8",
+      headers: { "cache-control": "no-cache" },
+    }));
+    const sidecar = bundle.artifacts.find((artifact) => artifact.kind !== "entry-point");
+    expect(sidecar).toBeDefined();
+
+    const developmentApp = createWebAppServer({
+      appName: "Development Public Asset Parity",
+      envPrefix: "TEST_DEVELOPMENT_PUBLIC_ASSET_PARITY",
+      store: sqliteWebAppStore({ dataDir: join(dataDir, "development") }),
+      auth: { passkeys: false },
+      publicRoutes: {
+        [publicPath]: createWebAppPublicAsset({
+          path: publicPath,
+          entrypoint,
+          contentType: "text/javascript; charset=utf-8",
+          headers: { "cache-control": "no-cache" },
+        }),
+      },
+      routes: defineRoutes({}),
+    });
+    const developmentPrimary = await developmentApp.handleRequest(new Request(`http://localhost${publicPath}`));
+    const developmentSidecar = await developmentApp.handleRequest(new Request(`http://localhost${sidecar!.path}`));
+    expect(developmentPrimary?.status).toBe(200);
+    expect(developmentSidecar?.status).toBe(200);
+
+    await buildWebAppBinary({
+      entrypoint: join(srcDir, "index.ts"),
+      outfile,
+      web: {
+        entry: "./frontend.tsx",
+        publicAssets: [{
+          path: publicPath,
+          entrypoint,
+          contentType: "text/javascript; charset=utf-8",
+          headers: { "cache-control": "no-cache" },
+          format: "iife",
+        }],
+      },
+    });
+
+    child = Bun.spawn([outfile], {
+      cwd: fixtureRoot,
+      env: {
+        ...process.env,
+        TEST_COMPILED_ASSETS_PATH: assetsPath,
+        TEST_DATA_DIR: join(dataDir, "compiled"),
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (!child.stdout || typeof child.stdout === "number") {
+      throw new Error("Compiled parity fixture did not expose stdout");
+    }
+    const output = await waitForOutput(child.stdout, "READY ");
+    const readyLine = output.split("\n").find((line) => line.startsWith("READY "));
+    expect(readyLine).toBeDefined();
+    const baseUrl = readyLine!.slice("READY ".length).trim();
+    const compiledManifest = await Bun.file(assetsPath).json() as {
+      bundles: Array<{ entry: string; artifacts: Array<{ path: string; contentType: string; body: string }> }>;
+    };
+    expect(compiledManifest.bundles[0]?.entry).toBe(publicPath);
+    expect(compiledManifest.bundles[0]?.artifacts.some((artifact) => artifact.path === sidecar!.path)).toBe(true);
+
+    const compiledPrimary = await fetch(new URL(publicPath, baseUrl));
+    const compiledSidecar = await fetch(new URL(sidecar!.path, baseUrl));
+    expect(compiledPrimary.status).toBe(developmentPrimary!.status);
+    expect(compiledSidecar.status).toBe(developmentSidecar!.status);
+    expect(compiledPrimary.headers.get("content-type")).toBe(developmentPrimary!.headers.get("content-type"));
+    expect(compiledSidecar.headers.get("content-type")).toBe(developmentSidecar!.headers.get("content-type"));
+    expect(compiledPrimary.headers.get("cache-control")).toBe("no-cache");
+    expect(compiledSidecar.headers.get("cache-control")).toBe("no-cache");
+    expect(await compiledPrimary.bytes()).toEqual(await developmentPrimary!.bytes());
+    expect(await compiledSidecar.bytes()).toEqual(await developmentSidecar!.bytes());
+  } finally {
+    child?.kill();
+    if (child) {
+      await child.exited;
+    }
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });

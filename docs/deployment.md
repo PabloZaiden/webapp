@@ -42,6 +42,26 @@ await buildWebAppBinary({
 
 App-provided plugins run before the framework defaults. Use `web.build.disableDefaultPlugins` only for specialized builds that intentionally replace the framework browser pipeline.
 
+The browser build records every emitted runtime artifact in the compiled
+manifest: renderer and application entry scripts, chunks, extracted CSS,
+workers, WASM/file-loader assets, and external source maps. Output paths remain
+relative to the build output and use URL `/` separators; they are not flattened
+to basenames. `web.publicAssets` uses the same manifest model, retaining the
+primary entry and every sidecar with its bytes, public path, artifact kind, and
+MIME metadata. The compiled server exposes those paths through the same route
+contract used by development, so existing single-file JavaScript assets remain
+compatible.
+
+The current portable binary transport serializes the complete manifest into
+the executable. Bun 1.4 native `compile.assets`/`--asset` embedding is not
+enabled until its `$bunfs` path behavior is validated across Linux, macOS, and
+Windows targets; it must not create a second path model. Do not embed an
+application or workspace directory as a public directory. Public files remain
+limited to browser build outputs, explicitly configured public-asset bundles,
+and framework-generated routes. External browser source maps are retained as
+manifest artifacts and are served at their generated URLs; public-asset
+entrypoint builds currently request no source maps.
+
 Run the binary with the same CLI contract:
 
 ```bash

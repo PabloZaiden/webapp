@@ -390,6 +390,49 @@ createWebAppServer({
 });
 ```
 
+`createWebAppPublicAsset` keeps the same declaration shape for a compiled
+entrypoint:
+
+```ts
+const serviceWorker = createWebAppPublicAsset({
+  path: "/service-worker.js",
+  entrypoint: "./src/web/service-worker.ts",
+  contentType: "text/javascript; charset=utf-8",
+  headers: { "cache-control": "no-cache" },
+});
+
+createWebAppServer({
+  // ...
+  publicRoutes: {
+    "/service-worker.js": serviceWorker,
+  },
+});
+```
+
+The configured `path` is the primary entry URL. If the entrypoint emits CSS,
+chunks, workers, WASM, or other file-loader outputs, WebApp retains the complete
+build bundle and serves sidecars under stable paths derived from the primary
+entry directory. Sidecar paths are registered before the SPA wildcard when the
+server starts, so development requests reach the same artifact resolver as
+compiled requests. The primary uses the explicit `contentType`; sidecars use
+their output extension and artifact metadata. Custom headers, including cache
+headers, apply to every artifact in the bundle.
+
+Public asset responses are safe to request repeatedly. Response values are
+cloned before framework or security headers are applied, while factories can
+return a fresh value per request. An empty string, empty byte buffer, empty
+blob, or response with no body is a valid successful asset; only `undefined`
+means that a handler did not provide an asset. `HEAD` preserves the response
+metadata and status while omitting the body.
+
+Paths are normalized as URL paths, not filesystem paths; query, fragment,
+traversal, ambiguous separator, and invalid URL-encoding forms are rejected.
+Duplicate primary or sidecar paths, collisions with another public route or a
+framework-owned route, and unsupported build output kinds fail explicitly
+instead of silently overwriting an asset or falling through to the SPA. Only
+declared public routes and their emitted artifacts are exposed; the entrypoint
+directory and private workspace files are not treated as public directories.
+
 Only declared public routes are served this way. Unknown `/api/*` paths still return `404`, while normal frontend `GET` and `HEAD` paths still return the React index. Other methods on unmatched frontend paths return `404` instead of the SPA fallback.
 
 ## App-owned websocket upgrades

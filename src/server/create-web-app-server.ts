@@ -120,7 +120,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
 
   async function handleRequest(req: Request, server?: Server<WebAppWebSocketData>): Promise<Response | undefined> {
     const url = new URL(req.url);
-    const publicRoute = await publicRouteDispatcher(req);
+    const publicRoute = await publicRouteDispatcher.dispatch(req);
     if (publicRoute) {
       return publicRoute;
     }
@@ -153,6 +153,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     publicRoutes,
     appWebsockets,
     realtime,
+    ensurePublicAssetPaths: publicRouteDispatcher.ensurePublicAssetPaths,
     ensureWebDocument,
     documentProvider,
     handleRequest,

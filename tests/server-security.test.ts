@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { RealtimeBus, createLogger, createWebAppPublicAsset, createWebAppServer, defineRoutes, getRequestBaseUrl, getRequestOriginInfo, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent, type RuntimeConfig } from "@pablozaiden/webapp/server";
+import { RealtimeBus, compileWebAppPublicAsset, createLogger, createWebAppPublicAsset, createWebAppServer, defineRoutes, getRequestBaseUrl, getRequestOriginInfo, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent, type RuntimeConfig } from "@pablozaiden/webapp/server";
 import { authenticateApiKey, createApiKey, createManagedApiKey, listManagedApiKeys, revokeManagedApiKey } from "../src/server/auth/api-keys";
 import { sha256 } from "../src/server/auth/crypto";
 import { readRuntimeConfig, resolveEffectiveLogLevel, safeRuntimeConfig } from "../src/server/runtime-config";
@@ -678,6 +678,52 @@ describe("server security defaults", () => {
     expect(await spaPost?.json()).toMatchObject({ error: "not_found" });
   });
 
+  test("public assets repeat response bodies and preserve valid empty bodies", async () => {
+    const sharedResponse = new Response("repeatable", {
+      headers: { "x-source-header": "preserved" },
+    });
+    const app = createWebAppServer({
+      appName: "Public Asset Repeatability",
+      envPrefix: "TEST_PUBLIC_ASSET_REPEATABILITY",
+      store: testStore("public-asset-repeatability"),
+      auth: { passkeys: false },
+      publicRoutes: {
+        "/repeat-response": sharedResponse,
+        "/repeat-handler": () => sharedResponse,
+        "/empty-string": "",
+        "/empty-bytes": new Uint8Array(),
+        "/empty-response": new Response(null),
+        "/missing-empty": () => undefined,
+      },
+      routes: defineRoutes({}),
+    });
+
+    const firstResponse = await app.handleRequest(new Request("http://localhost/repeat-response"));
+    const secondResponse = await app.handleRequest(new Request("http://localhost/repeat-response"));
+    const firstHandlerResponse = await app.handleRequest(new Request("http://localhost/repeat-handler"));
+    const secondHandlerResponse = await app.handleRequest(new Request("http://localhost/repeat-handler"));
+    expect(await firstResponse?.text()).toBe("repeatable");
+    expect(await secondResponse?.text()).toBe("repeatable");
+    expect(await firstHandlerResponse?.text()).toBe("repeatable");
+    expect(await secondHandlerResponse?.text()).toBe("repeatable");
+    expect(sharedResponse.bodyUsed).toBe(false);
+    expect(sharedResponse.headers.get("x-frame-options")).toBeNull();
+    expect(firstResponse?.headers.get("x-frame-options")).toBe("DENY");
+    expect(firstResponse?.headers.get("x-source-header")).toBe("preserved");
+
+    for (const path of ["/empty-string", "/empty-bytes", "/empty-response"]) {
+      const response = await app.handleRequest(new Request(`http://localhost${path}`));
+      expect(response?.status).toBe(200);
+      expect(await response?.text()).toBe("");
+      const head = await app.handleRequest(new Request(`http://localhost${path}`, { method: "HEAD" }));
+      expect(head?.status).toBe(200);
+      expect(await head?.text()).toBe("");
+    }
+
+    const missing = await app.handleRequest(new Request("http://localhost/missing-empty"));
+    expect(missing?.status).toBe(404);
+  });
+
   test("app-owned HEAD routes preserve response headers without sending a streamed body", async () => {
     const payload = new TextEncoder().encode("streamed response");
     const app = createWebAppServer({
@@ -744,7 +790,139 @@ describe("server security defaults", () => {
 
     const head = await app.handleRequest(new Request(`http://localhost${path}`, { method: "HEAD" }));
     expect(head?.status).toBe(200);
+    expect(head?.body).toBeNull();
     expect(await head?.text()).toBe("");
+  });
+
+  test("serves every output from a public asset bundle in development", async () => {
+    const path = "/public-bundle/entry.js";
+    const entrypoint = new URL("./fixtures/public-asset-with-sidecar.ts", import.meta.url);
+    const bundle = await compileWebAppPublicAsset({
+      path,
+      entrypoint,
+      contentType: "text/javascript; charset=utf-8",
+      headers: { "cache-control": "no-cache" },
+    });
+    const sidecar = bundle.artifacts.find((artifact) => artifact.kind !== "entry-point");
+    expect(sidecar).toBeDefined();
+
+    const createApp = () => createWebAppServer({
+      appName: "Public Asset Bundle",
+      envPrefix: "TEST_PUBLIC_ASSET_BUNDLE",
+      web: testWeb,
+      store: testStore("public-asset-bundle"),
+      auth: { passkeys: false },
+      publicRoutes: {
+        [path]: createWebAppPublicAsset({
+          path,
+          entrypoint,
+          contentType: "text/javascript; charset=utf-8",
+          headers: { "cache-control": "no-cache" },
+        }),
+      },
+      routes: defineRoutes({}),
+    });
+    const app = createApp();
+
+    const primary = await app.handleRequest(new Request(`http://localhost${path}`));
+    const sidecarResponse = await app.handleRequest(new Request(`http://localhost${sidecar!.path}`));
+    expect(primary?.status).toBe(200);
+    expect(primary?.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+    expect(primary?.headers.get("cache-control")).toBe("no-cache");
+    expect(await primary?.text()).toContain("webapp-public-asset-sidecar");
+    expect(sidecarResponse?.status).toBe(200);
+    expect(sidecarResponse?.headers.get("content-type")).toContain("text/css");
+    expect(sidecarResponse?.headers.get("cache-control")).toBe("no-cache");
+    expect(await sidecarResponse?.text()).toContain("display");
+
+    const repeatedSidecar = await app.handleRequest(new Request(`http://localhost${sidecar!.path}`));
+    expect(await repeatedSidecar?.text()).toBe(await (await app.handleRequest(new Request(`http://localhost${sidecar!.path}`)))?.text());
+
+    await withEnv({
+      TEST_PUBLIC_ASSET_BUNDLE_HOST: "127.0.0.1",
+      TEST_PUBLIC_ASSET_BUNDLE_PORT: "0",
+    }, async () => {
+      const server = await createApp().start();
+      try {
+        const livePrimary = await fetch(new URL(path, server.url));
+        const liveSidecar = await fetch(new URL(sidecar!.path, server.url));
+        expect(livePrimary.status).toBe(200);
+        expect(liveSidecar.status).toBe(200);
+        expect(liveSidecar.headers.get("content-type")).toContain("text/css");
+        expect(await liveSidecar.text()).toContain("display");
+      } finally {
+        await server.stop(true);
+      }
+    });
+  });
+
+  test("rejects public asset sidecar collisions with declared routes", async () => {
+    const path = "/public-bundle-collision/entry.js";
+    const entrypoint = new URL("./fixtures/public-asset-with-sidecar.ts", import.meta.url);
+    const bundle = await compileWebAppPublicAsset({
+      path,
+      entrypoint,
+      contentType: "text/javascript; charset=utf-8",
+    });
+    const sidecar = bundle.artifacts.find((artifact) => artifact.kind !== "entry-point");
+    expect(sidecar).toBeDefined();
+
+    const app = createWebAppServer({
+      appName: "Public Asset Collision",
+      envPrefix: "TEST_PUBLIC_ASSET_COLLISION",
+      store: testStore("public-asset-collision"),
+      auth: { passkeys: false },
+      publicRoutes: {
+        [path]: createWebAppPublicAsset({
+          path,
+          entrypoint,
+          contentType: "text/javascript; charset=utf-8",
+        }),
+        [sidecar!.path]: "override",
+      },
+      routes: defineRoutes({}),
+    });
+
+    await expect(app.handleRequest(new Request(`http://localhost${path}`))).rejects.toThrow(
+      `Public asset path ${sidecar!.path} collides with public route ${sidecar!.path}`,
+    );
+  });
+
+  test("allows public asset sidecars to claim undefined routes", async () => {
+    const path = "/public-bundle-undefined/entry.js";
+    const entrypoint = new URL("./fixtures/public-asset-with-sidecar.ts", import.meta.url);
+    const bundle = await compileWebAppPublicAsset({
+      path,
+      entrypoint,
+      contentType: "text/javascript; charset=utf-8",
+    });
+    const sidecar = bundle.artifacts.find((artifact) => artifact.kind !== "entry-point");
+    expect(sidecar).toBeDefined();
+
+    const route = createWebAppPublicAsset({
+      path,
+      entrypoint,
+      contentType: "text/javascript; charset=utf-8",
+    });
+    const publicRoutes: Record<string, NonNullable<typeof route>> = { [path]: route };
+    Object.defineProperty(publicRoutes, sidecar!.path, {
+      configurable: true,
+      enumerable: true,
+      value: undefined,
+    });
+    const app = createWebAppServer({
+      appName: "Public Asset Undefined Route",
+      envPrefix: "TEST_PUBLIC_ASSET_UNDEFINED",
+      store: testStore("public-asset-undefined"),
+      auth: { passkeys: false },
+      publicRoutes,
+      routes: defineRoutes({}),
+    });
+
+    const response = await app.handleRequest(new Request(`http://localhost${sidecar!.path}`));
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("content-type")).toContain("text/css");
+    expect(await response?.text()).toContain("display");
   });
 
   test("generates framework-owned manifest routes and HTML metadata", async () => {
