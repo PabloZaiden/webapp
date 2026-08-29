@@ -197,6 +197,12 @@ test("device verification ignores an older lookup and gates actions on the curre
     await waitFor(() => expect(view.getByText("new-client")).toBeTruthy());
     expect((view.getByRole("button", { name: "Approve" }) as HTMLButtonElement).disabled).toBe(false);
 
+    const lookupRequestCount = requests.filter((request) => request.path === "/api/auth/device/verification").length;
+    setInputValue(input, " new-code ");
+    expect(view.getByText("new-client")).toBeTruthy();
+    expect((view.getByRole("button", { name: "Approve" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(requests.filter((request) => request.path === "/api/auth/device/verification")).toHaveLength(lookupRequestCount);
+
     setInputValue(input, "different-code");
     expect(view.queryByText("new-client")).toBeNull();
     expect((view.getByRole("button", { name: "Approve" }) as HTMLButtonElement).disabled).toBe(true);

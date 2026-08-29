@@ -289,6 +289,10 @@ export function DeviceVerificationScreen() {
             disabled={decisionPending}
             onInput={(event) => {
               const nextCode = normalizeDeviceCode(event.currentTarget.value);
+              if (nextCode === normalizedCode) {
+                setUserCode(nextCode);
+                return;
+              }
               invalidateLookup();
               setUserCode(nextCode);
               setDetails(undefined);
