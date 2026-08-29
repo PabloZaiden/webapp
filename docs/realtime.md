@@ -67,4 +67,30 @@ ctx.realtime.publishEntityChanged("todos", todo.id, { scope: workspaceId });
 
 Use scoped/global `ctx.realtime` for non-user scopes only when the server validates access to that scope. For per-user app data, prefer `ctx.userRealtime` instead of trusting a client-provided websocket filter.
 
+## Server target matching
+
+Standard event metadata is also the default websocket routing target. The server derives `resource`, `id`, and `scope` from the event, then merges any explicit `target` fields into that target. `userId` and custom dimensions such as `tenantId` narrow delivery without removing the event-derived fields. A target field whose value is `undefined` does not erase an inferred field.
+
+The event metadata is authoritative for `resource`, `id`, and `scope`. Repeating one of those fields in `target` is allowed only when it has the same value; a conflicting value, or a target-only value that would make the event metadata inconsistent, throws before the event is serialized or sent. `ctx.userRealtime` always supplies the authenticated user's ID, even if a caller attempted to provide a different `userId`.
+
+Websocket query filters are combined with the target using AND semantics. A socket must satisfy its authenticated user restriction and every defined filter field to receive the event. The `target` object is routing metadata and is not added to the event payload, so clients should select on the event's `resource`, `id`, and `scope` fields.
+
+## Client refresh lifecycle
+
+`useRealtimeRefresh` applies its resource, action, ID, scope, type, and predicate selectors to the received event before invoking `refresh`. `useLiveQuery` combines the initial load with this refresh path:
+
+```tsx
+const query = useLiveQuery<Todo[]>({
+  load: () => appJson<Todo[]>("/api/todos"),
+  deps: [workspaceId],
+  realtime: { resources: ["todos"], scopes: [workspaceId] },
+});
+```
+
+The `load` callback is kept current without using its identity as a reload trigger. Automatic loads use normal React dependency semantics: only a value in `deps` changing starts a new load. Call `query.refresh()` for an explicit manual refresh.
+
+Each started load has a generation. Only the newest generation can commit `data`, `error`, or the final `loading` state; an older promise that resolves or rejects later is ignored. Unmounting invalidates pending generations. Load failures are normalized to `Error` and remain available through `query.error`.
+
+Realtime events are coalesced while work is active. At most one realtime load runs at a time, with one queued follow-up for a burst of additional matching events. The follow-up uses the latest loader and runs after active work settles, preventing an event burst from creating unbounded concurrent requests.
+
 `ctx.realtime.publish(customEvent)` and `useRealtime({ onEvent })` still exist as low-level escape hatches. The hook reconnects with exponential backoff and uses the same origin as the page.

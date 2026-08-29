@@ -1,6 +1,16 @@
-import type { HttpMethod, RouteAuth, RouteDefinition, RouteTable, SameOriginMode } from "./routes";
-
-const HTTP_METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+import {
+  buildCompiledRoutePath,
+  compileRoutePatterns,
+  compileRouteTable,
+  compareRoutePatterns,
+  matchCompiledRoutePattern,
+  type CompiledRoute,
+  type CompiledRoutePatterns,
+  type HttpMethod,
+  type RouteAuth,
+  type RouteTable,
+  type SameOriginMode,
+} from "./routes";
 
 export interface RouteCatalogEntry {
   path: string;
@@ -22,37 +32,7 @@ export interface RouteCatalogMatch {
   params: Record<string, string>;
 }
 
-function trimSlashes(value: string): string {
-  return value.replace(/^\/+|\/+$/g, "");
-}
-
-function defaultCliPath(path: string): string {
-  return trimSlashes(path.startsWith("/api/") ? path.slice("/api/".length) : path);
-}
-
-function methodsFor<TEvent>(route: RouteDefinition<TEvent>): HttpMethod[] {
-  return HTTP_METHODS.filter((method) => typeof route[method] === "function");
-}
-
-export function createRouteCatalog<TEvent = unknown>(routes: RouteTable<TEvent>): RouteCatalogEntry[] {
-  return Object.entries(routes)
-    .filter(([, route]) => route.catalog !== false)
-    .map(([path, route]) => ({
-      path,
-      cliPath: route.cliPath ?? defaultCliPath(path),
-      methods: methodsFor(route),
-      auth: route.auth ?? "required",
-      sameOrigin: route.sameOrigin ?? "mutations",
-      scopes: route.scopes ?? [],
-      description: route.description,
-      tags: route.tags ?? [],
-      requestSchema: route.requestSchema,
-      querySchema: route.querySchema,
-      responseSchema: route.responseSchema,
-    }))
-    .filter((entry) => entry.methods.length > 0)
-    .sort((left, right) => left.path.localeCompare(right.path));
-}
+const compiledCatalogEntries = new WeakMap<RouteCatalogEntry, CompiledRoutePatterns>();
 
 function normalizeApiPath(input: string): string {
   const [path = ""] = input.trim().split(/[?#]/);
@@ -73,74 +53,67 @@ function normalizeApiPath(input: string): string {
 
 function normalizeCliPath(input: string): string {
   const [path = ""] = input.trim().split(/[?#]/);
-  return trimSlashes(path.startsWith("/api/") ? path.slice("/api/".length) : path);
+  return path.startsWith("/api/")
+    ? path.slice("/api/".length).replace(/^\/+|\/+$/g, "")
+    : path.replace(/^\/+|\/+$/g, "");
 }
 
-function decodePathPart(value: string): string | undefined {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return undefined;
+function catalogEntry<TEvent>(compiled: CompiledRoute<TEvent>): RouteCatalogEntry {
+  const entry: RouteCatalogEntry = {
+    path: compiled.pattern,
+    cliPath: compiled.cliPath,
+    methods: [...compiled.methods],
+    auth: compiled.route.auth ?? "required",
+    sameOrigin: compiled.route.sameOrigin ?? "mutations",
+    scopes: compiled.route.scopes ?? [],
+    description: compiled.route.description,
+    tags: compiled.route.tags ?? [],
+    requestSchema: compiled.route.requestSchema,
+    querySchema: compiled.route.querySchema,
+    responseSchema: compiled.route.responseSchema,
+  };
+  compiledCatalogEntries.set(entry, compiled.patterns);
+  return entry;
+}
+
+export function createRouteCatalog<TEvent = unknown>(routes: RouteTable<TEvent>): RouteCatalogEntry[] {
+  return compileRouteTable(routes).routes
+    .filter((compiled) => compiled.route.catalog !== false)
+    .map((compiled) => catalogEntry(compiled))
+    .sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function compiledPatternsForEntry(entry: RouteCatalogEntry): CompiledRoutePatterns {
+  const existing = compiledCatalogEntries.get(entry);
+  if (existing) {
+    return existing;
   }
-}
-
-function matchPattern(pattern: string, value: string): Record<string, string> | undefined {
-  const patternParts = trimSlashes(pattern).split("/").filter(Boolean);
-  const valueParts = trimSlashes(value).split("/").filter(Boolean);
-  if (patternParts.length !== valueParts.length) {
-    return undefined;
-  }
-  const params: Record<string, string> = {};
-  for (let index = 0; index < patternParts.length; index += 1) {
-    const patternPart = patternParts[index]!;
-    const valuePart = valueParts[index]!;
-    if (patternPart.startsWith(":")) {
-      const decoded = decodePathPart(valuePart);
-      if (decoded === undefined) {
-        return undefined;
-      }
-      params[patternPart.slice(1)] = decoded;
-      continue;
-    }
-    if (patternPart !== valuePart) {
-      return undefined;
-    }
-  }
-  return params;
-}
-
-function concretePath(pattern: string, params: Record<string, string>): string {
-  return trimSlashes(pattern)
-    .split("/")
-    .map((part) => part.startsWith(":") ? encodeURIComponent(params[part.slice(1)] ?? "") : part)
-    .join("/")
-    .replace(/^/, "/");
-}
-
-function specificity(entry: RouteCatalogEntry): number {
-  return entry.path.split("/").reduce((score, part) => score + (part && !part.startsWith(":") ? 2 : 1), 0);
+  const compiled = compileRoutePatterns(entry.path, entry.cliPath);
+  compiledCatalogEntries.set(entry, compiled);
+  return compiled;
 }
 
 export function findRouteCatalogEntry(catalog: readonly RouteCatalogEntry[], input: string): RouteCatalogMatch | undefined {
   const apiPath = normalizeApiPath(input);
   const cliPath = normalizeCliPath(input);
-  const sorted = [...catalog].sort((left, right) => specificity(right) - specificity(left));
-  for (const entry of sorted) {
-    if (entry.path === apiPath) {
-      return { entry, path: apiPath, params: {} };
+  const sorted = catalog
+    .map((entry) => ({ entry, patterns: compiledPatternsForEntry(entry) }))
+    .sort((left, right) => {
+      const specificity = compareRoutePatterns(left.patterns.api, right.patterns.api);
+      return specificity || left.entry.path.localeCompare(right.entry.path);
+    });
+  for (const { entry, patterns } of sorted) {
+    const apiMatch = matchCompiledRoutePattern(patterns.api, apiPath);
+    if (apiMatch.kind === "matched") {
+      return { entry, path: apiPath, params: apiMatch.params };
     }
-    if (entry.cliPath === cliPath) {
-      return { entry, path: entry.path, params: {} };
-    }
-  }
-  for (const entry of sorted) {
-    const apiParams = matchPattern(entry.path, apiPath);
-    if (apiParams) {
-      return { entry, path: apiPath, params: apiParams };
-    }
-    const cliParams = matchPattern(entry.cliPath, cliPath);
-    if (cliParams) {
-      return { entry, path: concretePath(entry.path, cliParams), params: cliParams };
+    const cliMatch = matchCompiledRoutePattern(patterns.cli, cliPath);
+    if (cliMatch.kind === "matched") {
+      return {
+        entry,
+        path: buildCompiledRoutePath(patterns.api, cliMatch.captures),
+        params: cliMatch.params,
+      };
     }
   }
   return undefined;
