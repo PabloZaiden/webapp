@@ -157,6 +157,67 @@ describe("CLI credential profiles", () => {
     expect(output.join("")).toContain("Authenticated with https://app.example.test");
   });
 
+  test("refreshes a device token once when status receives a 401", async () => {
+    const root = `.cache/tests/cli-status-refresh-${crypto.randomUUID()}`;
+    roots.push(root);
+    const profiles = createCliProfileStore({
+      appDirectoryName: "state",
+      home: root,
+    });
+    await profiles.credentials("work").write(credentials("https://app.example.test"));
+    const requests: Array<{ url: string; authorization: string | null }> = [];
+    let statusRequests = 0;
+    let refreshRequests = 0;
+    const cli = createWebAppCli({
+      appName: "Test App",
+      commandName: "test-app",
+      envPrefix: "TEST_STATUS_REFRESH",
+      version: "1.0.0",
+      profileStore: profiles,
+      stdin: emptyInput(),
+      fetchFn: (async (request: string | URL | Request, init?: RequestInit) => {
+        const url = String(request);
+        requests.push({
+          url,
+          authorization: new Headers(init?.headers).get("authorization"),
+        });
+        if (url.endsWith("/api/auth/token")) {
+          refreshRequests++;
+          return Response.json({
+            access_token: "refreshed",
+            refresh_token: "next-refresh",
+            token_type: "Bearer",
+            expires_in: 600,
+            scope: "*",
+          });
+        }
+        statusRequests++;
+        if (statusRequests === 1) {
+          return Response.json({ error: "rejected" }, { status: 401 });
+        }
+        return Response.json({
+          authenticated: true,
+          authKind: "bearer",
+          subject: "user-1",
+          clientId: "test-app-cli",
+          scope: "*",
+        });
+      }) as typeof fetch,
+    });
+
+    const status = await cli.execute(["status", "--profile=work"]);
+
+    expect(status.exitCode).toBe(0);
+    expect(statusRequests).toBe(2);
+    expect(refreshRequests).toBe(1);
+    const statusAuthorizations = requests
+      .filter((request) => request.url.endsWith("/api/auth/status"))
+      .map((request) => request.authorization);
+    expect(statusAuthorizations).toHaveLength(2);
+    expect(statusAuthorizations[0]).not.toBe(statusAuthorizations[1]);
+    expect((await profiles.credentials("work").read())?.accessToken).toBe("refreshed");
+  });
+
   test("validates environment API-key credentials when no profile is stored", async () => {
     const authorizations: Array<string | null> = [];
     const root = `.cache/tests/cli-env-status-${crypto.randomUUID()}`;

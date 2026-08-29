@@ -123,6 +123,45 @@ describe("CLI credential file locks", () => {
     expect(statSync(store.path()).mode & 0o777).toBe(0o600);
   });
 
+  test("uses credentials replaced before a forced refresh reaches the lock", async () => {
+    const initial = credentials({
+      accessTokenExpiresAt: "2026-01-01T00:10:00.000Z",
+    });
+    let persisted = initial;
+    let refreshCalls = 0;
+    const store: JsonFileStore<StoredDeviceCredentials> = {
+      path: () => "memory",
+      read: async () => persisted,
+      write: async (value) => {
+        persisted = value;
+      },
+      clear: async () => undefined,
+      withLock: async <T>(callback: () => Promise<T>) => {
+        persisted = credentials({
+          accessToken: "new-access",
+          refreshToken: "new-refresh",
+          accessTokenExpiresAt: "2026-01-01T00:10:00.000Z",
+        });
+        return callback();
+      },
+    };
+
+    const result = await refreshDeviceCredentials({
+      credentials: initial,
+      store,
+      forceRefresh: { rejectedAccessToken: initial.accessToken },
+      fetchFn: (async (_input: string | URL | Request, _init?: RequestInit) => {
+        refreshCalls++;
+        return tokenResponse();
+      }) as typeof fetch,
+      now,
+    });
+
+    expect(result?.accessToken).toBe("new-access");
+    expect(result?.refreshToken).toBe("new-refresh");
+    expect(refreshCalls).toBe(0);
+  });
+
   test("serializes refreshes across separate Bun processes", async () => {
     const home = await testHome();
     let workerStarts = 0;
@@ -350,6 +389,125 @@ describe("CLI credential file locks", () => {
     expect(result?.refreshToken).toBe("new-refresh");
     expect(refreshCalls).toBe(1);
     expect(await Bun.file(lockPath).exists()).toBe(false);
+  });
+
+  test("does not overlap callbacks while competing callers reclaim a stale lock", async () => {
+    const home = await testHome();
+    const workerCount = 6;
+    let started = 0;
+    let settled = 0;
+    let entered = 0;
+    let timedOut = 0;
+    let active = 0;
+    let maximumActive = 0;
+    const errors: string[] = [];
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let allStarted!: () => void;
+    const allWorkersStarted = new Promise<void>((resolve) => {
+      allStarted = resolve;
+    });
+    let allSettled!: () => void;
+    const allWorkersSettled = new Promise<void>((resolve) => {
+      allSettled = resolve;
+    });
+    const server = Bun.serve({
+      port: 0,
+      fetch: async (request) => {
+        const url = new URL(request.url);
+        switch (url.pathname) {
+          case "/started":
+            started++;
+            if (started === workerCount) allStarted();
+            await allWorkersStarted;
+            return new Response("ok");
+          case "/entered":
+            entered++;
+            active++;
+            maximumActive = Math.max(maximumActive, active);
+            settled++;
+            if (settled === workerCount) allSettled();
+            return new Response("ok");
+          case "/wait":
+            await released;
+            active--;
+            return new Response("ok");
+          case "/timed-out":
+            timedOut++;
+            settled++;
+            if (settled === workerCount) allSettled();
+            return new Response("ok");
+          case "/done":
+            return new Response("ok");
+          case "/error":
+            errors.push(url.searchParams.get("message") ?? "worker error");
+            settled++;
+            if (settled === workerCount) allSettled();
+            return new Response("ok");
+          default:
+            return new Response("not found", { status: 404 });
+        }
+      },
+    });
+    let workers: Array<ReturnType<typeof Bun.spawn>> = [];
+    try {
+      const store = storeFor(home);
+      const initial = credentials({
+        baseUrl: `http://127.0.0.1:${server.port}`,
+      });
+      await store.write(initial);
+      const child = Bun.spawn(["bun", "-e", ""]);
+      const stalePid = child.pid;
+      await child.exited;
+      const lockPath = `${store.path()}.lock`;
+      await Bun.write(lockPath, `${JSON.stringify({
+        version: 1,
+        pid: stalePid,
+        createdAt: Date.now() - 10 * 60_000,
+        owner: "stale-owner",
+      })}\n`);
+      chmodSync(lockPath, 0o600);
+
+      const env = {
+        ...process.env,
+        CLI_STALE_LOCK_TEST_HOME: home,
+        CLI_STALE_LOCK_TEST_BASE_URL: `http://127.0.0.1:${server.port}`,
+      };
+      workers = Array.from({ length: workerCount }, (_, index) => Bun.spawn(
+        ["bun", "tests/fixtures/cli-stale-lock-worker.ts"],
+        {
+          cwd: process.cwd(),
+          env: {
+            ...env,
+            CLI_STALE_LOCK_TEST_WORKER: String(index),
+          },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      ));
+
+      await allWorkersSettled;
+      release();
+      const results = await Promise.all(workers.map(async (worker) => ({
+        exitCode: await worker.exited,
+        output: await subprocessText(worker.stdout),
+        error: await subprocessText(worker.stderr),
+      })));
+      expect(results.every((result) => result.exitCode === 0)).toBe(true);
+      expect(results.every((result) => result.error === "")).toBe(true);
+      expect(errors).toEqual([]);
+      expect(entered).toBeGreaterThanOrEqual(1);
+      expect(timedOut + entered).toBe(workerCount);
+      expect(maximumActive).toBe(1);
+    } finally {
+      release();
+      for (const worker of workers) {
+        if (worker.exitCode === null) worker.kill();
+      }
+      server.stop(true);
+    }
   });
 
   test("does not share a lock between different credential paths", async () => {
