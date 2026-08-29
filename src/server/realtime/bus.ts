@@ -33,6 +33,8 @@ export type RealtimeMessage<TEvent> =
   | { type: "ping" }
   | { type: "pong" };
 
+const inferredTargetFields = ["resource", "id", "scope"] as const;
+
 function targetMatches(socket: ServerWebSocket<WebSocketData>, target: RealtimeTarget | undefined): boolean {
   if (!target) return true;
   if (target.userId !== undefined && socket.data.userId !== target.userId) {
@@ -46,6 +48,30 @@ function targetMatches(socket: ServerWebSocket<WebSocketData>, target: RealtimeT
     }
   }
   return true;
+}
+
+function targetForEvent<TPayload>(event: ResourceRealtimeEvent<TPayload>, explicitTarget?: RealtimeTarget): RealtimeTarget {
+  const inferredTarget: RealtimeTarget = {
+    resource: event.resource,
+    ...(event.id !== undefined ? { id: event.id } : {}),
+    ...(event.scope !== undefined ? { scope: event.scope } : {}),
+  };
+  if (!explicitTarget) return inferredTarget;
+
+  for (const field of inferredTargetFields) {
+    const explicitValue = explicitTarget[field];
+    if (explicitValue !== undefined && explicitValue !== event[field]) {
+      throw new TypeError(`Realtime target ${field} conflicts with event metadata`);
+    }
+  }
+
+  const mergedTarget: RealtimeTarget = { ...inferredTarget };
+  for (const [key, value] of Object.entries(explicitTarget)) {
+    if (value !== undefined) {
+      mergedTarget[key] = value;
+    }
+  }
+  return mergedTarget;
 }
 
 export class RealtimeBus<TEvent = unknown> {
@@ -97,7 +123,7 @@ export class RealtimeBus<TEvent = unknown> {
       action,
       ...eventOptions,
     } satisfies ResourceRealtimeEvent<TPayload>;
-    this.publish(event as TEvent, { target: target ?? { resource, ...(event.id ? { id: event.id } : {}), ...(event.scope ? { scope: event.scope } : {}) } });
+    this.publish(event as TEvent, { target: targetForEvent(event, target) });
   }
 
   get connectionCount(): number {
