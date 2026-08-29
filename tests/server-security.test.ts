@@ -119,6 +119,78 @@ describe("server security defaults", () => {
     expect(aliceMessages).toHaveLength(1);
   });
 
+  test("realtime user targets retain resource, ID, scope, and custom socket filters", () => {
+    const bus = new RealtimeBus<ResourceRealtimeEvent>();
+    const matchingMessages: string[] = [];
+    const wrongEntityMessages: string[] = [];
+    const wrongUserMessages: string[] = [];
+    bus.add({
+      data: {
+        userId: "alice",
+        filters: { resource: "projects", id: "alpha", scope: "workspace", tenantId: "team-1" },
+      },
+      send: (payload: string) => matchingMessages.push(payload),
+    } as never);
+    bus.add({
+      data: {
+        userId: "alice",
+        filters: { resource: "projects", id: "beta", scope: "workspace", tenantId: "team-1" },
+      },
+      send: (payload: string) => wrongEntityMessages.push(payload),
+    } as never);
+    bus.add({
+      data: {
+        userId: "bob",
+        filters: { resource: "projects", id: "alpha", scope: "workspace", tenantId: "team-1" },
+      },
+      send: (payload: string) => wrongUserMessages.push(payload),
+    } as never);
+
+    bus.publishEntityChanged("projects", "alpha", {
+      scope: "workspace",
+      target: { userId: "alice", tenantId: "team-1" },
+    });
+
+    expect(matchingMessages).toHaveLength(1);
+    expect(wrongEntityMessages).toHaveLength(0);
+    expect(wrongUserMessages).toHaveLength(0);
+    expect(JSON.parse(matchingMessages[0]!)).toMatchObject({
+      event: {
+        type: "projects.changed",
+        resource: "projects",
+        action: "changed",
+        id: "alpha",
+        scope: "workspace",
+      },
+    });
+  });
+
+  test("realtime target metadata must agree with event metadata", () => {
+    const bus = new RealtimeBus<ResourceRealtimeEvent>();
+    const messages: string[] = [];
+    bus.add({
+      data: { filters: { resource: "projects", id: "alpha", scope: "workspace" } },
+      send: (payload: string) => messages.push(payload),
+    } as never);
+
+    bus.publishEntityChanged("projects", "alpha", {
+      scope: "workspace",
+      target: { resource: "projects", id: "alpha", scope: "workspace" },
+    });
+    expect(messages).toHaveLength(1);
+
+    expect(() => bus.publishEntityChanged("projects", "alpha", { target: { resource: "todos" } })).toThrow(
+      "Realtime target resource conflicts with event metadata",
+    );
+    expect(() => bus.publishEntityChanged("projects", "alpha", { target: { id: "beta" } })).toThrow(
+      "Realtime target id conflicts with event metadata",
+    );
+    expect(() => bus.publishEntityChanged("projects", "alpha", { scope: "workspace", target: { scope: "other" } })).toThrow(
+      "Realtime target scope conflicts with event metadata",
+    );
+    expect(messages).toHaveLength(1);
+  });
+
   test("config exposes passkey bootstrap and disabled states", async () => {
     const enabledApp = createWebAppServer({
       appName: "Test",
