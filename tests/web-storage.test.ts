@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { cleanup } from "@testing-library/react";
 import { createLogger } from "../src/web/logger";
-import { readStorage, removeStorage, writeStorage } from "../src/web/storage";
+import { readStorage, removeStorage, warnStorageIssue, writeStorage } from "../src/web/storage";
 
 if (!GlobalRegistrator.isRegistered) {
   GlobalRegistrator.register({ url: "http://localhost/" });
@@ -137,5 +137,21 @@ test("safe storage de-duplicates repeated warnings for one operation and key", (
   } finally {
     detach();
     restore();
+  }
+});
+
+test("safe storage reports encoding failures separately from writes", () => {
+  const key = "encoding-storage-warning";
+  const logger = createLogger("webapp:storage");
+  const warnings: unknown[] = [];
+  const detach = logger.attachTransport((record) => {
+    warnings.push(record);
+  });
+  try {
+    warnStorageIssue(key, "encoding-failed");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({ 1: { code: "encoding-failed", key } });
+  } finally {
+    detach();
   }
 });

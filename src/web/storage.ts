@@ -15,6 +15,7 @@ export type StorageWriteResult = { ok: true } | StorageFailure;
 
 export type StorageWarningCode =
   | "invalid-value"
+  | "encoding-failed"
   | "unavailable"
   | "read-failed"
   | "write-failed";
@@ -58,6 +59,15 @@ export function warnStorageIssue(key: string, code: StorageWarningCode): void {
     }
     reportedWarnings.add(signature);
     storageLogger.warn("Invalid browser storage value ignored.", { key, code });
+    return;
+  }
+  if (code === "encoding-failed") {
+    const signature = `${code}:${key}`;
+    if (reportedWarnings.has(signature)) {
+      return;
+    }
+    reportedWarnings.add(signature);
+    storageLogger.warn("Browser storage value could not be encoded.", { key, code });
     return;
   }
   reportWarning(key, code);

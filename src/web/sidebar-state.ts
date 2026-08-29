@@ -287,7 +287,7 @@ export function useSidebarPins(appName: string, storageKey: string | undefined, 
     }
     const encoded = encodeStoredPins(currentPins);
     if (encoded === undefined) {
-      warnStorageIssue(key, "write-failed");
+      warnStorageIssue(key, "encoding-failed");
       return;
     }
     writeStorage(key, encoded);
@@ -331,7 +331,7 @@ export function useSidebarCollapsedState(appName: string) {
   useEffect(() => {
     const encoded = encodeStoredCollapsedState(collapsed);
     if (encoded === undefined) {
-      warnStorageIssue(key, "write-failed");
+      warnStorageIssue(key, "encoding-failed");
       return;
     }
     writeStorage(key, encoded);
