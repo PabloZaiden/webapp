@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { ThemePreference } from "../contracts";
 import { appJson } from "./api-client";
 import { useAsyncOperation } from "./async-operation";
+import { readStorage, warnStorageIssue, writeStorage } from "./storage";
 
 const THEME_STORAGE_KEY = "webapp.theme";
 const THEME_MEDIA_QUERY = "(prefers-color-scheme: dark)";
@@ -27,13 +28,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+type ThemeStorageDecode = {
+  preference: ThemePreference;
+  valid: boolean;
+};
+
+function decodeStoredPreference(value: string | null): ThemeStorageDecode {
+  if (value === null) {
+    return { preference: "system", valid: true };
+  }
+  return isThemePreference(value)
+    ? { preference: value, valid: true }
+    : { preference: "system", valid: false };
+}
+
+function encodeStoredPreference(value: unknown): string | undefined {
+  return isThemePreference(value) ? value : undefined;
+}
+
 function readStoredPreference(): ThemePreference {
   if (typeof window === "undefined") {
     return "system";
   }
 
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-  return isThemePreference(stored) ? stored : "system";
+  const result = readStorage(THEME_STORAGE_KEY);
+  if (!result.ok) {
+    return "system";
+  }
+  const decoded = decodeStoredPreference(result.value);
+  if (!decoded.valid) {
+    warnStorageIssue(THEME_STORAGE_KEY, "invalid-value");
+  }
+  return decoded.preference;
 }
 
 function readSystemTheme(): ResolvedTheme {
@@ -106,7 +132,12 @@ export function ThemeProvider({ userId, children }: { userId?: string; children:
     root.style.colorScheme = resolvedTheme;
     root.dataset["theme"] = preference;
     root.dataset["resolvedTheme"] = resolvedTheme;
-    window.localStorage.setItem(THEME_STORAGE_KEY, preference);
+    const encoded = encodeStoredPreference(preference);
+    if (encoded === undefined) {
+      warnStorageIssue(THEME_STORAGE_KEY, "write-failed");
+      return;
+    }
+    writeStorage(THEME_STORAGE_KEY, encoded);
   }, [preference, resolvedTheme]);
 
   const retry = useCallback(async () => {

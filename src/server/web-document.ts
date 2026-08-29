@@ -236,7 +236,15 @@ function themeBootScript(themeColor: string | undefined): string {
   return `(() => {
   const key = "webapp.theme";
   const root = document.documentElement;
-  const stored = window.localStorage.getItem(key);
+  let stored = null;
+  try {
+    const storage = window.localStorage;
+    if (storage && typeof storage.getItem === "function") {
+      stored = storage.getItem(key);
+    }
+  } catch {
+    stored = null;
+  }
   const preference = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
   const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
   const resolved = preference === "system" ? (systemDark ? "dark" : "light") : preference;
