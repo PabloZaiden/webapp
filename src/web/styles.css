@@ -2455,6 +2455,10 @@ textarea::placeholder {
   inset: 0;
   border: 0;
   background: var(--wapp-overlay-bg);
+}
+
+.wapp-dialog-backdrop,
+.wapp-modal-overlay {
   backdrop-filter: var(--wapp-overlay-blur);
 }
 
