@@ -2,6 +2,7 @@ import { chmodSync, closeSync, existsSync, openSync } from "node:fs";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import {
+  WEB_APP_CONFIG_VERSION,
   parsePort,
   parseWebAppPersistedConfig,
   readRuntimeConfig,
@@ -676,7 +677,7 @@ function setConfigValue(
 ): WebAppPersistedConfig | CliCommandResult {
   const next: WebAppPersistedConfig = {
     ...config,
-    version: 1,
+    version: WEB_APP_CONFIG_VERSION,
   };
   if (key === "host") {
     if (!value.trim() || /[\s/?#]/.test(value)) {
@@ -714,7 +715,7 @@ function unsetConfigValue(
   config: WebAppPersistedConfig,
   key: string,
 ): WebAppPersistedConfig | CliCommandResult {
-  const next: WebAppPersistedConfig = { ...config, version: 1 };
+  const next: WebAppPersistedConfig = { ...config, version: WEB_APP_CONFIG_VERSION };
   if (key === "host" || key === "port") {
     if (next.server) {
       const server = { ...next.server };
@@ -770,7 +771,7 @@ async function runServeConfigCommand<TAppContext>(
     if (args.length > 0) {
       return { exitCode: 1, error: "serve config show does not accept arguments" };
     }
-    const config = await store.read() ?? { version: 1 };
+    const config = await store.read() ?? { version: WEB_APP_CONFIG_VERSION };
     const effective = readRuntimeConfig({
       appName: input.appName,
       envPrefix: input.envPrefix,
@@ -800,7 +801,7 @@ async function runServeConfigCommand<TAppContext>(
   const key = args[0]!;
   let result: WebAppPersistedConfig | CliCommandResult | undefined;
   await store.withLock!(async () => {
-    const current = await store.read() ?? { version: 1 };
+    const current = await store.read() ?? { version: WEB_APP_CONFIG_VERSION };
     result = action === "set"
       ? setConfigValue(current, key, args[1]!)
       : unsetConfigValue(current, key);
