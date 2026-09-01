@@ -32,6 +32,7 @@ export interface CliProfileStoreOptions {
   appDirectoryName: string;
   envHome?: string;
   home?: string;
+  stateDirectory?: () => string;
 }
 
 const DEFAULT_PROFILE = "default";
@@ -70,6 +71,7 @@ export function createCliProfileStore(input: CliProfileStoreOptions): CliProfile
     fileName: "profiles.json",
     envHome: input.envHome,
     home: input.home,
+    stateDirectory: input.stateDirectory,
     parse: parseProfileIndex,
   });
   const credentialStores = new Map<string, JsonFileStore<StoredDeviceCredentials>>();
@@ -92,6 +94,9 @@ export function createCliProfileStore(input: CliProfileStoreOptions): CliProfile
         appDirectoryName: join(input.appDirectoryName, "profiles", profileName),
         envHome: input.envHome,
         home: input.home,
+        stateDirectory: input.stateDirectory
+          ? () => join(input.stateDirectory!(), "profiles", profileName)
+          : undefined,
       });
       credentialStores.set(profileName, store);
     }

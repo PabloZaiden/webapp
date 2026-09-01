@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createLogger, createWebAppServer, defineRoutes, jsonResponse, parseJson, parseOptionalJson, sqliteWebAppStore, type ResourceRealtimeEvent, type WebAppStore } from "@pablozaiden/webapp/server";
+import { createLogger, createWebAppServer, defineRoutes, jsonResponse, parseJson, parseOptionalJson, readRuntimeConfig, resolveAppDataDir, sqliteWebAppStore, type ResourceRealtimeEvent, type WebAppStore } from "@pablozaiden/webapp/server";
 import { createNotesTodoStore, type NotesTodoStore } from "./app-store";
 import favicon from "./favicon.svg";
 
@@ -198,13 +198,28 @@ export function createNotesTodoRuntime(options: {
   store?: WebAppStore;
   appStore?: NotesTodoStore;
 } = {}) {
-  const dataDir = options.dataDir ?? process.env["NOTES_TODO_DATA_DIR"] ?? "./data";
+  const appDirectoryName = ".notes-todo";
+  const dataDir = options.dataDir ?? resolveAppDataDir({
+    envPrefix: "NOTES_TODO",
+    appDirectoryName,
+  });
+  const runtimeEnvironment = options.dataDir === undefined
+    ? process.env
+    : { ...process.env, NOTES_TODO_DATA_DIR: dataDir };
+  const runtimeConfig = readRuntimeConfig({
+    appName: "Notes TODO",
+    envPrefix: "NOTES_TODO",
+    appDirectoryName,
+    environment: runtimeEnvironment,
+  });
   const store = options.store ?? sqliteWebAppStore({ dataDir });
   const appStore = options.appStore ?? createNotesTodoStore({ dataDir });
   const routes = createNotesTodoRoutes(store, appStore);
   const app = createWebAppServer<NotesTodoEvent>({
     appName: "Notes TODO",
     envPrefix: "NOTES_TODO",
+    appDirectoryName,
+    runtimeConfig,
     web: {
       icons: {
         favicon: { src: favicon, sizes: "any", type: "image/svg+xml" },

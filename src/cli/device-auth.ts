@@ -67,12 +67,14 @@ export function createDeviceCredentialsStore(input: {
   envHome?: string;
   fileName?: string;
   home?: string;
+  stateDirectory?: () => string;
 }): JsonFileStore<StoredDeviceCredentials> {
   return createJsonFileStore({
     appDirectoryName: input.appDirectoryName,
     fileName: input.fileName ?? "device-auth.json",
     envHome: input.envHome,
     home: input.home,
+    stateDirectory: input.stateDirectory,
     parse: parseStoredDeviceCredentials,
   });
 }

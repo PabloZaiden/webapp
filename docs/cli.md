@@ -37,6 +37,65 @@ const cli = createWebAppCli({
 process.exitCode = await cli.run();
 ```
 
+## Server state and lifecycle
+
+The framework stores application state under `$HOME/.<command-name>` by
+default. For an application with `envPrefix: "MY_APP"`, setting
+`MY_APP_DATA_DIR` replaces that directory completely. The directory contains
+the SQLite data, `config.json`, the detached server PID file, and
+`logs/server.log`. `config.json` contains only bootstrap configuration and is
+versioned separately from the application database.
+
+`serve` without a subcommand remains the foreground server command used by
+Docker, systemd, launchd, and development shells. The detached lifecycle is
+explicit:
+
+```bash
+my-app serve up
+my-app serve up --dev
+my-app serve status
+my-app serve down
+my-app serve config show
+my-app serve config set host 127.0.0.1
+my-app serve config set port 3000
+my-app serve config set development.source-path /path/to/source
+my-app serve config unset development.source-path
+```
+
+`serve up` refuses to stop a process it cannot identify as an instance of the
+same application. It starts the replacement with detached standard streams,
+writes a PID file, and waits for the public `/api/health` endpoint before
+returning. `serve up --dev` requires a configured
+`development.source-path`, runs the application-provided build adapter first,
+and then starts the generated server command without passing `--dev` to the
+child. Host and port flags on `serve up`, `serve down`, and `serve status` are
+one-shot overrides; `serve config set` persists values.
+
+Applications provide the development-specific build and generated command
+without putting application paths in the framework:
+
+```ts
+createWebAppCli({
+  // ...
+  serve: {
+    development: {
+      build: async ({ sourcePath }) => {
+        await buildApplication(sourcePath);
+      },
+      command: ({ sourcePath }) => [
+        resolve(sourcePath, "dist", "my-app"),
+        "serve",
+      ],
+    },
+  },
+});
+```
+
+The optional `serve.command` callback can replace the current-process command
+used by the default `serve up` mode. The detached parent only resolves
+configuration, builds when requested, and launches the command; it does not
+construct the application server or initialize its database.
+
 The built-in commands are:
 
 - `help`

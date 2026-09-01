@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createLogger, createWebAppServer, defineRoutes, jsonResponse, parseJson, sqliteWebAppStore, type ResourceRealtimeEvent, type WebAppStore } from "@pablozaiden/webapp/server";
+import { createLogger, createWebAppServer, defineRoutes, jsonResponse, parseJson, readRuntimeConfig, resolveAppDataDir, sqliteWebAppStore, type ResourceRealtimeEvent, type WebAppStore } from "@pablozaiden/webapp/server";
 import { createKitchenSinkStore, type KitchenSinkStore } from "./app-store";
 import favicon from "./favicon.svg";
 
@@ -112,13 +112,28 @@ export function createKitchenSinkRuntime(options: {
   store?: WebAppStore;
   appStore?: KitchenSinkStore;
 } = {}) {
-  const dataDir = options.dataDir ?? process.env["KITCHEN_SINK_DATA_DIR"] ?? "./data";
+  const appDirectoryName = ".kitchen-sink";
+  const dataDir = options.dataDir ?? resolveAppDataDir({
+    envPrefix: "KITCHEN_SINK",
+    appDirectoryName,
+  });
+  const runtimeEnvironment = options.dataDir === undefined
+    ? process.env
+    : { ...process.env, KITCHEN_SINK_DATA_DIR: dataDir };
+  const runtimeConfig = readRuntimeConfig({
+    appName: "Kitchen Sink",
+    envPrefix: "KITCHEN_SINK",
+    appDirectoryName,
+    environment: runtimeEnvironment,
+  });
   const store = options.store ?? sqliteWebAppStore({ dataDir });
   const appStore = options.appStore ?? createKitchenSinkStore({ dataDir });
   const routes = createKitchenSinkRoutes(store, appStore);
   const app = createWebAppServer<Event>({
     appName: "Kitchen Sink",
     envPrefix: "KITCHEN_SINK",
+    appDirectoryName,
+    runtimeConfig,
     web: {
       icons: {
         favicon: { src: favicon, sizes: "any", type: "image/svg+xml" },

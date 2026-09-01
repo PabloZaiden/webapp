@@ -479,17 +479,24 @@ function chmodIfPossible(path: string, mode: number): void {
 }
 
 export function createJsonFileStore<T>(input: {
-  appDirectoryName: string;
+  appDirectoryName?: string;
   fileName: string;
   envHome?: string;
   parse(value: unknown): T;
   home?: string;
+  stateDirectory?: () => string;
 }): JsonFileStore<T> {
   const stateDir = () => {
+    if (input.stateDirectory) {
+      return input.stateDirectory();
+    }
     const explicit = input.envHome ? process.env[input.envHome]?.trim() : undefined;
     const home = input.home ?? process.env["HOME"]?.trim();
     if (explicit) return explicit;
     if (!home) throw new Error("HOME is not set");
+    if (!input.appDirectoryName) {
+      throw new Error("appDirectoryName is required when stateDirectory is not configured");
+    }
     return join(home, input.appDirectoryName);
   };
   const filePath = () => join(stateDir(), input.fileName);

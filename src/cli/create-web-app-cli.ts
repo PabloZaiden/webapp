@@ -1,5 +1,6 @@
 import type { UpdaterConfig } from "@pablozaiden/installer";
 import type { RouteCatalogEntry } from "../server/route-catalog";
+import { resolveAppDataDir } from "../server/runtime-config";
 import { createBuiltInCommands } from "./built-in-commands";
 import type { CliEnvironment } from "./environment-auth";
 import {
@@ -30,6 +31,30 @@ export interface WebAppCliCommandContext<TAppContext = undefined> {
   stdout: CliOutput;
   stderr: CliOutput;
   appContext: TAppContext;
+}
+
+export type WebAppServerCommand = readonly [string, ...string[]];
+
+export interface WebAppServeDevelopmentOptions<TAppContext = undefined> {
+  build(input: {
+    sourcePath: string;
+    appContext: TAppContext;
+  }): void | Promise<void>;
+  command(input: {
+    sourcePath: string;
+    appContext: TAppContext;
+  }): WebAppServerCommand | Promise<WebAppServerCommand>;
+}
+
+export interface WebAppServeOptions<TAppContext = undefined> {
+  command?(input: {
+    mode: "default" | "development";
+    sourcePath?: string;
+    appContext: TAppContext;
+  }): WebAppServerCommand | Promise<WebAppServerCommand>;
+  development?: WebAppServeDevelopmentOptions<TAppContext>;
+  healthPath?: string;
+  readinessTimeoutMs?: number;
 }
 
 export interface WebAppCliCommandDefinition<TAppContext = undefined> {
@@ -65,6 +90,7 @@ export interface CreateWebAppCliOptions<TAppContext = undefined> {
   webSocketFactory?: CliWebSocketFactory;
   signals?: CliSignalSource;
   start?: () => unknown | Promise<unknown>;
+  serve?: WebAppServeOptions<TAppContext>;
   config?: () => unknown | Promise<unknown>;
   update?: UpdaterConfig;
   commands?: WebAppCliCommandMap<TAppContext>;
@@ -144,9 +170,22 @@ export function createWebAppCli<TAppContext = undefined>(
   const stdin = input.stdin ?? defaultInput();
   const stdout = input.stdout ?? process.stdout;
   const stderr = input.stderr ?? process.stderr;
+  const appDirectoryName = input.appDirectoryName ?? `.${input.commandName}`;
+  const normalizedInput = input.appDirectoryName === appDirectoryName
+    ? input
+    : { ...input, appDirectoryName };
+  const profileStateDirectory = () => (
+    environment[`${input.envPrefix}_CLI_HOME`]?.trim()
+    || resolveAppDataDir({
+      envPrefix: input.envPrefix,
+      appDirectoryName,
+      environment,
+    })
+  );
   const profiles = input.profileStore ?? createCliProfileStore({
-    appDirectoryName: input.appDirectoryName ?? `.${input.commandName}`,
+    appDirectoryName,
     envHome: `${input.envPrefix}_CLI_HOME`,
+    stateDirectory: profileStateDirectory,
   });
   const realtimePath = input.realtimePath ?? "/api/ws";
   const appContext = input.appContext as TAppContext;
@@ -179,7 +218,7 @@ export function createWebAppCli<TAppContext = undefined>(
   }
 
   const builtIns = createBuiltInCommands({
-    input,
+    input: normalizedInput,
     profiles,
     environment,
     fetchFn,

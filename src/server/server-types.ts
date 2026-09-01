@@ -43,6 +43,7 @@ export interface WebAppServerLifecycleHooks {
 export interface WebAppServerConfig<TEvent = unknown> {
   appName: string;
   envPrefix: string;
+  appDirectoryName?: string;
   runtimeConfig?: RuntimeConfig;
   web?: WebAppDocumentConfig;
   server?: WebAppServerOptions;
