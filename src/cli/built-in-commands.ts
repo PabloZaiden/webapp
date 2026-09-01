@@ -24,6 +24,7 @@ import {
 import type { CliProfileStore } from "./profiles";
 import { readOption, type CliCommandResult } from "./runtime";
 import { runServerLogsCliCommand } from "./server-logs-command";
+import { runServeCommand, serveCommandDescription, serveCommandUsage } from "./server-lifecycle";
 import { updateCommand } from "./update-command";
 import {
   runWebSocketCliCommand,
@@ -130,20 +131,9 @@ function serveCommand<TAppContext>(
   input: CreateWebAppCliOptions<TAppContext>,
 ): WebAppCliCommandDefinition<TAppContext> {
   return {
-    description: "Start the application server.",
-    usage: "serve",
-    handler: async ({ args }) => {
-      const invalid = unexpectedArguments("serve", args);
-      if (invalid) return invalid;
-      if (!input.start) {
-        return {
-          exitCode: 1,
-          error: "No application start callback is configured",
-        };
-      }
-      await input.start();
-      return { exitCode: 0 };
-    },
+    description: serveCommandDescription(),
+    usage: serveCommandUsage(),
+    handler: async (context) => await runServeCommand(input, context),
   };
 }
 
@@ -166,7 +156,7 @@ function configCommand<TAppContext>(
   return {
     description: "Print the resolved safe runtime configuration.",
     usage: "config",
-    handler: async ({ args }) => {
+    handler: async ({ args, environment }) => {
       const invalid = unexpectedArguments("config", args);
       if (invalid) return invalid;
       const value = input.config
@@ -174,6 +164,8 @@ function configCommand<TAppContext>(
         : safeRuntimeConfig(readRuntimeConfig({
             appName: input.appName,
             envPrefix: input.envPrefix,
+            appDirectoryName: input.appDirectoryName,
+            environment,
           }));
       return { exitCode: 0, output: jsonOutput(value) };
     },

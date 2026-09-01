@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import type {
@@ -51,7 +51,16 @@ function json<T>(value: unknown, fallback: T): T {
 export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string } = {}): WebAppStore {
   const dataDir = options.dataDir ?? "./data";
   const dbPath = join(dataDir, options.fileName ?? "webapp.sqlite");
-  mkdirSync(dirname(dbPath), { recursive: true });
+  const databaseDirectory = dirname(dbPath);
+  const directoryExisted = existsSync(databaseDirectory);
+  mkdirSync(databaseDirectory, { recursive: true, mode: 0o700 });
+  if (!directoryExisted) {
+    try {
+      chmodSync(databaseDirectory, 0o700);
+    } catch {
+      // Filesystems without POSIX permissions are allowed to ignore chmod.
+    }
+  }
   const db = new Database(dbPath);
   db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};`);
 

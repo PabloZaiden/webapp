@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { rmSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
   createWebAppCli,
   type CliProfileStore,
@@ -130,7 +132,53 @@ describe("composable web app CLI", () => {
     expect(topLevel.output).toContain("Usage: test-app [--profile NAME] <command>");
     expect(topLevel.output).toContain("profile");
     expect(command.output).toContain("Usage: test-app [--profile NAME] serve");
+    expect(command.output).toContain("serve up --dev");
     expect(served.exitCode).toBe(0);
     expect(starts).toBe(1);
+  });
+
+  test("stores default CLI profiles inside the configured application state directory", async () => {
+    const root = resolve(".cache/tests/cli-state", crypto.randomUUID());
+    const dataDir = join(root, "state");
+    const home = join(root, "home");
+    try {
+      const cli = createWebAppCli({
+        appName: "Test",
+        commandName: "test-app",
+        envPrefix: "TEST_APP",
+        version: "1.2.3",
+        environment: {
+          HOME: home,
+          TEST_APP_DATA_DIR: dataDir,
+        },
+        stdin: cliInput(),
+        commands: {
+          save: {
+            description: "Save test credentials.",
+            handler: async ({ profiles }) => {
+              await profiles.credentials("saved").write({
+                baseUrl: "https://example.test",
+                clientId: "test",
+                accessToken: "access",
+                refreshToken: "refresh",
+                tokenType: "Bearer",
+                scope: "test",
+                accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              });
+              return { exitCode: 0 };
+            },
+          },
+        },
+      });
+
+      expect((await cli.execute(["save"])).exitCode).toBe(0);
+      expect(await Bun.file(join(dataDir, "profiles.json")).exists()).toBe(true);
+      expect(await Bun.file(join(dataDir, "profiles", "saved", "device-auth.json")).exists()).toBe(true);
+      expect(await Bun.file(join(home, ".test-app", "profiles.json")).exists()).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

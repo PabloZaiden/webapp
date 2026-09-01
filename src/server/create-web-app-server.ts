@@ -61,7 +61,11 @@ function canUseSpaFallback(req: Request): boolean {
 }
 
 export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<TEvent>): WebAppServer<TEvent> {
-  const config = input.runtimeConfig ?? readRuntimeConfig({ appName: input.appName, envPrefix: input.envPrefix });
+  const config = input.runtimeConfig ?? readRuntimeConfig({
+    appName: input.appName,
+    envPrefix: input.envPrefix,
+    appDirectoryName: input.appDirectoryName,
+  });
   if (config.appName !== input.appName || config.envPrefix !== input.envPrefix) {
     throw new Error("runtimeConfig appName and envPrefix must match the createWebAppServer inputs");
   }

@@ -350,7 +350,7 @@ The app configures an uppercase `envPrefix`; the framework reads only variables 
 | --- | --- | --- |
 | `{PREFIX}_HOST` | `localhost` | Bind host |
 | `{PREFIX}_PORT` | `3000` | Bind port |
-| `{PREFIX}_DATA_DIR` | `./data` | Durable SQLite persistence directory for framework auth and app data |
+| `{PREFIX}_DATA_DIR` | `$HOME/.<app>` | Durable SQLite persistence directory for framework auth and app data; an explicit value replaces the default completely |
 | `{PREFIX}_LOG_LEVEL` | `info` | `silly`, `trace`, `debug`, `info`, `warn`, `error`, `fatal`; locks settings log-level control when set |
 | `{PREFIX}_IN_MEMORY_LOGS` | `false` | Initial value for process-local server-log capture; `true`, `1`, or `yes` enables it |
 | `{PREFIX}_DISABLE_PASSKEY` | unset | Emergency bypass that authenticates as the stored owner or creates an `admin` owner when none exists; it does not create additional users |
@@ -362,7 +362,8 @@ The app configures an uppercase `envPrefix`; the framework reads only variables 
 | `{PREFIX}_AUTH_ISSUER` | `urn:{prefix}:webapp` | JWT issuer override |
 
 The configured data directory contains the framework-owned
-`webapp.sqlite`. The example applications keep their application entities in
+`webapp.sqlite`, `config.json`, and detached-server state under `server.pid`
+and `logs/server.log`. The example applications keep their application entities in
 separate files in that same directory: Notes TODO uses `notes-todo.sqlite`
 for sections, notes and todos, while Kitchen Sink uses `kitchen-sink.sqlite`
 for projects. Keeping these files separate prevents example-specific tables

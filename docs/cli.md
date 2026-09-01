@@ -37,6 +37,86 @@ const cli = createWebAppCli({
 process.exitCode = await cli.run();
 ```
 
+## Server state and lifecycle
+
+The framework stores application state under `$HOME/.<app-directory-name>` by
+default. When `appDirectoryName` is omitted, the directory name is derived
+from the uppercase `envPrefix` (`MY_APP` becomes `.my-app`). For an
+application with `envPrefix: "MY_APP"`, setting `MY_APP_DATA_DIR` replaces that
+directory completely. The directory contains the SQLite data, `config.json`,
+the detached server PID file, and `logs/server.log`. `config.json` contains
+only bootstrap configuration and is versioned separately from the application
+database.
+
+`serve` without a subcommand remains the foreground server command used by
+Docker, systemd, launchd, and development shells. The detached lifecycle is
+explicit:
+
+```bash
+my-app serve up
+my-app serve up --dev
+my-app serve status
+my-app serve down
+my-app serve config show
+my-app serve config set host 127.0.0.1
+my-app serve config set port 3000
+my-app serve config set development.source-path /path/to/source
+my-app serve config unset development.source-path
+```
+
+`serve up` refuses to stop a process it cannot identify as an instance of the
+same application. It starts the replacement with detached standard streams,
+writes a PID file, and waits for the public `/api/health` endpoint before
+returning. If the port is already occupied by an unrecognized process, the
+command fails without stopping it. `serve down` is idempotent and removes
+stale PID metadata after the managed process has stopped.
+
+`serve up --dev` requires a configured, existing `development.source-path`.
+The application-provided build adapter runs before the current server is
+stopped, so a failed build leaves the current server running. On success, the
+generated server command starts without passing `--dev` to the child. Host and
+port flags on `serve up`, `serve down`, and `serve status` are one-shot
+overrides; `serve config set` persists values. Environment variables take
+precedence over persisted host and port values.
+
+Applications provide the development-specific build and generated command
+without putting application paths in the framework:
+
+```ts
+createWebAppCli({
+  // ...
+  serve: {
+    development: {
+      build: async ({ sourcePath }) => {
+        await buildApplication(sourcePath);
+      },
+      command: ({ sourcePath }) => [
+        resolve(sourcePath, "dist", "my-app"),
+        "serve",
+      ],
+    },
+  },
+});
+```
+
+The optional `serve.command` callback can replace the current-process command
+used by the default `serve up` mode. The detached parent only resolves
+configuration, builds when requested, and launches the command; it does not
+construct the application server or initialize its database.
+
+`healthPath` and `readinessTimeoutMs` customize the readiness probe when an
+application does not expose its health endpoint at `/api/health`:
+
+```ts
+createWebAppCli({
+  // ...
+  serve: {
+    healthPath: "/health",
+    readinessTimeoutMs: 30_000,
+  },
+});
+```
+
 The built-in commands are:
 
 - `help`
