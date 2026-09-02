@@ -1,7 +1,7 @@
 ---
 name: webapp
-version: 0.5.9
-description: 'Build, modify, validate, and ship apps using @pablozaiden/webapp. Use when creating framework apps, adding routes, auth, settings, realtime, sidebar actions, Docker, GitHub Actions, screenshots, Playwright validation, or explaining how to test applications that use webapp with Playwright.'
+version: 0.5.10
+description: 'Build, modify, validate, and ship apps using @pablozaiden/webapp. Use when creating framework apps, adding routes, auth, settings, realtime, sidebar actions, Docker, GitHub Actions, screenshots, Bun.WebView validation, or explaining how to inspect applications that use webapp with Bun.WebView.'
 ---
 
 # Webapp framework skill
@@ -32,7 +32,7 @@ the application being built; they are not expected to exist beside this skill.
 - PWA is enabled by default. Lightweight examples may use generated initials icons, but production apps should set `web.icons` with favicon, Apple-touch, and 192x192/512x512 manifest PNGs. Icon paths are relative to the app package root.
 - Keep the product as one app and one binary with subcommands (`serve`, `version`, app-specific commands, and optional framework-backed `auth`/`api`/`schema` commands). Do not split web/server/CLI into separate apps or binaries unless there is a real package boundary.
 - Keep generated apps and tooling cross-platform across macOS and Linux on arm64 and x86-64.
-- Use Playwright for all browser automation and screenshots; do not hard-code Chrome, browser executable paths, or OS-specific browser automation.
+- Use `Bun.WebView` from Bun 1.4+ for browser automation and screenshots; do not add external browser automation packages or launch a browser directly from an application.
 - When screenshots are captured to validate a visual change, review them against the specific goal; capture alone is not validation.
 - Configure env through a single uppercase `envPrefix`; read framework env as `{PREFIX}_...`.
 - Prefer the framework shell, settings and auth conventions when in doubt.
@@ -100,96 +100,163 @@ the application being built; they are not expected to exist beside this skill.
 The canonical lifecycle API is documented in
 [`docs/cli.md`](https://github.com/PabloZaiden/webapp/blob/main/docs/cli.md).
 
-## Visual validation with Playwright
+## Headless browser validation with Bun.WebView
 
-This workflow is for the coding agent when validating an application that depends on `@pablozaiden/webapp`, not for the application itself. Do not add Playwright dependencies, scripts, configuration, or test files to the application.
+This workflow is for the coding agent when validating an application that depends on
+`@pablozaiden/webapp`, not for the application itself. Bun 1.4+ and a compatible
+browser are required; this workflow intentionally has no fallback. Do not add
+`Bun.WebView`, browser binaries, external browser automation packages, browser
+scripts, or browser configuration to the application. `Bun.WebView` is an
+experimental Bun API, so keep the harness small and disposable.
 
-Use the official Node package `playwright` for browser automation and screenshots. Use its CLI only for version checks and browser installation; use the Node API for navigation, accessible interactions, snapshots, viewport changes and cleanup. Do not use system Chrome or hard-code browser executable paths.
+On Linux, use Chromium (or another Chrome-family browser) available through
+`PATH`. The repository devcontainer installs the Chrome for Testing headless
+shell and exposes it as `chromium`, so no executable path should be hard-coded.
+On macOS, the default backend is the system `WKWebView`; this is not Safari and
+does not require a browser download. The Chrome backend is available on macOS
+too, but the WebKit backend is the default there.
 
-The environment must provide Node.js 18+ and npm. Confirm the official package and browser installation with:
+Start the application with its normal Bun server and use the URL it announces.
+Prefer `localhost` over assuming `127.0.0.1`, because a server may listen only
+on IPv6. For authenticated flows, `{PREFIX}_DISABLE_PASSKEY=true` is allowed
+only with disposable local data. Never use production data or disable same-origin
+checks for browser validation.
 
-```bash
-npx playwright --version
-npx playwright install chromium
-```
-
-If the package is not already available in the validation environment, create an isolated temporary harness rather than installing it in the application:
-
-```bash
-playwright_workdir="$(mktemp -d)"
-trap 'rm -rf "$playwright_workdir"' EXIT
-cd "$playwright_workdir"
-npm init -y >/dev/null
-npm install --no-save --package-lock=false playwright
-npx playwright install chromium
-```
-
-On Linux environments with missing browser system dependencies, run the official command from the environment that owns Playwright:
-
-```bash
-npx playwright install-deps
-```
-
-For authenticated visual flows, `{PREFIX}_DISABLE_PASSKEY=true` may be used only with disposable local data. Never use production data or disable same-origin checks for browser validation.
-
-Use the URL of the already-running application and keep all browser state and output inside the temporary harness. The following example uses the Playwright Node API; replace the accessible labels and URL with those exposed by the application:
+Create the harness outside the application repository. Use Bun directly; do not
+install a package just to drive the browser:
 
 ```bash
-export APP_URL="http://127.0.0.1:<port>"
-export PLAYWRIGHT_OUT_DIR="$playwright_workdir/screenshots"
-mkdir -p "$PLAYWRIGHT_OUT_DIR"
+webview_workdir="$(mktemp -d)"
+trap 'rm -rf "$webview_workdir"' EXIT
+export APP_URL="http://localhost:<port>"
+export WEBVIEW_OUT_DIR="$webview_workdir/screenshots"
+mkdir -p "$WEBVIEW_OUT_DIR"
 
-node --input-type=module <<'EOF'
-import { chromium } from "playwright";
-
+bun - <<'EOF'
 const appUrl = process.env.APP_URL;
-const outputDir = process.env.PLAYWRIGHT_OUT_DIR;
+const outputDir = process.env.WEBVIEW_OUT_DIR;
 if (!appUrl || !outputDir) {
-  throw new Error("APP_URL and PLAYWRIGHT_OUT_DIR are required");
+  throw new Error("APP_URL and WEBVIEW_OUT_DIR are required");
 }
 
-const browser = await chromium.launch({ headless: true });
-try {
-  const desktop = await browser.newContext({
-    viewport: { width: 1440, height: 920 },
-    colorScheme: "light",
-  });
-  const page = await desktop.newPage();
-  await page.goto(appUrl, { waitUntil: "domcontentloaded" });
-  await page.getByRole("main").waitFor();
-  console.log(await page.locator("body").ariaSnapshot());
+const useChrome = process.platform !== "darwin";
+const backend = useChrome
+  ? { type: "chrome", url: false, argv: ["--no-sandbox"] }
+  : "webkit";
 
-  // Replace these labels with controls exposed by the application.
-  await page.getByRole("button", { name: "Open menu" }).click();
-  await page.getByRole("textbox", { name: "Search" }).fill("text");
-  await page.getByRole("textbox", { name: "Search" }).press("Enter");
-  await page.screenshot({ path: `${outputDir}/desktop.png`, fullPage: true });
-  await desktop.close();
+await using view = new Bun.WebView({
+  backend,
+  headless: true,
+  console: globalThis.console,
+  dataStore: "ephemeral",
+  width: 1440,
+  height: 920,
+});
 
-  const mobile = await browser.newContext({
-    viewport: { width: 390, height: 844 },
-    colorScheme: "light",
+view.onNavigationFailed = (error) => {
+  console.error(`[webview] navigation failed: ${error.message}`);
+};
+
+if (useChrome) {
+  // A first navigation establishes the CDP session. Configure reduced motion
+  // before loading the app so native route transitions cannot pause headless
+  // screenshots.
+  await view.navigate("about:blank");
+  await view.cdp("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-reduced-motion", value: "reduce" }],
   });
-  const mobilePage = await mobile.newPage();
-  await mobilePage.goto(appUrl, { waitUntil: "domcontentloaded" });
-  await mobilePage.screenshot({ path: `${outputDir}/mobile.png`, fullPage: true });
-  await mobile.close();
-} finally {
-  await browser.close();
+  view.addEventListener("Runtime.exceptionThrown", (event) => {
+    console.error("[webview] page exception", event.data);
+  });
+  await view.cdp("Runtime.enable");
 }
+
+await view.navigate(appUrl);
+
+const waitFor = async (expression, timeout = 10_000) => {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (await view.evaluate(expression)) {
+      return;
+    }
+    await view.evaluate(
+      "new Promise((resolve) => requestAnimationFrame(() => resolve(true)))",
+    );
+  }
+  throw new Error(`Timed out waiting for: ${expression}`);
+};
+
+const settle = () =>
+  view.evaluate(
+    "new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+  );
+
+await waitFor("document.readyState === 'complete'");
+await waitFor("document.querySelector('main') !== null");
+await settle();
+await Bun.write(`${outputDir}/desktop.png`, await view.screenshot({ format: "png" }));
+
+// Replace these selectors with stable controls exposed by the application.
+await view.click('button[aria-label="Open menu"]');
+await waitFor("document.querySelector('[role=dialog]') !== null");
+await settle();
+await Bun.write(`${outputDir}/menu.png`, await view.screenshot({ format: "png" }));
+
+await view.resize(390, 844);
+await settle();
+await Bun.write(`${outputDir}/mobile.png`, await view.screenshot({ format: "png" }));
 EOF
 ```
 
-Prefer `getByRole`, `getByLabel`, accessible names and other stable user-facing locators over CSS selectors, internal class names or generated element references. Take a new accessibility snapshot after navigation or state changes. The default headless mode is preferred for agents; use headed mode only when a graphical display is available. Review every screenshot against the requested visual behavior; capturing a screenshot without inspecting it is not validation.
+`await using` closes the view even when the harness throws. The default storage
+is ephemeral; use `dataStore: { directory: "..." }` only when the flow must
+verify persistence, and keep that directory temporary. With Chrome, a
+persistent directory belongs to the entire Chrome process, not an individual
+view. `url: false` forces a fresh Chrome process instead of attaching to an
+existing browser.
 
-Playwright-generated files are temporary artifacts, not application changes. Keep them outside the application repository and never commit paths such as:
+`navigate()` waits for the main frame's `load` event, not for React or API work
+that happens afterward. `click(selector)` waits for the selector to become
+actionable, but follow it with a page-state wait when the click triggers
+asynchronous rendering. Poll with `requestAnimationFrame` as above; do not use
+arbitrary sleeps. `evaluate()` accepts an expression and awaits promises; wrap
+multiple statements in an IIFE. Await every operation on one view because each
+operation kind has one in-flight slot.
 
-- `.playwright/`
-- `playwright-report/`
-- `test-results/`
-- `playwright/.auth/`
+`Bun.WebView` does not provide high-level role/label locators or a portable
+accessibility snapshot. Inspect the DOM with `evaluate()` and use stable,
+user-facing CSS selectors such as
+`button[aria-label="..."]`, semantic elements, or application-owned test
+attributes. `click()` dispatches native trusted input. `type()` inserts text
+into the focused control but does not send `keydown`/`keyup`; use `press()` for
+keyboard shortcuts and submit keys. `screenshot()` captures the viewport only,
+so resize or scroll before each capture when those states matter.
 
-If any of these paths appear in the repository, ensure they are ignored and remove only artifacts created during the current task. Do not delete pre-existing tracked files. Closing the browser and removing the temporary harness via the `trap` above replaces the separate session close and data-delete commands.
+Known webapp/Chromium quirks:
+
+- Configure `prefers-reduced-motion: reduce` through
+  `Emulation.setEmulatedMedia` before the app navigation. Without it,
+  `document.startViewTransition` can remain paused in headless Chromium: the
+  route content exists in the DOM while screenshots are blank or fail.
+- Wait two animation frames before taking a screenshot after navigation,
+  resize, or a route/state change.
+- The click target must be the topmost element at its center. If a framework
+  button container times out because its center resolves to an ancestor or
+  overlay, target its visible child instead (for example,
+  `button.wapp-sidebar-item strong`) or click coordinates obtained from its
+  bounding rectangle. Do not replace native `click()` with
+  `element.click()`; that would not exercise trusted browser input.
+- The Chrome backend supports raw CDP through `view.cdp()`; the WebKit backend
+  does not. Do not use CDP setup when the selected backend is `webkit`.
+- Chromium in a container may need `--no-sandbox`; the devcontainer harness
+  above passes it because the browser is confined to the disposable development
+  container. Do not use that flag for untrusted pages outside the isolated
+  validation environment.
+
+Review every screenshot against the requested visual behavior; capturing a file
+without inspecting it is not validation. Keep screenshots, browser profiles,
+and harness files in temporary or git-ignored locations. Do not overwrite
+checked-in reference captures unless the task explicitly asks for an update.
 
 ## Minimum server shape
 
@@ -295,7 +362,7 @@ PATCH: (_req, ctx) => {
 
 ## Validation checklist
 
-Run targeted tests, `bun run typecheck`, example binary builds, and app health checks. Use the temporary Playwright harness above for visual validation, and use `docs/auth-validation.md` for manual passkey/API-key/device-auth validation. If Docker base images can be pulled, build and run the example containers and check `/api/health`.
+Run targeted tests, `bun run typecheck`, example binary builds, and app health checks. Use the temporary Bun.WebView harness above for visual validation, and use `docs/auth-validation.md` for manual passkey/API-key/device-auth validation. If Docker base images can be pulled, build and run the example containers and check `/api/health`.
 
 ## CI/CD checklist for generated apps
 

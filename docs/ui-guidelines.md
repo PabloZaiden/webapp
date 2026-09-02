@@ -96,26 +96,21 @@ Reference screenshots live in `artifacts/screenshots`:
 | `kitchen-dialog-dark.png` | Confirm dialog overlay |
 | `kitchen-device-light.png` | Device auth approval flow |
 
-Use the temporary Playwright harness described in `skills/webapp/SKILL.md` when new visual captures are needed. Its default output is disposable; to intentionally update these checked-in reference captures, run the application-specific temporary harness with `PLAYWRIGHT_OUT_DIR="$PWD/artifacts/screenshots"` and review every changed image before committing it. Browser automation and screenshot capture must stay Playwright-based and cross-platform; do not hard-code local Chrome or OS-specific browser paths.
+Use the temporary Bun.WebView harness described in `skills/webapp/SKILL.md` when
+new visual captures are needed. Its default output is disposable; to
+intentionally update these checked-in reference captures, run the
+application-specific temporary harness with
+`WEBVIEW_OUT_DIR="$PWD/artifacts/screenshots"` and review every changed image
+before committing it. Browser automation and screenshot capture must stay
+`Bun.WebView`-based and cross-platform; let Bun resolve the browser from
+`PATH` rather than hard-coding a local executable path.
 
-The framework does not add Playwright to an application's dependencies or ship a
-screenshot command. Install the official Playwright package and Chromium in an
-isolated temporary directory instead:
-
-```bash
-playwright_workdir="$(mktemp -d)"
-trap 'rm -rf "$playwright_workdir"' EXIT
-cd "$playwright_workdir"
-npm init -y >/dev/null
-npm install --no-save --package-lock=false playwright
-npx playwright install chromium
-```
-
-Run the Playwright Node API from that temporary harness against the already
-running application, and keep screenshots and browser state there. Do not add
-Playwright, browser binaries, scripts, or configuration files to the
-application repository. If Linux browser system libraries are missing, run
-`npx playwright install-deps` from the same harness environment.
+The framework does not add Bun.WebView or browser binaries to an application's
+dependencies and does not ship a screenshot command. Run an external Bun 1.4+
+harness against the already running application, and keep screenshots and
+browser state there. The repository devcontainer provides Chromium for this
+workflow. Do not add browser binaries, scripts, or configuration files to the
+application repository.
 
 Use these captures as the manual visual baseline before changing shell, sidebar, settings or dialog styles. When screenshots are captured to validate a visual change, review them against the specific goal; capturing files without checking the result is not validation.
 
