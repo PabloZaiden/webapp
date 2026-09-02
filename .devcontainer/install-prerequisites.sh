@@ -51,7 +51,7 @@ sudo apt-get install -y --no-install-recommends \
 download_url="$(
   curl -fsSL https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json |
     jq -er --arg platform "${cft_platform}" \
-      '[.versions[] | select(any(.downloads["chrome-headless-shell"][]?; .platform == $platform))] | last | .downloads["chrome-headless-shell"][] | select(.platform == $platform) | .url'
+      '[.versions[] | select(any(.downloads["chrome-headless-shell"][]?; .platform == $platform))] | max_by(.version | split(".") | map(tonumber)) | .downloads["chrome-headless-shell"][] | select(.platform == $platform) | .url'
 )"
 
 temp_dir="$(mktemp -d)"

@@ -140,8 +140,10 @@ if (!appUrl || !outputDir) {
 }
 
 const useChrome = process.platform !== "darwin";
+const chromeArgs =
+  process.env.WEBAPP_WEBVIEW_NO_SANDBOX === "1" ? ["--no-sandbox"] : [];
 const backend = useChrome
-  ? { type: "chrome", url: false, argv: ["--no-sandbox"] }
+  ? { type: "chrome", url: false, argv: chromeArgs }
   : "webkit";
 
 await using view = new Bun.WebView({
@@ -248,10 +250,11 @@ Known webapp/Chromium quirks:
   `element.click()`; that would not exercise trusted browser input.
 - The Chrome backend supports raw CDP through `view.cdp()`; the WebKit backend
   does not. Do not use CDP setup when the selected backend is `webkit`.
-- Chromium in a container may need `--no-sandbox`; the devcontainer harness
-  above passes it because the browser is confined to the disposable development
-  container. Do not use that flag for untrusted pages outside the isolated
-  validation environment.
+- Chromium in a container may need `--no-sandbox`. Set
+  `WEBAPP_WEBVIEW_NO_SANDBOX=1` only in that isolated environment; the
+  repository devcontainer sets it for its local Chromium. Keep it unset on a
+  normal Linux host and never use the flag for untrusted pages outside the
+  isolated validation environment.
 
 Review every screenshot against the requested visual behavior; capturing a file
 without inspecting it is not validation. Keep screenshots, browser profiles,
