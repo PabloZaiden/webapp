@@ -660,7 +660,7 @@ textarea::placeholder {
   align-items: center;
   justify-content: space-between;
   min-height: 2rem;
-  padding: 0.5rem 0.25rem 0.25rem;
+  padding: 0.5rem 0.25rem 0.25rem 0.625rem;
   color: var(--wapp-muted-2);
   font-size: 0.75rem;
 }
