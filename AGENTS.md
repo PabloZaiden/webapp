@@ -57,6 +57,13 @@
 
 - Prefer a smaller suite of high-value tests over broad regression accumulation.
 - Test stable, externally observable behavior and contracts, not implementation details.
+- Treat a test as end to end only when it crosses the boundary the user or operator crosses: a real browser for UI, a real HTTP/WebSocket listener for server behavior, or a real child process for CLI and binary behavior.
+- Do not call `app.handleRequest`, `cli.execute`, a mocked `fetch`, a fake WebSocket, or a store method an end-to-end test. Either classify it honestly as a focused contract test or replace it with the real boundary.
+- Do not test React components, hooks, render registries, local-storage shapes, toast queues, timer choreography, route matchers, parsers, loggers, or buses in application suites when the behavior is already covered by a higher-level flow.
+- Seed only the minimum state needed for a scenario, and assert the resulting response, persisted user-visible state, authorization outcome, or process behavior. Do not inspect internal stores, private fields, generated manifests, event arrays, or implementation-specific call order.
+- Every retained test should be traceable to a user-visible capability, a security boundary, persistence across a process boundary, or a documented public API contract. If its failure would not describe a meaningful product regression, delete it.
+- Consolidate equivalent cases at the boundary instead of keeping one test per helper branch, HTTP verb, fixture, or configuration permutation. Preserve only materially different outcomes.
+- Keep test fixtures disposable and scenario-oriented. Remove fixtures, mocks, and test-only helpers when the tests that required them are removed.
 - Do not make automated tests assert on visual or layout implementation details, including exact colors, spacing, blur, CSS variables, selector or class-name values, DOM structure, or screenshot pixel baselines. Playwright selectors and locators may be used for interactions, but tests should assert stable user-visible behavior rather than selector or class-name implementation details.
 - Validate visual changes manually with temporary Playwright screenshots stored outside the repository or in a git-ignored location. Do not turn those checks into implementation-pinning regression tests unless an explicit product requirement calls for visual testing.
 - Do not add tests whose purpose is only to prove the absence of an old implementation, filename, warning, bug symptom, or removed behavior when positive behavior covers the contract.

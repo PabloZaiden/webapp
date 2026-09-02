@@ -1,2834 +1,354 @@
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { Database } from "bun:sqlite";
-import { RealtimeBus, compileWebAppPublicAsset, createLogger, createWebAppPublicAsset, createWebAppServer, defineRoutes, getRequestBaseUrl, getRequestOriginInfo, jsonResponse, sqliteWebAppStore, type ResourceRealtimeEvent, type RuntimeConfig } from "@pablozaiden/webapp/server";
-import { authenticateApiKey, createApiKey, createManagedApiKey, listManagedApiKeys, revokeManagedApiKey } from "../src/server/auth/api-keys";
-import { sha256 } from "../src/server/auth/crypto";
-import { readRuntimeConfig, resolveEffectiveLogLevel, safeRuntimeConfig } from "../src/server/runtime-config";
-import type { ApiKeyRecord, UserRecord, WebAppStore } from "../src/server/auth/store";
+import { expect, test } from "bun:test";
+import { rmSync } from "node:fs";
+import { resolve } from "node:path";
+import type { CurrentUser } from "../src/contracts";
+import { createApiKey } from "../src/server/auth/api-keys";
+import {
+  createWebAppServer,
+  defineRoutes,
+  jsonResponse,
+  sqliteWebAppStore,
+  type RouteTable,
+  type RuntimeConfig,
+  type UserRecord,
+  type WebAppServerConfig,
+  type WebAppStore,
+} from "@pablozaiden/webapp/server";
 
 const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
-const testIcon = new URL("./fixtures/web/icon.svg", import.meta.url);
 
-function testStore(name: string) {
-  return sqliteWebAppStore({ dataDir: `.cache/tests/${name}-${crypto.randomUUID()}` });
+function testDataDir(label: string): string {
+  return resolve(".cache/tests", `server-${label}-${crypto.randomUUID()}`);
 }
 
-function configuredUser(store: WebAppStore, username = "owner", role: UserRecord["role"] = "owner"): UserRecord {
-  const now = new Date().toISOString();
-  const user = {
+function createUser(store: WebAppStore, username: string, role: UserRecord["role"] = "owner"): UserRecord {
+  const timestamp = new Date().toISOString();
+  const user: UserRecord = {
     id: crypto.randomUUID(),
     username,
     role,
     authVersion: 1,
     passkeyConfigured: false,
-    createdAt: now,
-    updatedAt: now,
+    createdAt: timestamp,
+    updatedAt: timestamp,
   };
   store.createUser(user);
   return user;
 }
 
-function configuredPasskey(userId: string) {
+function currentUser(user: UserRecord): CurrentUser {
   return {
-    id: crypto.randomUUID(),
-    userId,
-    name: "Test passkey",
-    credentialId: crypto.randomUUID(),
-    publicKey: new Uint8Array([1, 2, 3]) as Uint8Array<ArrayBuffer>,
-    counter: 0,
-    deviceType: "singleDevice",
-    backedUp: false,
-    transports: [],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    isOwner: user.role === "owner",
+    isAdmin: user.role === "owner" || user.role === "admin",
   };
 }
 
-function currentUser(user: UserRecord) {
-  return { id: user.id, username: user.username, role: user.role, isOwner: user.role === "owner", isAdmin: user.role === "owner" || user.role === "admin" };
+function bearer(token: string): string {
+  return ["Bearer", token].join(" ");
 }
 
-function isoOffset(seconds: number): string {
-  return new Date(Date.now() + seconds * 1000).toISOString();
-}
-
-async function responseJson<T>(response: Response | undefined): Promise<T> {
-  expect(response).toBeDefined();
-  return await response!.json() as T;
-}
-
-function cookieValue(response: Response | undefined, name: string): string {
-  const header = response?.headers.get("set-cookie") ?? "";
-  const match = new RegExp(`(?:^|,\\s*)${name}=([^;]+)`).exec(header);
-  if (!match?.[1]) {
-    throw new Error(`Expected ${name} cookie`);
+function jsonHeaders(baseUrl: string, token?: string): Headers {
+  const headers = new Headers({
+    "content-type": "application/json",
+    origin: baseUrl,
+  });
+  if (token) {
+    headers.set("authorization", bearer(token));
   }
-  return `${name}=${match[1]}`;
+  return headers;
 }
 
-async function withEnv<T>(values: Record<string, string>, callback: () => T | Promise<T>): Promise<T> {
-  const previous = new Map<string, string | undefined>();
-  for (const [key, value] of Object.entries(values)) {
-    previous.set(key, process.env[key]);
-    process.env[key] = value;
-  }
-  try {
-    return await callback();
-  } finally {
-    for (const [key, value] of previous) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-  }
+async function responseJson<T>(response: Response): Promise<T> {
+  return await response.json() as T;
 }
 
-describe("server security defaults", () => {
-  test("realtime bus publishes standard resource events with target filters", () => {
-    const bus = new RealtimeBus<ResourceRealtimeEvent>();
-    const projectMessages: string[] = [];
-    const todoMessages: string[] = [];
-    bus.add({ data: { filters: { resource: "projects" } }, send: (payload: string) => projectMessages.push(payload) } as never);
-    bus.add({ data: { filters: { resource: "todos" } }, send: (payload: string) => todoMessages.push(payload) } as never);
-
-    bus.publishEntityChanged("projects", "alpha");
-
-    expect(projectMessages).toHaveLength(1);
-    expect(todoMessages).toHaveLength(0);
-    expect(JSON.parse(projectMessages[0]!)).toMatchObject({
-      type: "event",
-      event: { type: "projects.changed", resource: "projects", action: "changed", id: "alpha" },
-    });
+async function startServer(input: {
+  envPrefix: string;
+  dataDir: string;
+  auth?: WebAppServerConfig["auth"];
+  routes?: RouteTable;
+  publicRoutes?: WebAppServerConfig["publicRoutes"];
+  passkeyDisabled?: boolean;
+}): Promise<{
+  app: ReturnType<typeof createWebAppServer>;
+  store: WebAppStore;
+  server: Awaited<ReturnType<ReturnType<typeof createWebAppServer>["start"]>>;
+  baseUrl: string;
+}> {
+  const runtimeConfig: RuntimeConfig = {
+    appName: "E2E Server",
+    envPrefix: input.envPrefix,
+    host: "127.0.0.1",
+    port: 0,
+    dataDir: input.dataDir,
+    logLevel: "info",
+    logLevelFromEnv: false,
+    inMemoryLogsEnabled: false,
+    passkeyDisabled: input.passkeyDisabled ?? false,
+    sameOriginDisabled: false,
+    trustProxy: { enabled: false, headers: [], chain: "first" },
+    development: false,
+  };
+  const store = sqliteWebAppStore({ dataDir: input.dataDir });
+  const app = createWebAppServer({
+    appName: runtimeConfig.appName,
+    envPrefix: input.envPrefix,
+    runtimeConfig,
+    web: testWeb,
+    store,
+    auth: input.auth,
+    publicRoutes: input.publicRoutes,
+    routes: input.routes ?? defineRoutes({}),
   });
+  const server = await app.start();
+  return {
+    app,
+    store,
+    server,
+    baseUrl: server.url.toString().replace(/\/$/, ""),
+  };
+}
 
-  test("realtime user targets only deliver to the authenticated user socket", () => {
-    const bus = new RealtimeBus<ResourceRealtimeEvent>();
-    const ownerMessages: string[] = [];
-    const aliceMessages: string[] = [];
-    bus.add({ data: { userId: "owner" }, send: (payload: string) => ownerMessages.push(payload) } as never);
-    bus.add({ data: { userId: "alice" }, send: (payload: string) => aliceMessages.push(payload) } as never);
-
-    bus.publishEntityChanged("projects", "alpha", { target: { userId: "alice" } });
-
-    expect(ownerMessages).toHaveLength(0);
-    expect(aliceMessages).toHaveLength(1);
-  });
-
-  test("realtime user targets retain resource, ID, scope, and custom socket filters", () => {
-    const bus = new RealtimeBus<ResourceRealtimeEvent>();
-    const matchingMessages: string[] = [];
-    const wrongEntityMessages: string[] = [];
-    const wrongUserMessages: string[] = [];
-    bus.add({
-      data: {
-        userId: "alice",
-        filters: { resource: "projects", id: "alpha", scope: "workspace", tenantId: "team-1" },
-      },
-      send: (payload: string) => matchingMessages.push(payload),
-    } as never);
-    bus.add({
-      data: {
-        userId: "alice",
-        filters: { resource: "projects", id: "beta", scope: "workspace", tenantId: "team-1" },
-      },
-      send: (payload: string) => wrongEntityMessages.push(payload),
-    } as never);
-    bus.add({
-      data: {
-        userId: "bob",
-        filters: { resource: "projects", id: "alpha", scope: "workspace", tenantId: "team-1" },
-      },
-      send: (payload: string) => wrongUserMessages.push(payload),
-    } as never);
-
-    bus.publishEntityChanged("projects", "alpha", {
-      scope: "workspace",
-      target: { userId: "alice", tenantId: "team-1" },
-    });
-
-    expect(matchingMessages).toHaveLength(1);
-    expect(wrongEntityMessages).toHaveLength(0);
-    expect(wrongUserMessages).toHaveLength(0);
-    expect(JSON.parse(matchingMessages[0]!)).toMatchObject({
-      event: {
-        type: "projects.changed",
-        resource: "projects",
-        action: "changed",
-        id: "alpha",
-        scope: "workspace",
-      },
-    });
-  });
-
-  test("realtime target metadata must agree with event metadata", () => {
-    const bus = new RealtimeBus<ResourceRealtimeEvent>();
-    const messages: string[] = [];
-    bus.add({
-      data: { filters: { resource: "projects", id: "alpha", scope: "workspace" } },
-      send: (payload: string) => messages.push(payload),
-    } as never);
-
-    bus.publishEntityChanged("projects", "alpha", {
-      scope: "workspace",
-      target: { resource: "projects", id: "alpha", scope: "workspace" },
-    });
-    expect(messages).toHaveLength(1);
-
-    expect(() => bus.publishEntityChanged("projects", "alpha", { target: { resource: "todos" } })).toThrow(
-      "Realtime target resource conflicts with event metadata",
-    );
-    expect(() => bus.publishEntityChanged("projects", "alpha", { target: { id: "beta" } })).toThrow(
-      "Realtime target id conflicts with event metadata",
-    );
-    expect(() => bus.publishEntityChanged("projects", "alpha", { scope: "workspace", target: { scope: "other" } })).toThrow(
-      "Realtime target scope conflicts with event metadata",
-    );
-    expect(messages).toHaveLength(1);
-  });
-
-  test("config exposes passkey bootstrap and disabled states", async () => {
-    const enabledApp = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST",
-      store: testStore("passkey-enabled-config"),
-      auth: { passkeys: true },
-      routes: defineRoutes({}),
-    });
-    const enabledConfig = await responseJson<{ passkeyAuth: { enabled: boolean; passkeyConfigured: boolean; passkeyRequired: boolean } }>(await enabledApp.handleRequest(new Request("http://localhost/api/config")));
-    expect(enabledConfig.passkeyAuth).toMatchObject({ enabled: true, passkeyConfigured: false, passkeyRequired: false });
-
-    const disabledApp = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST",
-      store: testStore("passkey-disabled-config"),
-      auth: { passkeys: false },
-      routes: defineRoutes({}),
-    });
-    const disabledConfig = await responseJson<{ passkeyAuth: { enabled: boolean; authenticated: boolean } }>(await disabledApp.handleRequest(new Request("http://localhost/api/config")));
-    expect(disabledConfig.passkeyAuth).toMatchObject({ enabled: false, authenticated: true });
-  });
-
-  test("log-level endpoints share effective state and preserve environment locking", async () => {
-    const envPrefix = "TEST_LOG_LEVEL_ENDPOINT";
-    const disablePasskeyKey = `${envPrefix}_DISABLE_PASSKEY`;
-    const logLevelKey = `${envPrefix}_LOG_LEVEL`;
-    const changes: string[] = [];
-
-    await withEnv({ [disablePasskeyKey]: "true" }, async () => {
-      const store = testStore("log-level-endpoint");
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix,
-        store,
-        auth: { passkeys: true },
-        logLevel: { onChange: (level) => changes.push(level) },
-        routes: defineRoutes({}),
-      });
-
-      const configBefore = await responseJson<{ logLevel: { level: string; fromEnv: boolean } }>(
-        await app.handleRequest(new Request("http://localhost/api/config")),
-      );
-      const preferenceBefore = await responseJson<{ level: string; fromEnv: boolean }>(
-        await app.handleRequest(new Request("http://localhost/api/preferences/log-level")),
-      );
-      expect(configBefore.logLevel).toEqual({ level: "info", fromEnv: false });
-      expect(preferenceBefore).toEqual(configBefore.logLevel);
-
-      const missingOrigin = await app.handleRequest(new Request("http://localhost/api/preferences/log-level", {
-        method: "PUT",
+test("serves framework and application public routes over HTTP", async () => {
+  const dataDir = testDataDir("public-routes");
+  const running = await startServer({
+    envPrefix: "TEST_E2E_PUBLIC_ROUTES",
+    dataDir,
+    auth: { passkeys: false },
+    publicRoutes: {
+      "/diagnostics.json": {
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ level: "warn" }),
-      }));
-      expect(missingOrigin?.status).toBe(403);
-      expect(store.getLogLevelPreference()).toBeUndefined();
-
-      const update = await app.handleRequest(new Request("http://localhost/api/preferences/log-level", {
-        method: "PUT",
-        headers: { origin: "http://localhost", "content-type": "application/json" },
-        body: JSON.stringify({ level: "debug" }),
-      }));
-      expect(update?.status).toBe(200);
-      expect(store.getLogLevelPreference()).toBe("debug");
-      expect(changes).toEqual(["info", "debug"]);
-
-      const configAfter = await responseJson<{ logLevel: { level: string; fromEnv: boolean } }>(
-        await app.handleRequest(new Request("http://localhost/api/config")),
-      );
-      const preferenceAfter = await responseJson<{ level: string; fromEnv: boolean }>(
-        await app.handleRequest(new Request("http://localhost/api/preferences/log-level")),
-      );
-      expect(configAfter.logLevel).toEqual({ level: "debug", fromEnv: false });
-      expect(preferenceAfter).toEqual(configAfter.logLevel);
-    });
-
-    await withEnv({ [disablePasskeyKey]: "true", [logLevelKey]: "error" }, async () => {
-      const store = testStore("log-level-endpoint-env");
-      store.initialize();
-      store.setLogLevelPreference("debug");
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix,
-        store,
-        auth: { passkeys: true },
-        logLevel: { onChange: (level) => changes.push(level) },
-        routes: defineRoutes({}),
-      });
-
-      const config = await responseJson<{ logLevel: { level: string; fromEnv: boolean } }>(
-        await app.handleRequest(new Request("http://localhost/api/config")),
-      );
-      const preference = await responseJson<{ level: string; fromEnv: boolean }>(
-        await app.handleRequest(new Request("http://localhost/api/preferences/log-level")),
-      );
-      expect(config.logLevel).toEqual({ level: "error", fromEnv: true });
-      expect(preference).toEqual(config.logLevel);
-      expect(changes.at(-1)).toBe("error");
-
-      const lockedUpdate = await app.handleRequest(new Request("http://localhost/api/preferences/log-level", {
-        method: "PUT",
-        headers: { origin: "http://localhost", "content-type": "application/json" },
-        body: JSON.stringify({ level: "trace" }),
-      }));
-      expect(lockedUpdate?.status).toBe(409);
-      expect(store.getLogLevelPreference()).toBe("debug");
-    });
-
-    const unauthorizedApp = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_LOG_LEVEL_AUTH",
-      store: testStore("log-level-auth"),
-      auth: { passkeys: true },
-      routes: defineRoutes({}),
-    });
-    const unauthorized = await unauthorizedApp.handleRequest(new Request("http://localhost/api/preferences/log-level"));
-    expect(unauthorized?.status).toBe(401);
+        GET: JSON.stringify({ app: "e2e", publicRoute: true }),
+      },
+    },
   });
 
-  test("in-memory log endpoints require admins and never persist the toggle", async () => {
-    const store = testStore("in-memory-logs-endpoints");
-    store.initialize();
-    const owner = configuredUser(store, "owner", "owner");
-    const alice = configuredUser(store, "alice", "user");
-    const ownerKey = createManagedApiKey(store, currentUser(owner), { managedBy: "logs-test" });
-    const aliceKey = createManagedApiKey(store, currentUser(alice), { managedBy: "logs-test" });
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_IN_MEMORY_LOGS",
-      store,
-      auth: { passkeys: false, apiKeys: true },
-      routes: defineRoutes({}),
-    });
+  try {
+    const health = await fetch(`${running.baseUrl}/api/health`);
+    expect(health.status).toBe(200);
+    expect(await health.json()).toMatchObject({ ok: true });
 
-    const noAuth = await app.handleRequest(new Request("http://localhost/api/server/logs"));
-    expect(noAuth?.status).toBe(401);
+    const document = await fetch(`${running.baseUrl}/projects`);
+    expect(document.status).toBe(200);
+    expect(document.headers.get("content-type")).toContain("text/html");
 
-    const nonAdmin = await app.handleRequest(new Request("http://localhost/api/server/logs", {
-      headers: { authorization: `Bearer ${aliceKey.token}` },
-    }));
-    expect(nonAdmin?.status).toBe(403);
+    const diagnostics = await fetch(`${running.baseUrl}/diagnostics.json`);
+    expect(diagnostics.status).toBe(200);
+    expect(await diagnostics.json()).toEqual({ app: "e2e", publicRoute: true });
 
-    const ownerHeaders = { authorization: `Bearer ${ownerKey.token}` };
-    const disabled = await responseJson<{ enabled: boolean; logs: unknown[] }>(
-      await app.handleRequest(new Request("http://localhost/api/server/logs", { headers: ownerHeaders })),
-    );
-    expect(disabled).toEqual({ enabled: false, logs: [] });
+    const missingMutation = await fetch(`${running.baseUrl}/api/missing`, { method: "POST" });
+    expect(missingMutation.status).toBe(404);
+    expect(await responseJson<{ error: string }>(missingMutation)).toMatchObject({ error: "not_found" });
+  } finally {
+    await running.server.stop(true);
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
 
-    const missingOrigin = await app.handleRequest(new Request("http://localhost/api/server/logs/settings", {
-      method: "PUT",
-      headers: { ...ownerHeaders, "content-type": "application/json" },
-      body: JSON.stringify({ enabled: true }),
-    }));
-    expect(missingOrigin?.status).toBe(200);
-    expect(await responseJson<{ enabled: boolean }>(missingOrigin)).toEqual({ enabled: true });
-    expect(store.getPreference("inMemoryLogs")).toBeUndefined();
-
-    const enabled = await app.handleRequest(new Request("http://localhost/api/server/logs/settings", {
-      method: "PUT",
-      headers: { ...ownerHeaders, origin: "http://localhost", "content-type": "application/json" },
-      body: JSON.stringify({ enabled: true }),
-    }));
-    expect(enabled?.status).toBe(200);
-    expect(await responseJson<{ enabled: boolean }>(enabled)).toEqual({ enabled: true });
-    expect(store.getPreference("inMemoryLogs")).toBeUndefined();
-
-    createLogger("test").warn("captured log", { issue: "live-debug" });
-    const captured = await responseJson<{ enabled: boolean; logs: Array<{ message: string; scope: string; level: string }> }>(
-      await app.handleRequest(new Request("http://localhost/api/server/logs", { headers: ownerHeaders })),
-    );
-    expect(captured.enabled).toBe(true);
-    expect(captured.logs).toContainEqual(expect.objectContaining({
-      level: "warn",
-      scope: "test",
-      message: "captured log",
-    }));
-
-    const turnedOff = await app.handleRequest(new Request("http://localhost/api/server/logs/settings", {
-      method: "PUT",
-      headers: { ...ownerHeaders, origin: "http://localhost", "content-type": "application/json" },
-      body: JSON.stringify({ enabled: false }),
-    }));
-    expect(turnedOff?.status).toBe(200);
-    const cleared = await responseJson<{ enabled: boolean; logs: unknown[] }>(
-      await app.handleRequest(new Request("http://localhost/api/server/logs", { headers: ownerHeaders })),
-    );
-    expect(cleared).toEqual({ enabled: false, logs: [] });
-
-    const restartedApp = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_IN_MEMORY_LOGS_RESTARTED",
-      store,
-      auth: { passkeys: false, apiKeys: true },
-      routes: defineRoutes({}),
-    });
-    const afterConstruction = await responseJson<{ enabled: boolean; logs: unknown[] }>(
-      await restartedApp.handleRequest(new Request("http://localhost/api/server/logs", { headers: ownerHeaders })),
-    );
-    expect(afterConstruction).toEqual({ enabled: false, logs: [] });
+test("enforces API-key authentication, scopes, ownership, and CRUD over HTTP", async () => {
+  const dataDir = testDataDir("api-keys");
+  const store = sqliteWebAppStore({ dataDir });
+  store.initialize();
+  const owner = createUser(store, "owner");
+  const alice = createUser(store, "alice", "user");
+  const ownerKey = createApiKey(store, currentUser(owner), { name: "owner key", scopes: ["*"] });
+  const aliceKey = createApiKey(store, currentUser(alice), { name: "alice key", scopes: ["read"] });
+  const records = [
+    { id: "owner-record", userId: owner.id },
+    { id: "alice-record", userId: alice.id },
+  ];
+  const routes = defineRoutes({
+    "/api/records": {
+      auth: "user",
+      GET: (_request, context) => jsonResponse(context.filterOwned(records)),
+    },
+    "/api/admin": {
+      auth: "admin",
+      GET: () => jsonResponse({ ok: true }),
+    },
+    "/api/write": {
+      auth: "user",
+      scopes: ["write"],
+      POST: () => jsonResponse({ ok: true }),
+    },
+  });
+  const running = await startServer({
+    envPrefix: "TEST_E2E_API_KEYS",
+    dataDir,
+    auth: { passkeys: false, apiKeys: true },
+    routes,
   });
 
-  test("initializes in-memory capture from the prefixed environment setting", async () => {
-    const envPrefix = "TEST_IN_MEMORY_LOGS_ENV";
-    await withEnv({
-      [`${envPrefix}_IN_MEMORY_LOGS`]: "true",
-      [`${envPrefix}_LOG_LEVEL`]: "silly",
-    }, async () => {
-      const store = testStore("in-memory-logs-env");
-      store.initialize();
-      const owner = configuredUser(store);
-      const ownerKey = createManagedApiKey(store, currentUser(owner), { managedBy: "logs-env-test" });
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix,
-        store,
-        auth: { passkeys: false, apiKeys: true },
-        routes: defineRoutes({}),
-      });
+  try {
+    const anonymous = await fetch(`${running.baseUrl}/api/records`);
+    expect(anonymous.status).toBe(401);
 
-      const config = await responseJson<{ logLevel: { level: string; fromEnv: boolean }; inMemoryLogs: { enabled: boolean } }>(
-        await app.handleRequest(new Request("http://localhost/api/config")),
-      );
-      expect(config.logLevel).toEqual({ level: "silly", fromEnv: true });
-      expect(config.inMemoryLogs).toEqual({ enabled: true });
-
-      createLogger("env-test").debug("captured before toggle");
-      const logs = await responseJson<{ enabled: boolean; logs: Array<{ message: string; level: string }> }>(
-        await app.handleRequest(new Request("http://localhost/api/server/logs", {
-          headers: { authorization: `Bearer ${ownerKey.token}` },
-        })),
-      );
-      expect(logs.enabled).toBe(true);
-      expect(logs.logs).toContainEqual(expect.objectContaining({ level: "debug", message: "captured before toggle" }));
+    const ownRecords = await fetch(`${running.baseUrl}/api/records`, {
+      headers: { authorization: bearer(aliceKey.token) },
     });
-  });
+    expect(ownRecords.status).toBe(200);
+    const ownRecordIds = (await responseJson<Array<{ id: string }>>(ownRecords)).map(({ id }) => id);
+    expect(ownRecordIds).toEqual(["alice-record"]);
 
-  test("uses supplied runtime config throughout construction", async () => {
-    const envPrefix = "TEST_SUPPLIED_RUNTIME_CONFIG";
-    const dataDir = join(tmpdir(), `webapp-supplied-runtime-config-${crypto.randomUUID()}`);
-    const runtimeConfig: RuntimeConfig = {
-      appName: "Configured App",
-      envPrefix,
-      host: "127.0.0.1",
-      port: 4321,
-      dataDir,
-      logLevel: "debug",
-      logLevelFromEnv: true,
-      inMemoryLogsEnabled: false,
-      passkeyDisabled: true,
-      sameOriginDisabled: true,
-      publicBaseUrl: "https://public.example.test",
-      authIssuer: undefined,
-      trustProxy: { enabled: true, headers: ["prefix"], chain: "last" },
-      development: false,
-    };
-    const changes: string[] = [];
-
-    try {
-      await withEnv({
-        [`${envPrefix}_PORT`]: "not-a-port",
-        [`${envPrefix}_LOG_LEVEL`]: "not-a-log-level",
-        [`${envPrefix}_DATA_DIR`]: join(dataDir, "wrong"),
-      }, async () => {
-        const app = createWebAppServer({
-          appName: runtimeConfig.appName,
-          envPrefix,
-          runtimeConfig,
-          auth: { passkeys: true },
-          logLevel: { onChange: (level) => changes.push(level) },
-          routes: defineRoutes({}),
-        });
-
-        expect(changes).toEqual(["debug"]);
-
-        const config = await responseJson<{ appName: string; logLevel: { level: string; fromEnv: boolean }; passkeyAuth: { passkeyDisabled: boolean } }>(
-          await app.handleRequest(new Request("http://internal.example/api/config", {
-            headers: { "x-forwarded-prefix": "/listen/" },
-          })),
-        );
-        expect(config).toMatchObject({
-          appName: runtimeConfig.appName,
-          logLevel: { level: "debug", fromEnv: true },
-          passkeyAuth: { passkeyDisabled: true },
-          publicBasePath: "/listen",
-        });
-      });
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true });
-    }
-  });
-
-  test("rejects a runtime config for a different application", () => {
-    const runtimeConfig: RuntimeConfig = {
-      appName: "Other App",
-      envPrefix: "OTHER_APP",
-      host: "localhost",
-      port: 3000,
-      dataDir: join(tmpdir(), `webapp-mismatched-runtime-config-${crypto.randomUUID()}`),
-      logLevel: "info",
-      logLevelFromEnv: false,
-      inMemoryLogsEnabled: false,
-      passkeyDisabled: true,
-      sameOriginDisabled: true,
-      trustProxy: { enabled: false, headers: [], chain: "first" },
-      development: false,
-    };
-
-    expect(() => createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_MISMATCHED_RUNTIME_CONFIG",
-      runtimeConfig,
-      auth: { passkeys: false },
-      routes: defineRoutes({}),
-    })).toThrow("runtimeConfig appName and envPrefix must match");
-  });
-
-  test("falls back to runtime log level when the persisted value is invalid", async () => {
-    const envPrefix = "TEST_LOG_LEVEL_INVALID_PERSISTED";
-    const disablePasskeyKey = `${envPrefix}_DISABLE_PASSKEY`;
-
-    await withEnv({ [disablePasskeyKey]: "true" }, async () => {
-      const store = testStore("log-level-invalid-persisted");
-      store.initialize();
-      store.setPreference("logLevel", "verbose");
-
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix,
-        store,
-        auth: { passkeys: true },
-        routes: defineRoutes({}),
-      });
-
-      const config = await responseJson<{ logLevel: { level: string; fromEnv: boolean } }>(
-        await app.handleRequest(new Request("http://localhost/api/config")),
-      );
-      expect(config.logLevel).toEqual({ level: "info", fromEnv: false });
-      expect(resolveEffectiveLogLevel({ logLevel: "warn", logLevelFromEnv: false }, "verbose")).toBe("warn");
+    const forbiddenAdmin = await fetch(`${running.baseUrl}/api/admin`, {
+      headers: { authorization: bearer(aliceKey.token) },
     });
-  });
+    expect(forbiddenAdmin.status).toBe(403);
 
-  test("config extensions cannot override framework-owned fields", async () => {
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_CONFIG_EXTENSION",
-      store: testStore("config-extension"),
-      auth: { passkeys: false },
-      routes: defineRoutes({}),
-      configResponse: () => ({
-        appName: "Overridden",
-        passkeyAuth: { enabled: true, authenticated: false },
-        publicBasePath: "/proxy",
-      }),
-    });
-
-    const config = await responseJson<{ appName: string; passkeyAuth: { enabled: boolean; authenticated: boolean }; publicBasePath: string }>(
-      await app.handleRequest(new Request("http://localhost/api/config")),
-    );
-
-    expect(config.appName).toBe("Test");
-    expect(config.passkeyAuth).toMatchObject({ enabled: false, authenticated: true });
-    expect(config.publicBasePath).toBe("/");
-  });
-
-  test("auth status reports anonymous requests as unauthenticated", async () => {
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_AUTH_STATUS",
-      store: testStore("auth-status-anonymous"),
-      auth: { passkeys: false },
-      routes: defineRoutes({}),
-    });
-
-    const status = await responseJson<{ authenticated: boolean; authKind: string; subject: string | null; clientId: string | null; scope: string | null }>(
-      await app.handleRequest(new Request("http://localhost/api/auth/status")),
-    );
-
-    expect(status).toEqual({
-      authenticated: false,
-      authKind: "anonymous",
-      subject: null,
-      clientId: null,
-      scope: null,
-    });
-  });
-
-  test("emergency bypass skips bootstrap and authenticates as local owner", async () => {
-    const previous = process.env["TEST_EMPTY_BYPASS_DISABLE_PASSKEY"];
-    process.env["TEST_EMPTY_BYPASS_DISABLE_PASSKEY"] = "true";
-    try {
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix: "TEST_EMPTY_BYPASS",
-        store: testStore("empty-bypass-config"),
-        auth: { passkeys: true },
-        routes: defineRoutes({}),
-      });
-      const config = await responseJson<{ currentUser?: { username: string; isOwner: boolean }; passkeyAuth: { bootstrapRequired: boolean; authenticated: boolean; passkeyDisabled: boolean } }>(await app.handleRequest(new Request("http://localhost/api/config")));
-      expect(config.passkeyAuth).toMatchObject({ bootstrapRequired: false, authenticated: true, passkeyDisabled: true });
-      expect(config.currentUser).toMatchObject({ username: "admin", isOwner: true });
-    } finally {
-      if (previous === undefined) {
-        delete process.env["TEST_EMPTY_BYPASS_DISABLE_PASSKEY"];
-      } else {
-        process.env["TEST_EMPTY_BYPASS_DISABLE_PASSKEY"] = previous;
-      }
-    }
-  });
-
-  test("passkey setup rejects IP hosts with a clear auth error", async () => {
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_IP_PASSKEY",
-      store: testStore("ip-passkey"),
-      auth: { passkeys: true },
-      routes: defineRoutes({}),
-    });
-
-    const response = await app.handleRequest(new Request("http://127.0.0.1/api/passkey-auth/bootstrap/options", {
+    const missingScope = await fetch(`${running.baseUrl}/api/write`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: "owner" }),
-    }));
-    const body = await responseJson<{ error: string; message: string }>(response);
-
-    expect(response?.status).toBe(400);
-    expect(body.error).toBe("invalid_passkey_host");
-    expect(body.message).toContain("hostname");
-  });
-
-  test("public static routes are explicit and keep API 404 behavior", async () => {
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_PUBLIC_ROUTES",
-      web: testWeb,
-      store: testStore("public-routes"),
-      auth: { passkeys: false },
-      publicRoutes: {
-        "/missing-public": () => undefined,
-      },
-      routes: defineRoutes({}),
+      headers: jsonHeaders(running.baseUrl, aliceKey.token),
     });
+    expect(missingScope.status).toBe(403);
 
-    const manifest = await app.handleRequest(new Request("http://localhost/site.webmanifest"));
-    const manifestHead = await app.handleRequest(new Request("http://localhost/site.webmanifest", { method: "HEAD" }));
-    const manifestPost = await app.handleRequest(new Request("http://localhost/site.webmanifest", { method: "POST" }));
-    const defaultIcon = await app.handleRequest(new Request("http://localhost/webapp-icon.svg"));
-    const missingPublic = await app.handleRequest(new Request("http://localhost/missing-public"));
-    const missingApi = await app.handleRequest(new Request("http://localhost/api/missing"));
-    const spa = await app.handleRequest(new Request("http://localhost/projects"));
-    const spaHead = await app.handleRequest(new Request("http://localhost/projects", { method: "HEAD" }));
-    const spaPost = await app.handleRequest(new Request("http://localhost/projects", { method: "POST" }));
-
-    expect(manifest?.headers.get("content-type")).toContain("application/manifest+json");
-    expect(await manifest?.json()).toMatchObject({ name: "Test", display: "standalone" });
-    expect(manifestHead?.status).toBe(200);
-    expect(manifestHead?.headers.get("content-type")).toContain("application/manifest+json");
-    expect(await manifestHead?.text()).toBe("");
-    expect(manifestPost?.status).toBe(405);
-    expect(manifestPost?.headers.get("x-frame-options")).toBe("DENY");
-    expect(missingPublic?.status).toBe(404);
-    expect(missingPublic?.headers.get("x-frame-options")).toBe("DENY");
-    expect(missingApi?.status).toBe(404);
-    expect(spa?.status).toBe(200);
-    expect(spa?.headers.get("content-type")).toContain("text/html");
-    const spaHtml = await spa?.text();
-    expect(spaHtml?.length).toBeGreaterThan(0);
-    expect(defaultIcon?.status).toBe(200);
-    expect(defaultIcon?.headers.get("content-type")).toContain("image/svg+xml");
-    expect(spaHead?.status).toBe(200);
-    expect(spaPost?.status).toBe(404);
-    expect(spaPost?.headers.get("content-type")).toContain("application/json");
-    expect(await spaPost?.json()).toMatchObject({ error: "not_found" });
-  });
-
-  test("public assets repeat response bodies and preserve valid empty bodies", async () => {
-    const sharedResponse = new Response("repeatable", {
-      headers: { "x-source-header": "preserved" },
+    const invalidToken = "wapp_invalid-token";
+    const invalid = await fetch(`${running.baseUrl}/api/records`, {
+      headers: { authorization: bearer(invalidToken) },
     });
-    const app = createWebAppServer({
-      appName: "Public Asset Repeatability",
-      envPrefix: "TEST_PUBLIC_ASSET_REPEATABILITY",
-      store: testStore("public-asset-repeatability"),
-      auth: { passkeys: false },
-      publicRoutes: {
-        "/repeat-response": sharedResponse,
-        "/repeat-handler": () => sharedResponse,
-        "/empty-string": "",
-        "/empty-bytes": new Uint8Array(),
-        "/empty-response": new Response(null),
-        "/missing-empty": () => undefined,
-      },
-      routes: defineRoutes({}),
+    expect(invalid.status).toBe(401);
+    const invalidBody = await invalid.text();
+    expect(invalidBody).not.toContain(invalidToken);
+
+    const listed = await fetch(`${running.baseUrl}/api/api-keys`, {
+      headers: { authorization: bearer(ownerKey.token) },
     });
-
-    const firstResponse = await app.handleRequest(new Request("http://localhost/repeat-response"));
-    const secondResponse = await app.handleRequest(new Request("http://localhost/repeat-response"));
-    const firstHandlerResponse = await app.handleRequest(new Request("http://localhost/repeat-handler"));
-    const secondHandlerResponse = await app.handleRequest(new Request("http://localhost/repeat-handler"));
-    expect(await firstResponse?.text()).toBe("repeatable");
-    expect(await secondResponse?.text()).toBe("repeatable");
-    expect(await firstHandlerResponse?.text()).toBe("repeatable");
-    expect(await secondHandlerResponse?.text()).toBe("repeatable");
-    expect(sharedResponse.bodyUsed).toBe(false);
-    expect(sharedResponse.headers.get("x-frame-options")).toBeNull();
-    expect(firstResponse?.headers.get("x-frame-options")).toBe("DENY");
-    expect(firstResponse?.headers.get("x-source-header")).toBe("preserved");
-
-    for (const path of ["/empty-string", "/empty-bytes", "/empty-response"]) {
-      const response = await app.handleRequest(new Request(`http://localhost${path}`));
-      expect(response?.status).toBe(200);
-      expect(await response?.text()).toBe("");
-      const head = await app.handleRequest(new Request(`http://localhost${path}`, { method: "HEAD" }));
-      expect(head?.status).toBe(200);
-      expect(await head?.text()).toBe("");
-    }
-
-    const missing = await app.handleRequest(new Request("http://localhost/missing-empty"));
-    expect(missing?.status).toBe(404);
-  });
-
-  test("app-owned HEAD routes preserve response headers without sending a streamed body", async () => {
-    const payload = new TextEncoder().encode("streamed response");
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_APP_HEAD",
-      store: testStore("app-head"),
-      auth: { passkeys: false },
-      routes: defineRoutes({
-        "/api/streamed": {
-          auth: "public",
-          sameOrigin: "never",
-          GET: () => new Response(new ReadableStream<Uint8Array>({
-            start(controller) {
-              controller.enqueue(payload);
-              controller.close();
-            },
-          }), {
-            status: 206,
-            statusText: "Partial Content",
-            headers: {
-              "content-length": String(payload.byteLength),
-              "x-test-header": "preserved",
-            },
-          }),
-        },
-      }),
-    });
-
-    const head = await app.handleRequest(new Request("http://localhost/api/streamed", { method: "HEAD" }));
-    expect(head?.status).toBe(206);
-    expect(head?.statusText).toBe("Partial Content");
-    expect(head?.headers.get("content-length")).toBe(String(payload.byteLength));
-    expect(head?.headers.get("x-test-header")).toBe("preserved");
-    expect(head?.body).toBeNull();
-    expect(await head?.text()).toBe("");
-
-    const get = await app.handleRequest(new Request("http://localhost/api/streamed"));
-    expect(await get?.bytes()).toEqual(payload);
-  });
-
-  test("builds and serves app-owned public assets through a typed entrypoint", async () => {
-    const path = `/public-asset-${crypto.randomUUID()}.js`;
-    const app = createWebAppServer({
-      appName: "Public Asset Test",
-      envPrefix: "TEST_PUBLIC_ASSET",
-      store: testStore("public-asset"),
-      auth: { passkeys: false },
-      publicRoutes: {
-        [path]: createWebAppPublicAsset({
-          path,
-          entrypoint: new URL("./fixtures/public-asset.ts", import.meta.url),
-          contentType: "text/javascript; charset=utf-8",
-          headers: { "cache-control": "no-cache" },
-        }),
-      },
-      routes: defineRoutes({}),
-    });
-
-    const response = await app.handleRequest(new Request(`http://localhost${path}`));
-    expect(response?.status).toBe(200);
-    expect(response?.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
-    expect(response?.headers.get("cache-control")).toBe("no-cache");
-    expect(await response?.text()).toContain("webapp-public-asset");
-
-    const head = await app.handleRequest(new Request(`http://localhost${path}`, { method: "HEAD" }));
-    expect(head?.status).toBe(200);
-    expect(head?.body).toBeNull();
-    expect(await head?.text()).toBe("");
-  });
-
-  test("serves every output from a public asset bundle in development", async () => {
-    const path = "/public-bundle/entry.js";
-    const entrypoint = new URL("./fixtures/public-asset-with-sidecar.ts", import.meta.url);
-    const bundle = await compileWebAppPublicAsset({
-      path,
-      entrypoint,
-      contentType: "text/javascript; charset=utf-8",
-      headers: { "cache-control": "no-cache" },
-    });
-    const sidecar = bundle.artifacts.find((artifact) => artifact.kind !== "entry-point");
-    expect(sidecar).toBeDefined();
-
-    const createApp = () => createWebAppServer({
-      appName: "Public Asset Bundle",
-      envPrefix: "TEST_PUBLIC_ASSET_BUNDLE",
-      web: testWeb,
-      store: testStore("public-asset-bundle"),
-      auth: { passkeys: false },
-      publicRoutes: {
-        [path]: createWebAppPublicAsset({
-          path,
-          entrypoint,
-          contentType: "text/javascript; charset=utf-8",
-          headers: { "cache-control": "no-cache" },
-        }),
-      },
-      routes: defineRoutes({}),
-    });
-    const app = createApp();
-
-    const primary = await app.handleRequest(new Request(`http://localhost${path}`));
-    const sidecarResponse = await app.handleRequest(new Request(`http://localhost${sidecar!.path}`));
-    expect(primary?.status).toBe(200);
-    expect(primary?.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
-    expect(primary?.headers.get("cache-control")).toBe("no-cache");
-    expect(await primary?.text()).toContain("webapp-public-asset-sidecar");
-    expect(sidecarResponse?.status).toBe(200);
-    expect(sidecarResponse?.headers.get("content-type")).toContain("text/css");
-    expect(sidecarResponse?.headers.get("cache-control")).toBe("no-cache");
-    expect(await sidecarResponse?.text()).toContain("display");
-
-    const repeatedSidecar = await app.handleRequest(new Request(`http://localhost${sidecar!.path}`));
-    expect(await repeatedSidecar?.text()).toBe(await (await app.handleRequest(new Request(`http://localhost${sidecar!.path}`)))?.text());
-
-    await withEnv({
-      TEST_PUBLIC_ASSET_BUNDLE_HOST: "127.0.0.1",
-      TEST_PUBLIC_ASSET_BUNDLE_PORT: "0",
-    }, async () => {
-      const server = await createApp().start();
-      try {
-        const livePrimary = await fetch(new URL(path, server.url));
-        const liveSidecar = await fetch(new URL(sidecar!.path, server.url));
-        expect(livePrimary.status).toBe(200);
-        expect(liveSidecar.status).toBe(200);
-        expect(liveSidecar.headers.get("content-type")).toContain("text/css");
-        expect(await liveSidecar.text()).toContain("display");
-      } finally {
-        await server.stop(true);
-      }
-    });
-  });
-
-  test("rejects public asset sidecar collisions with declared routes", async () => {
-    const path = "/public-bundle-collision/entry.js";
-    const entrypoint = new URL("./fixtures/public-asset-with-sidecar.ts", import.meta.url);
-    const bundle = await compileWebAppPublicAsset({
-      path,
-      entrypoint,
-      contentType: "text/javascript; charset=utf-8",
-    });
-    const sidecar = bundle.artifacts.find((artifact) => artifact.kind !== "entry-point");
-    expect(sidecar).toBeDefined();
-
-    const app = createWebAppServer({
-      appName: "Public Asset Collision",
-      envPrefix: "TEST_PUBLIC_ASSET_COLLISION",
-      store: testStore("public-asset-collision"),
-      auth: { passkeys: false },
-      publicRoutes: {
-        [path]: createWebAppPublicAsset({
-          path,
-          entrypoint,
-          contentType: "text/javascript; charset=utf-8",
-        }),
-        [sidecar!.path]: "override",
-      },
-      routes: defineRoutes({}),
-    });
-
-    await expect(app.handleRequest(new Request(`http://localhost${path}`))).rejects.toThrow(
-      `Public asset path ${sidecar!.path} collides with public route ${sidecar!.path}`,
-    );
-  });
-
-  test("allows public asset sidecars to claim undefined routes", async () => {
-    const path = "/public-bundle-undefined/entry.js";
-    const entrypoint = new URL("./fixtures/public-asset-with-sidecar.ts", import.meta.url);
-    const bundle = await compileWebAppPublicAsset({
-      path,
-      entrypoint,
-      contentType: "text/javascript; charset=utf-8",
-    });
-    const sidecar = bundle.artifacts.find((artifact) => artifact.kind !== "entry-point");
-    expect(sidecar).toBeDefined();
-
-    const route = createWebAppPublicAsset({
-      path,
-      entrypoint,
-      contentType: "text/javascript; charset=utf-8",
-    });
-    const publicRoutes: Record<string, NonNullable<typeof route>> = { [path]: route };
-    Object.defineProperty(publicRoutes, sidecar!.path, {
-      configurable: true,
-      enumerable: true,
-      value: undefined,
-    });
-    const app = createWebAppServer({
-      appName: "Public Asset Undefined Route",
-      envPrefix: "TEST_PUBLIC_ASSET_UNDEFINED",
-      store: testStore("public-asset-undefined"),
-      auth: { passkeys: false },
-      publicRoutes,
-      routes: defineRoutes({}),
-    });
-
-    const response = await app.handleRequest(new Request(`http://localhost${sidecar!.path}`));
-    expect(response?.status).toBe(200);
-    expect(response?.headers.get("content-type")).toContain("text/css");
-    expect(await response?.text()).toContain("display");
-  });
-
-  test("generates framework-owned manifest routes and HTML metadata", async () => {
-    const app = createWebAppServer({
-      appName: "Test App",
-      envPrefix: "TEST_NATIVE_MANIFEST",
-      web: {
-        ...testWeb,
-        shortName: "Test",
-        icons: {
-          favicon: { src: testIcon, type: "image/svg+xml", sizes: "any" },
-          appleTouch: { src: testIcon, type: "image/svg+xml", sizes: "any" },
-          manifest: [{ src: testIcon, type: "image/svg+xml", sizes: "any", purpose: "any maskable" }],
-        },
-      },
-      store: testStore("native-manifest"),
-      auth: { passkeys: false },
-      routes: defineRoutes({}),
-    });
-
-    const manifest = await app.handleRequest(new Request("http://localhost/manifest.webmanifest"));
-    const favicon = await app.handleRequest(new Request("http://localhost/webapp-favicon.svg"));
-    const htmlResponse = await app.handleRequest(new Request("http://localhost/app", { headers: { accept: "text/html" } }));
-
-    expect(manifest?.headers.get("content-type")).toContain("application/manifest+json");
-    expect(await manifest?.json()).toMatchObject({
-      name: "Test App",
-      short_name: "Test",
-      icons: [{ src: "./webapp-icon-1.svg", type: "image/svg+xml", sizes: "any" }],
-    });
-    expect(favicon?.headers.get("content-type")).toContain("image/svg+xml");
-    const html = await htmlResponse?.text();
-    expect(html).toContain("<title>Test App</title>");
-  });
-
-  test("compiled client documents preserve renderer script order and serve assets", async () => {
-    const compiledClientSymbol = Symbol.for("webapp.compiledClient");
-    const globalWithCompiledClient = globalThis as Record<symbol, unknown>;
-    globalWithCompiledClient[compiledClientSymbol] = {
-      packageRoot: process.cwd(),
-      assets: [
-        {
-          path: "/webapp-compiled/webapp-client-entry.js",
-          contentType: "text/javascript; charset=utf-8",
-          role: "script",
-          scriptOrder: 1,
-          body: Buffer.from("client entry asset\n").toString("base64"),
-        },
-        {
-          path: "/webapp-compiled/webapp-renderer-prelude.js",
-          contentType: "text/javascript; charset=utf-8",
-          role: "script",
-          scriptOrder: 0,
-          body: Buffer.from("renderer prelude asset\n").toString("base64"),
-        },
-        {
-          path: "/webapp-compiled/chunk.js",
-          contentType: "text/javascript; charset=utf-8",
-          role: "asset",
-          body: Buffer.from("chunk asset\n").toString("base64"),
-        },
-        {
-          path: "/webapp-compiled/webapp-client-entry.css",
-          contentType: "text/css; charset=utf-8",
-          role: "style",
-          body: Buffer.from("stylesheet asset\n").toString("base64"),
-        },
-      ],
-    };
-    try {
-      const app = createWebAppServer({
-        appName: "Compiled Test",
-        envPrefix: "TEST_COMPILED_CLIENT",
-        auth: { passkeys: false },
-        routes: defineRoutes({}),
-      });
-      const htmlResponse = await app.handleRequest(new Request("http://localhost/"));
-      const html = await htmlResponse?.text();
-      const stylePaths = Array.from(
-        html?.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/g) ?? [],
-        (match) => match[1],
-      );
-      const scriptPaths = Array.from(
-        html?.matchAll(/<script[^>]+type="module"[^>]+src="([^"]+)"/g) ?? [],
-        (match) => match[1],
-      );
-      expect(stylePaths).toContain("/webapp-compiled/webapp-client-entry.css");
-      expect(scriptPaths).toEqual([
-        "/webapp-compiled/webapp-renderer-prelude.js",
-        "/webapp-compiled/webapp-client-entry.js",
-      ]);
-
-      const prelude = await app.handleRequest(new Request("http://localhost/webapp-compiled/webapp-renderer-prelude.js"));
-      expect(prelude?.status).toBe(200);
-      expect(prelude?.headers.get("content-type")).toContain("text/javascript");
-      expect((await prelude?.text())?.length).toBeGreaterThan(0);
-
-      const chunk = await app.handleRequest(new Request("http://localhost/webapp-compiled/chunk.js"));
-      expect(chunk?.status).toBe(200);
-      expect(chunk?.headers.get("content-type")).toContain("javascript");
-      expect((await chunk?.text())?.length).toBeGreaterThan(0);
-
-      const stylesheet = await app.handleRequest(new Request("http://localhost/webapp-compiled/webapp-client-entry.css"));
-      expect(stylesheet?.status).toBe(200);
-      expect(stylesheet?.headers.get("content-type")).toContain("text/css");
-      expect((await stylesheet?.text())?.length).toBeGreaterThan(0);
-    } finally {
-      delete globalWithCompiledClient[compiledClientSymbol];
-    }
-  });
-
-  test("serializes theme metadata safely in generated scripts", async () => {
-    const themeMarker = String.raw`theme-marker";window.__themeInjected=true;//`;
-    const app = createWebAppServer({
-      appName: "Theme Test",
-      envPrefix: "TEST_THEME_LITERAL",
-      web: {
-        ...testWeb,
-        themeColor: themeMarker,
-      },
-      store: testStore("theme-literal"),
-      auth: { passkeys: false },
-      routes: defineRoutes({}),
-    });
-
-    const htmlResponse = await app.handleRequest(new Request("http://localhost/app", { headers: { accept: "text/html" } }));
-    const html = await htmlResponse?.text();
-
-    const inlineScripts = Array.from(html?.matchAll(/<script>([\s\S]*?)<\/script>/g) ?? [], (match) => match[1])
-      .filter((script): script is string => script !== undefined);
-    const themeRoot = {
-      classList: { toggle: () => undefined },
-      style: {} as Record<string, string>,
-      dataset: {} as Record<string, string>,
-      toggleAttribute: () => undefined,
-    };
-    const themeMeta = new (class {})();
-    const fakeDocument = {
-      documentElement: themeRoot,
-      querySelector: () => themeMeta,
-      createElement: () => ({}),
-      head: { appendChild: () => undefined },
-    };
-    const fakeWindow = {
-      localStorage: { getItem: () => "dark" },
-      matchMedia: () => ({ matches: false }),
-    } as Record<string, unknown>;
-    const globalValues = globalThis as Record<string, unknown>;
-    const previousMetaElement = globalValues["HTMLMetaElement"];
-    globalValues["HTMLMetaElement"] = themeMeta.constructor;
-    try {
-      for (const script of inlineScripts) {
-        new Function("window", "document", script)(fakeWindow, fakeDocument);
-      }
-    } finally {
-      if (previousMetaElement === undefined) {
-        delete globalValues["HTMLMetaElement"];
-      } else {
-        globalValues["HTMLMetaElement"] = previousMetaElement;
-      }
-    }
-
-    expect(fakeWindow["__themeInjected"]).toBeUndefined();
-    expect(themeMeta).toHaveProperty("content", themeMarker);
-  });
-
-  test("theme boot script survives unavailable browser storage", async () => {
-    const app = createWebAppServer({
-      appName: "Theme Storage Test",
-      envPrefix: "TEST_THEME_STORAGE",
-      web: testWeb,
-      store: testStore("theme-storage"),
-      auth: { passkeys: false },
-      routes: defineRoutes({}),
-    });
-
-    const htmlResponse = await app.handleRequest(new Request("http://localhost/", { headers: { accept: "text/html" } }));
-    const html = await htmlResponse?.text();
-    const themeScript = Array.from(html?.matchAll(/<script>([\s\S]*?)<\/script>/g) ?? [])
-      .map((match) => match[1])
-      .find((script) => script?.includes('const key = "webapp.theme";'));
-    if (!themeScript) {
-      throw new Error("Expected the generated theme boot script.");
-    }
-
-    const themeRoot = {
-      classList: { toggle: () => undefined },
-      style: {} as Record<string, string>,
-      dataset: {} as Record<string, string>,
-    };
-    const fakeDocument = { documentElement: themeRoot };
-    const fakeWindow = {
-      get localStorage(): never {
-        throw new Error("storage blocked");
-      },
-      matchMedia: () => ({ matches: false }),
-    };
-
-    expect(() => new Function("window", "document", themeScript)(fakeWindow, fakeDocument)).not.toThrow();
-    expect(themeRoot.dataset["theme"]).toBe("system");
-    expect(themeRoot.dataset["resolvedTheme"]).toBe("light");
-  });
-
-  test("rejects unsafe environment prefixes for generated documents", () => {
-    expect(() => createWebAppServer({
-      appName: "Bad Cache Test",
-      envPrefix: "TEST/../CACHE PREFIX",
-      web: testWeb,
-      store: testStore("bad-cache-path"),
-      auth: { passkeys: false },
-      routes: defineRoutes({}),
-    })).toThrow("envPrefix must match");
-  });
-
-  test("rejects non-local web document entry and icon URLs", () => {
-    expect(() => createWebAppServer({
-      appName: "Remote Entry",
-      envPrefix: "TEST_REMOTE_ENTRY",
-      web: { entry: new URL("https://example.com/main.tsx") },
-      store: testStore("remote-entry"),
-      auth: { passkeys: false },
-      routes: defineRoutes({}),
-    })).toThrow("web.entry must be a local file path or file: URL");
-
-    expect(() => createWebAppServer({
-      appName: "Remote Icon",
-      envPrefix: "TEST_REMOTE_ICON",
-      web: { ...testWeb, icons: { favicon: { src: new URL("https://example.com/icon.png") } } },
-      store: testStore("remote-icon"),
-      auth: { passkeys: false },
-      routes: defineRoutes({}),
-    })).toThrow("web.icons src must be a local file path or file: URL");
-  });
-
-  test("started server serves framework document and public routes before SPA catchall", async () => {
-    const portPrevious = process.env["TEST_PUBLIC_STATIC_INDEX_PORT"];
-    const hostPrevious = process.env["TEST_PUBLIC_STATIC_INDEX_HOST"];
-    process.env["TEST_PUBLIC_STATIC_INDEX_PORT"] = "0";
-    process.env["TEST_PUBLIC_STATIC_INDEX_HOST"] = "127.0.0.1";
-    let stopServer: (() => void) | undefined;
-    try {
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix: "TEST_PUBLIC_STATIC_INDEX",
-        web: testWeb,
-        store: testStore("public-static-index"),
-        auth: { passkeys: false, deviceAuth: true },
-        publicRoutes: {
-          "/diagnostics.json": {
-            headers: { "content-type": "application/json" },
-            GET: JSON.stringify({ ok: true }),
-          },
-        },
-        routes: defineRoutes({}),
-      });
-      const server = await app.start();
-      stopServer = () => server.stop(true);
-      const diagnostics = await fetch(new URL("/diagnostics.json", server.url));
-      const manifest = await fetch(new URL("/site.webmanifest", server.url));
-      const fallback = await fetch(new URL("/anything-else", server.url));
-      const devicePage = await fetch(new URL("/device", server.url));
-      const postFallback = await fetch(new URL("/anything-else", server.url), { method: "POST" });
-
-      expect(diagnostics.headers.get("content-type")).toContain("application/json");
-      expect(await diagnostics.json()).toEqual({ ok: true });
-      expect(manifest.headers.get("content-type")).toContain("application/manifest+json");
-      expect(await manifest.json()).toMatchObject({ name: "Test" });
-      expect(fallback.headers.get("content-type")).toContain("text/html");
-      const html = await fallback.text();
-      const modulePaths = Array.from(
-        html.matchAll(/<script[^>]+type="module"[^>]+src="([^"]+\.js)"/g),
-        (match) => match[1],
-      ).filter((path): path is string => path !== undefined);
-      expect(modulePaths.length).toBeGreaterThan(0);
-      const moduleResponses = await Promise.all(modulePaths.map((path) => fetch(new URL(path, server.url))));
-      expect(moduleResponses.every((response) => response.status === 200)).toBe(true);
-      expect(moduleResponses.every((response) => response.headers.get("content-type")?.includes("javascript"))).toBe(true);
-      expect(devicePage.headers.get("content-type")).toContain("text/html");
-      const deviceHtml = await devicePage.text();
-      expect(deviceHtml.length).toBeGreaterThan(0);
-      expect(postFallback.status).toBe(404);
-      expect(postFallback.headers.get("content-type")).toContain("application/json");
-      expect(await postFallback.json()).toMatchObject({ error: "not_found" });
-    } finally {
-      stopServer?.();
-      if (portPrevious === undefined) {
-        delete process.env["TEST_PUBLIC_STATIC_INDEX_PORT"];
-      } else {
-        process.env["TEST_PUBLIC_STATIC_INDEX_PORT"] = portPrevious;
-      }
-      if (hostPrevious === undefined) {
-        delete process.env["TEST_PUBLIC_STATIC_INDEX_HOST"];
-      } else {
-        process.env["TEST_PUBLIC_STATIC_INDEX_HOST"] = hostPrevious;
-      }
-    }
-  });
-
-  test("app routes can perform public websocket upgrades", async () => {
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_UPGRADE_ROUTE",
-      store: testStore("upgrade-route"),
-      auth: { passkeys: false },
-      routes: defineRoutes({
-        "/terminal": {
-          auth: "public",
-          sameOrigin: "never",
-          GET: (_req, ctx) => ctx.server?.upgrade(_req, { data: { webappSocketHandler: "terminal" } }) ? undefined : new Response("failed", { status: 400 }),
-        },
-      }),
-    });
-    const upgrades: unknown[] = [];
-    const response = await app.handleRequest(new Request("http://localhost/terminal"), {
-      upgrade: (_req: Request, options?: unknown) => {
-        upgrades.push(options);
-        return true;
-      },
-    } as never);
-
-    expect(response).toBeUndefined();
-    expect(upgrades).toHaveLength(1);
-    expect(upgrades[0]).toMatchObject({ data: { webappSocketHandler: "terminal" } });
-  });
-
-  test("sqlite store migrates legacy single-user data to owner-owned records", () => {
-    const dataDir = `.cache/tests/legacy-single-user-${crypto.randomUUID()}`;
-    mkdirSync(dataDir, { recursive: true });
-    const db = new Database(`${dataDir}/webapp.sqlite`);
-    const now = new Date().toISOString();
-    db.exec(`
-      CREATE TABLE webapp_preferences (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE webapp_passkeys (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        credential_id TEXT NOT NULL UNIQUE,
-        public_key BLOB NOT NULL,
-        counter INTEGER NOT NULL,
-        device_type TEXT NOT NULL,
-        backed_up INTEGER NOT NULL,
-        transports TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        last_used_at TEXT
-      );
-      CREATE TABLE webapp_api_keys (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        prefix TEXT NOT NULL,
-        token_hash TEXT NOT NULL UNIQUE,
-        scopes TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        last_used_at TEXT,
-        expires_at TEXT
-      );
-      CREATE TABLE webapp_device_auth_requests (
-        device_code_hash TEXT PRIMARY KEY,
-        user_code TEXT NOT NULL UNIQUE,
-        client_id TEXT NOT NULL,
-        scope TEXT NOT NULL,
-        status TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        expires_at TEXT NOT NULL
-      );
-      CREATE TABLE webapp_refresh_sessions (
-        id TEXT PRIMARY KEY,
-        family_id TEXT NOT NULL,
-        client_id TEXT NOT NULL,
-        scope TEXT NOT NULL,
-        refresh_token_hash TEXT NOT NULL UNIQUE,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        expires_at TEXT NOT NULL,
-        last_used_at TEXT,
-        revoked_at TEXT
-      );
-    `);
-    db.query("INSERT INTO webapp_preferences (key, value, updated_at) VALUES (?, ?, ?)").run("passkey.secret", "secret", now);
-    db.query("INSERT INTO webapp_preferences (key, value, updated_at) VALUES (?, ?, ?)").run("theme", "dark", now);
-    db.query(`
-      INSERT INTO webapp_passkeys
-      (id, name, credential_id, public_key, counter, device_type, backed_up, transports, created_at, updated_at, last_used_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run("passkey-id", "Primary passkey", "credential-id", new Uint8Array([1, 2, 3]), 4, "singleDevice", 1, JSON.stringify(["internal"]), now, now, now);
-    db.query("INSERT INTO webapp_api_keys (id, name, prefix, token_hash, scopes, created_at, last_used_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run("api-key-id", "Legacy key", "wapp", "token-hash", JSON.stringify(["*"]), now, now, null);
-    db.query("INSERT INTO webapp_device_auth_requests (device_code_hash, user_code, client_id, scope, status, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run("device-hash", "ABCD-EFGH", "cli", "todos:read", "approved", now, now, now);
-    db.query("INSERT INTO webapp_refresh_sessions (id, family_id, client_id, scope, refresh_token_hash, created_at, updated_at, expires_at, last_used_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run("refresh-id", "family-id", "cli", "todos:read", "refresh-hash", now, now, now, null, null);
-    db.close();
-
-    const store = sqliteWebAppStore({ dataDir });
-    store.initialize();
-    const owner = store.getOwnerUser();
-
-    expect(owner?.username).toBe("owner");
-    expect(owner?.passkeyConfigured).toBe(true);
-    expect(store.getPreference("passkey.secret")).toBe("secret");
-    expect(store.getThemePreference(owner!.id)).toBe("dark");
-    expect(store.listPasskeys(owner!.id)).toHaveLength(1);
-    expect(store.listApiKeys(owner!.id)).toHaveLength(1);
-    expect(store.listApiKeys(owner!.id)[0]).toMatchObject({ kind: "user" });
-    expect(store.listApiKeys(owner!.id)[0]?.managedBy).toBeUndefined();
-    expect(store.getDeviceAuthByUserCode("ABCD-EFGH")?.approvedByUserId).toBe(owner!.id);
-    expect(store.listRefreshSessions(owner!.id)).toHaveLength(1);
-
-    store.initialize();
-    expect(store.countUsers()).toBe(1);
-  });
-
-  test("sqlite store upgrades current multi-user API-key tables idempotently", () => {
-    const dataDir = `.cache/tests/api-key-schema-migration-${crypto.randomUUID()}`;
-    mkdirSync(dataDir, { recursive: true });
-    const db = new Database(`${dataDir}/webapp.sqlite`);
-    const now = new Date().toISOString();
-    const userId = crypto.randomUUID();
-    db.exec(`
-      CREATE TABLE webapp_users (
-        id TEXT PRIMARY KEY,
-        username TEXT NOT NULL UNIQUE,
-        role TEXT NOT NULL,
-        auth_version INTEGER NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        last_login_at TEXT,
-        disabled_at TEXT
-      );
-      CREATE TABLE webapp_api_keys (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        prefix TEXT NOT NULL,
-        token_hash TEXT NOT NULL UNIQUE,
-        scopes TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        last_used_at TEXT,
-        expires_at TEXT
-      );
-    `);
-    db.query(`
-      INSERT INTO webapp_users
-      (id, username, role, auth_version, created_at, updated_at, last_login_at, disabled_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(userId, "owner", "owner", 1, now, now, null, null);
-    db.query(`
-      INSERT INTO webapp_api_keys
-      (id, user_id, name, prefix, token_hash, scopes, created_at, last_used_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run("legacy-multi-user-key", userId, "Legacy key", "wapp", "legacy-hash", JSON.stringify(["*"]), now, null, null);
-    db.close();
-
-    const store = sqliteWebAppStore({ dataDir });
-    store.initialize();
-    const migrated = store.listApiKeys(userId);
-    expect(migrated).toHaveLength(1);
-    expect(migrated[0]).toMatchObject({ id: "legacy-multi-user-key", kind: "user" });
-    expect(migrated[0]?.managedBy).toBeUndefined();
-
-    const migratedDb = new Database(`${dataDir}/webapp.sqlite`);
-    const columns = (migratedDb.query("PRAGMA table_info(webapp_api_keys)").all() as Array<{ name: string }>).map((column) => column.name);
-    expect(columns).toEqual(expect.arrayContaining(["kind", "managed_by"]));
-    migratedDb.close();
-
-    store.initialize();
-    expect(store.listApiKeys(userId)).toHaveLength(1);
-  });
-
-  test("managed API-key metadata persists without token plaintext", () => {
-    const dataDir = `.cache/tests/api-key-managed-storage-${crypto.randomUUID()}`;
-    const store = sqliteWebAppStore({ dataDir });
-    store.initialize();
-    const user = configuredUser(store);
-    const created = createManagedApiKey(store, currentUser(user), { managedBy: "test-runtime", scopes: ["*"] });
-    const stored = store.listApiKeys(user.id)[0];
-
-    expect(stored).toMatchObject({ kind: "managed", managedBy: "test-runtime", tokenHash: expect.any(String) });
-    expect(JSON.stringify(stored)).not.toContain(created.token);
-
-    const db = new Database(`${dataDir}/webapp.sqlite`);
-    const row = db.query("SELECT * FROM webapp_api_keys WHERE id = ?").get(created.key.id) as Record<string, unknown> | null;
-    expect(row).toMatchObject({ kind: "managed", managed_by: "test-runtime" });
-    expect(row?.["token_hash"]).not.toBe(created.token);
-    expect(JSON.stringify(row)).not.toContain(created.token);
-    db.close();
-  });
-
-  test("runtime config names invalid prefixed log level variables", () => {
-    const previous = process.env["TEST_LOG_LEVEL"];
-    process.env["TEST_LOG_LEVEL"] = "verbose";
-    try {
-      expect(() => readRuntimeConfig({ appName: "Test", envPrefix: "TEST" })).toThrow("TEST_LOG_LEVEL");
-    } finally {
-      if (previous === undefined) {
-        delete process.env["TEST_LOG_LEVEL"];
-      } else {
-        process.env["TEST_LOG_LEVEL"] = previous;
-      }
-    }
-  });
-
-  test("runtime config rejects invalid public base URLs", () => {
-    const invalidCases = [
-      { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_MISSING_SCHEME", value: "public.example.test" },
-      { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_PROTOCOL", value: "ftp://public.example.test" },
-      { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_HOST", value: "https://public example.test" },
-      { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_PATH", value: "https://public.example.test/app" },
-      { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_QUERY", value: "https://public.example.test/?tenant=app" },
-      { envPrefix: "TEST_RUNTIME_PUBLIC_BASE_HASH", value: "https://public.example.test/#app" },
-    ] as const;
-    for (const testCase of invalidCases) {
-      const key = `${testCase.envPrefix}_PUBLIC_BASE_URL`;
-      const previous = process.env[key];
-      process.env[key] = testCase.value;
-      try {
-        expect(() => readRuntimeConfig({ appName: "Test", envPrefix: testCase.envPrefix })).toThrow(key);
-      } finally {
-        if (previous === undefined) {
-          delete process.env[key];
-        } else {
-          process.env[key] = previous;
-        }
-      }
-    }
-  });
-
-  test("normalizes a public base URL to its origin", () => {
-    withEnv({
-      TEST_RUNTIME_PUBLIC_BASE_NORMALIZED_PUBLIC_BASE_URL: "https://public.example.test/",
-    }, () => {
-      const config = readRuntimeConfig({ appName: "Test", envPrefix: "TEST_RUNTIME_PUBLIC_BASE_NORMALIZED" });
-      expect(config.publicBaseUrl).toBe("https://public.example.test");
-    });
-  });
-
-  test("request-origin helpers resolve trusted proxy values for app URLs", () => {
-    withEnv({
-      TEST_REQUEST_ORIGIN_HELPERS_TRUST_PROXY: "true",
-      TEST_REQUEST_ORIGIN_HELPERS_TRUST_PROXY_HEADERS: "proto,host,prefix",
-      TEST_REQUEST_ORIGIN_HELPERS_TRUST_PROXY_CHAIN: "first",
-      TEST_REQUEST_ORIGIN_HELPERS_PUBLIC_BASE_URL: "https://public.example.test",
-    }, () => {
-      const config = readRuntimeConfig({ appName: "Test", envPrefix: "TEST_REQUEST_ORIGIN_HELPERS" });
-      const request = new Request("http://internal.example.test/api/resource", {
-        headers: {
-          "x-forwarded-proto": "http",
-          "x-forwarded-host": "attacker.example.test",
-          "x-forwarded-prefix": "/proxy/",
-        },
-      });
-
-      expect(getRequestOriginInfo(request, config)).toEqual({
-        origin: "https://public.example.test",
-        hostname: "public.example.test",
-        secure: true,
-        pathPrefix: "/proxy",
-      });
-      expect(getRequestBaseUrl(request, config)).toBe("https://public.example.test/proxy");
-    });
-  });
-
-  test("framework config exposes the trusted public base path", async () => {
-    await withEnv({
-      TEST_CONFIG_PUBLIC_PATH_TRUST_PROXY: "true",
-      TEST_CONFIG_PUBLIC_PATH_TRUST_PROXY_HEADERS: "prefix",
-      TEST_CONFIG_PUBLIC_PATH_TRUST_PROXY_CHAIN: "first",
-    }, async () => {
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix: "TEST_CONFIG_PUBLIC_PATH",
-        store: testStore("config-public-path"),
-        auth: { passkeys: false },
-        routes: defineRoutes({}),
-      });
-
-      const prefixed = await responseJson<{ publicBasePath: string }>(
-        await app.handleRequest(new Request("http://internal.example.test/api/config", {
-          headers: { "x-forwarded-prefix": "/tools/notes/" },
-        })),
-      );
-      expect(prefixed.publicBasePath).toBe("/tools/notes");
-
-      const root = await responseJson<{ publicBasePath: string }>(
-        await app.handleRequest(new Request("http://internal.example.test/api/config")),
-      );
-      expect(root.publicBasePath).toBe("/");
-    });
-  });
-
-  test("runtime config disables forwarded-header trust by default", () => {
-    const config = readRuntimeConfig({ appName: "Test", envPrefix: "TEST_RUNTIME_TRUST_DEFAULT" });
-    expect(config["trustProxy"]).toEqual({ enabled: false, headers: [], chain: "first" });
-    expect(safeRuntimeConfig(config)["trustProxy"]).toEqual({ enabled: false, headers: [], chain: "first" });
-  });
-
-  test("runtime config parses the explicit trust-proxy policy", () => {
-    const keys = [
-      "TEST_RUNTIME_TRUST_ENABLED_TRUST_PROXY",
-      "TEST_RUNTIME_TRUST_ENABLED_TRUST_PROXY_HEADERS",
-      "TEST_RUNTIME_TRUST_ENABLED_TRUST_PROXY_CHAIN",
-    ] as const;
-    const previous = keys.map((key) => process.env[key]);
-    process.env[keys[0]] = "yes";
-    process.env[keys[1]] = "proto, host";
-    process.env[keys[2]] = "last";
-    try {
-      const config = readRuntimeConfig({ appName: "Test", envPrefix: "TEST_RUNTIME_TRUST_ENABLED" });
-      expect(config["trustProxy"]).toEqual({ enabled: true, headers: ["proto", "host"], chain: "last" });
-      expect(safeRuntimeConfig(config)["trustProxy"]).toEqual({ enabled: true, headers: ["proto", "host"], chain: "last" });
-    } finally {
-      keys.forEach((key, index) => {
-        const value = previous[index];
-        if (value === undefined) {
-          delete process.env[key];
-        } else {
-          process.env[key] = value;
-        }
-      });
-    }
-  });
-
-  test("runtime config rejects invalid trust-proxy values", () => {
-    const invalidCases = [
-      {
-        key: "TEST_RUNTIME_TRUST_INVALID_HEADER_TRUST_PROXY_HEADERS",
-        value: "proto,forwarded",
-        message: "TEST_RUNTIME_TRUST_INVALID_HEADER_TRUST_PROXY_HEADERS",
-        envPrefix: "TEST_RUNTIME_TRUST_INVALID_HEADER",
-      },
-      {
-        key: "TEST_RUNTIME_TRUST_INVALID_CHAIN_TRUST_PROXY_CHAIN",
-        value: "nearest",
-        message: "TEST_RUNTIME_TRUST_INVALID_CHAIN_TRUST_PROXY_CHAIN",
-        envPrefix: "TEST_RUNTIME_TRUST_INVALID_CHAIN",
-      },
-      {
-        key: "TEST_RUNTIME_TRUST_INVALID_BOOLEAN_TRUST_PROXY",
-        value: "sometimes",
-        message: "TEST_RUNTIME_TRUST_INVALID_BOOLEAN_TRUST_PROXY",
-        envPrefix: "TEST_RUNTIME_TRUST_INVALID_BOOLEAN",
-      },
-    ] as const;
-    for (const testCase of invalidCases) {
-      const previous = process.env[testCase.key];
-      process.env[testCase.key] = testCase.value;
-      try {
-        expect(() => readRuntimeConfig({ appName: "Test", envPrefix: testCase.envPrefix })).toThrow(testCase.message);
-      } finally {
-        if (previous === undefined) {
-          delete process.env[testCase.key];
-        } else {
-          process.env[testCase.key] = previous;
-        }
-      }
-    }
-  });
-
-  test("ignores forwarded origin and prefix headers by default", async () => {
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_PROXY_DEFAULT_BEHAVIOR",
-      store: testStore("proxy-default-behavior"),
-      auth: { passkeys: true },
-      routes: defineRoutes({
-        "/api/proxy-origin": {
-          auth: "public",
-          POST: () => jsonResponse({ ok: true }),
-        },
-      }),
-    });
-    const forwardedHeaders = {
-      origin: "http://localhost",
-      "x-forwarded-proto": "https",
-      "x-forwarded-host": "attacker.example.test",
-      "x-forwarded-prefix": "/attacker",
-    };
-    const routeResponse = await app.handleRequest(new Request("http://localhost/api/proxy-origin", {
+    expect(listed.status).toBe(200);
+    const initialKeys = await responseJson<Array<{ id: string }>>(listed);
+    expect(initialKeys.map(({ id }) => id)).toContain(ownerKey.key.id);
+
+    const created = await fetch(`${running.baseUrl}/api/api-keys`, {
       method: "POST",
-      headers: forwardedHeaders,
-    }));
-    expect(routeResponse?.status).toBe(200);
-
-    const optionsResponse = await app.handleRequest(new Request("http://localhost/api/passkey-auth/bootstrap/options", {
-      method: "POST",
-      headers: { ...forwardedHeaders, "content-type": "application/json" },
-      body: JSON.stringify({ username: "owner" }),
-    }));
-    const options = await responseJson<{ rp?: { id?: string } }>(optionsResponse);
-    const cookie = optionsResponse?.headers.get("set-cookie") ?? "";
-    expect(options.rp?.id).toBe("localhost");
-    expect(cookie).toContain("Path=/");
-    expect(cookie).not.toContain("Path=/attacker");
-    expect(cookie).not.toMatch(/(?:^|; )Secure(?:;|$)/);
-  });
-
-  test("uses the configured forwarded origin and prefix in trusted mode", async () => {
-    await withEnv({
-      TEST_PROXY_TRUSTED_TRUST_PROXY: "true",
-      TEST_PROXY_TRUSTED_TRUST_PROXY_HEADERS: "proto,host,prefix",
-      TEST_PROXY_TRUSTED_TRUST_PROXY_CHAIN: "first",
-    }, async () => {
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix: "TEST_PROXY_TRUSTED",
-        store: testStore("proxy-trusted"),
-        auth: { passkeys: true },
-        routes: defineRoutes({
-          "/api/proxy-origin": {
-            auth: "public",
-            POST: () => jsonResponse({ ok: true }),
-          },
-        }),
-      });
-      const forwardedHeaders = {
-        origin: "https://app.example.test",
-        "x-forwarded-proto": "https",
-        "x-forwarded-host": "app.example.test",
-        "x-forwarded-prefix": "/proxy/",
-      };
-      const routeResponse = await app.handleRequest(new Request("http://internal.example.test/api/proxy-origin", {
-        method: "POST",
-        headers: forwardedHeaders,
-      }));
-      expect(routeResponse?.status).toBe(200);
-
-      const optionsResponse = await app.handleRequest(new Request("http://internal.example.test/api/passkey-auth/bootstrap/options", {
-        method: "POST",
-        headers: { ...forwardedHeaders, "content-type": "application/json" },
-        body: JSON.stringify({ username: "owner" }),
-      }));
-      const options = await responseJson<{ rp?: { id?: string } }>(optionsResponse);
-      const cookie = optionsResponse?.headers.get("set-cookie") ?? "";
-      expect(options.rp?.id).toBe("app.example.test");
-      expect(cookie).toContain("Path=/proxy");
-      expect(cookie).toMatch(/(?:^|; )Secure(?:;|$)/);
+      headers: jsonHeaders(running.baseUrl, ownerKey.token),
+      body: JSON.stringify({ name: "Created over HTTP", scopes: ["read"] }),
     });
-  });
+    expect(created.status).toBe(200);
+    const createdBody = await responseJson<{ key: { id: string } }>(created);
 
-  test("selects the documented forwarded chain value", async () => {
-    const route = defineRoutes({
-      "/api/proxy-chain": {
-        auth: "public",
-        POST: () => jsonResponse({ ok: true }),
-      },
-    });
-    const headers = {
-      "x-forwarded-proto": "https, http",
-      "x-forwarded-host": "first.example.test, last.example.test",
-    };
-
-    await withEnv({
-      TEST_PROXY_CHAIN_FIRST_TRUST_PROXY: "true",
-      TEST_PROXY_CHAIN_FIRST_TRUST_PROXY_HEADERS: "proto,host",
-      TEST_PROXY_CHAIN_FIRST_TRUST_PROXY_CHAIN: "first",
-    }, async () => {
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix: "TEST_PROXY_CHAIN_FIRST",
-        store: testStore("proxy-chain-first"),
-        auth: { passkeys: false },
-        routes: route,
-      });
-      const response = await app.handleRequest(new Request("http://internal.example.test/api/proxy-chain", {
-        method: "POST",
-        headers: { ...headers, origin: "https://first.example.test" },
-      }));
-      expect(response?.status).toBe(200);
-    });
-
-    await withEnv({
-      TEST_PROXY_CHAIN_LAST_TRUST_PROXY: "true",
-      TEST_PROXY_CHAIN_LAST_TRUST_PROXY_HEADERS: "proto,host",
-      TEST_PROXY_CHAIN_LAST_TRUST_PROXY_CHAIN: "last",
-    }, async () => {
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix: "TEST_PROXY_CHAIN_LAST",
-        store: testStore("proxy-chain-last"),
-        auth: { passkeys: false },
-        routes: route,
-      });
-      const response = await app.handleRequest(new Request("http://internal.example.test/api/proxy-chain", {
-        method: "POST",
-        headers: { ...headers, origin: "http://last.example.test" },
-      }));
-      expect(response?.status).toBe(200);
-    });
-  });
-
-  test("falls back to direct values for malformed trusted headers", async () => {
-    await withEnv({
-      TEST_PROXY_INVALID_REQUEST_TRUST_PROXY: "true",
-      TEST_PROXY_INVALID_REQUEST_TRUST_PROXY_HEADERS: "proto,host,prefix",
-      TEST_PROXY_INVALID_REQUEST_TRUST_PROXY_CHAIN: "first",
-    }, async () => {
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix: "TEST_PROXY_INVALID_REQUEST",
-        store: testStore("proxy-invalid-request"),
-        auth: { passkeys: true },
-        routes: defineRoutes({
-          "/api/proxy-invalid": {
-            auth: "public",
-            POST: () => jsonResponse({ ok: true }),
-          },
-        }),
-      });
-      const headers = {
-        origin: "http://localhost",
-        "x-forwarded-proto": "javascript",
-        "x-forwarded-host": "evil.example.test/path",
-        "x-forwarded-prefix": "relative",
-      };
-      const routeResponse = await app.handleRequest(new Request("http://localhost/api/proxy-invalid", {
-        method: "POST",
-        headers,
-      }));
-      expect(routeResponse?.status).toBe(200);
-
-      const optionsResponse = await app.handleRequest(new Request("http://localhost/api/passkey-auth/bootstrap/options", {
-        method: "POST",
-        headers: { ...headers, "content-type": "application/json" },
-        body: JSON.stringify({ username: "owner" }),
-      }));
-      const options = await responseJson<{ rp?: { id?: string } }>(optionsResponse);
-      const cookie = optionsResponse?.headers.get("set-cookie") ?? "";
-      expect(options.rp?.id).toBe("localhost");
-      expect(cookie).toContain("Path=/");
-      expect(cookie).not.toMatch(/(?:^|; )Secure(?:;|$)/);
-    });
-  });
-
-  test("keeps publicBaseUrl authoritative for origin, WebSocket checks, and public URLs", async () => {
-    await withEnv({
-      TEST_PROXY_PUBLIC_BASE_TRUST_PROXY: "true",
-      TEST_PROXY_PUBLIC_BASE_TRUST_PROXY_HEADERS: "proto,host,prefix",
-      TEST_PROXY_PUBLIC_BASE_TRUST_PROXY_CHAIN: "first",
-      TEST_PROXY_PUBLIC_BASE_PUBLIC_BASE_URL: "https://public.example.test",
-    }, async () => {
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix: "TEST_PROXY_PUBLIC_BASE",
-        store: testStore("proxy-public-base"),
-        auth: { passkeys: false, deviceAuth: true },
-        routes: defineRoutes({
-          "/api/proxy-public-base": {
-            auth: "public",
-            POST: () => jsonResponse({ ok: true }),
-          },
-        }),
-      });
-      const forwarded = {
-        "x-forwarded-proto": "http",
-        "x-forwarded-host": "attacker.example.test",
-        "x-forwarded-prefix": "/proxy",
-      };
-      const originResponse = await app.handleRequest(new Request("http://internal.example.test/api/proxy-public-base", {
-        method: "POST",
-        headers: { ...forwarded, origin: "https://public.example.test" },
-      }));
-      expect(originResponse?.status).toBe(200);
-
-      const websocketRejected = await app.handleRequest(new Request("http://internal.example.test/api/ws", {
-        headers: { ...forwarded, origin: "https://attacker.example.test", upgrade: "websocket" },
-      }));
-      expect(websocketRejected?.status).toBe(403);
-
-      const websocketAccepted = await app.handleRequest(new Request("http://internal.example.test/api/ws", {
-        headers: { ...forwarded, origin: "https://public.example.test", upgrade: "websocket" },
-      }));
-      expect(websocketAccepted?.status).toBe(400);
-
-      const device = await responseJson<{ verification_uri: string }>(await app.handleRequest(new Request("http://internal.example.test/api/auth/device", {
-        method: "POST",
-        headers: { ...forwarded, "content-type": "application/json" },
-        body: "{}",
-      })));
-      expect(device.verification_uri).toBe("https://public.example.test/proxy/device");
-
-      const passkeyApp = createWebAppServer({
-        appName: "Test",
-        envPrefix: "TEST_PROXY_PUBLIC_BASE",
-        store: testStore("proxy-public-base-passkey"),
-        auth: { passkeys: true },
-        routes: defineRoutes({}),
-      });
-      const passkeyResponse = await passkeyApp.handleRequest(new Request("http://internal.example.test/api/passkey-auth/bootstrap/options", {
-        method: "POST",
-        headers: { ...forwarded, "content-type": "application/json" },
-        body: JSON.stringify({ username: "owner" }),
-      }));
-      const passkeyOptions = await responseJson<{ rp?: { id?: string } }>(passkeyResponse);
-      const passkeyCookie = passkeyResponse?.headers.get("set-cookie") ?? "";
-      expect(passkeyOptions.rp?.id).toBe("public.example.test");
-      expect(passkeyCookie).toMatch(/(?:^|; )Secure(?:;|$)/);
-    });
-  });
-
-  test("started server keeps device page disabled when device auth is disabled", async () => {
-    const portPrevious = process.env["TEST_DEVICE_ROUTE_PORT"];
-    const hostPrevious = process.env["TEST_DEVICE_ROUTE_HOST"];
-    process.env["TEST_DEVICE_ROUTE_PORT"] = "0";
-    process.env["TEST_DEVICE_ROUTE_HOST"] = "127.0.0.1";
-    let stopServer: (() => void) | undefined;
-    try {
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix: "TEST_DEVICE_ROUTE",
-        store: testStore("device-route-disabled"),
-        auth: { deviceAuth: false },
-        routes: defineRoutes({}),
-      });
-      const server = await app.start();
-      stopServer = () => server.stop(true);
-      const response = await fetch(new URL("/device", server.url));
-      expect(response.status).toBe(404);
-    } finally {
-      stopServer?.();
-      if (portPrevious === undefined) {
-        delete process.env["TEST_DEVICE_ROUTE_PORT"];
-      } else {
-        process.env["TEST_DEVICE_ROUTE_PORT"] = portPrevious;
-      }
-      if (hostPrevious === undefined) {
-        delete process.env["TEST_DEVICE_ROUTE_HOST"];
-      } else {
-        process.env["TEST_DEVICE_ROUTE_HOST"] = hostPrevious;
-      }
-    }
-  });
-
-  test("protected routes reject anonymous requests after passkey bootstrap", async () => {
-    const store = testStore("reject-anon");
-    store.initialize();
-    const user = configuredUser(store);
-    store.savePasskey(configuredPasskey(user.id));
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST",
-      store,
-      routes: defineRoutes({
-        "/api/protected": {
-          GET: () => jsonResponse({ ok: true }),
-        },
-      }),
-    });
-
-    const response = await app.handleRequest(new Request("http://localhost/api/protected"));
-    expect(response?.status).toBe(401);
-  });
-
-  test("API-key browser sign-in accepts full-scope user and managed keys and issues a passkey session", async () => {
-    const store = testStore("api-key-browser-session");
-    store.initialize();
-    const user = configuredUser(store);
-    store.savePasskey(configuredPasskey(user.id));
-    const userKey = createApiKey(store, currentUser(user), { name: "browser key", scopes: ["*"] });
-    const managedKey = createManagedApiKey(store, currentUser(user), { name: "managed browser key", managedBy: "browser-test", scopes: ["*"] });
-    const limitedKey = createApiKey(store, currentUser(user), { name: "limited key", scopes: ["read"] });
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_API_KEY_BROWSER_SESSION",
-      store,
-      auth: { passkeys: true, apiKeys: true },
-      routes: defineRoutes({
-        "/api/protected": {
-          GET: (_req, ctx) => jsonResponse({ authKind: ctx.auth.kind, userId: ctx.requireUser().id }),
-        },
-      }),
-    });
-
-    const exchange = (token: string, url = "http://localhost/api/passkey-auth/api-key", headers: HeadersInit = {}) => app.handleRequest(new Request(url, {
-      method: "POST",
-      headers: { origin: new URL(url).origin, "content-type": "application/json", ...headers },
-      body: JSON.stringify({ apiKey: token }),
-    }));
-
-    const missingOrigin = await app.handleRequest(new Request("http://localhost/api/passkey-auth/api-key", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ apiKey: userKey.token }),
-    }));
-    expect(missingOrigin?.status).toBe(403);
-    expect(store.getApiKeyByHash(sha256(userKey.token))?.lastUsedAt).toBeUndefined();
-    const crossOrigin = await app.handleRequest(new Request("http://localhost/api/passkey-auth/api-key", {
-      method: "POST",
-      headers: { origin: "https://evil.example", "content-type": "application/json" },
-      body: JSON.stringify({ apiKey: userKey.token }),
-    }));
-    expect(crossOrigin?.status).toBe(403);
-    expect(store.getApiKeyByHash(sha256(userKey.token))?.lastUsedAt).toBeUndefined();
-
-    const userExchange = await exchange(userKey.token);
-    expect(userExchange?.status).toBe(200);
-    const userSetCookie = userExchange?.headers.get("set-cookie") ?? "";
-    expect(userSetCookie).toContain("HttpOnly");
-    expect(userSetCookie).toContain("SameSite=Strict");
-    expect(userSetCookie).toContain("Max-Age=2592000");
-    expect(userSetCookie).not.toContain("Secure");
-    expect(store.getApiKeyByHash(sha256(userKey.token))?.lastUsedAt).toBeTruthy();
-    expect(store.getUserById(user.id)?.lastLoginAt).toBeUndefined();
-    expect(store.listAuditEvents()).toEqual([]);
-
-    const sessionCookie = cookieValue(userExchange, "webapp_passkey_session");
-    const protectedResponse = await app.handleRequest(new Request("http://localhost/api/protected", {
-      headers: { cookie: sessionCookie },
-    }));
-    expect(await responseJson<{ authKind: string; userId: string }>(protectedResponse)).toEqual({ authKind: "passkey", userId: user.id });
-
-    expect(store.deleteApiKey(userKey.key.id, user.id)).toBe(true);
-    const afterSourceDeletion = await app.handleRequest(new Request("http://localhost/api/protected", {
-      headers: { cookie: sessionCookie },
-    }));
-    expect(afterSourceDeletion?.status).toBe(200);
-    store.incrementUserAuthVersion(user.id, isoOffset(0));
-    const afterAuthVersionChange = await app.handleRequest(new Request("http://localhost/api/protected", {
-      headers: { cookie: sessionCookie },
-    }));
-    expect(afterAuthVersionChange?.status).toBe(401);
-
-    const managedExchange = await exchange(managedKey.token, "https://secure.example.test/api/passkey-auth/api-key");
-    expect(managedExchange?.status).toBe(200);
-    expect(managedExchange?.headers.get("set-cookie")).toMatch(/(?:^|; )Secure(?:;|$)/);
-    expect(cookieValue(managedExchange, "webapp_passkey_session")).not.toBe(sessionCookie);
-
-    const limitedExchange = await exchange(limitedKey.token);
-    expect(limitedExchange?.status).toBe(401);
-    expect((await responseJson<{ error: string; message: string }>(limitedExchange))).toEqual({
-      error: "invalid_api_key",
-      message: "Invalid API key",
-    });
-  });
-
-  test("API-key browser sign-in rejects malformed, invalid, expired, and disabled credentials", async () => {
-    const store = testStore("api-key-browser-session-invalid");
-    store.initialize();
-    const user = configuredUser(store);
-    const expiredKey = createApiKey(store, currentUser(user), { name: "expired key", scopes: ["*"], expiresAt: isoOffset(-3600) });
-    const disabledUser: UserRecord = {
-      id: crypto.randomUUID(),
-      username: "disabled-user",
-      role: "user",
-      authVersion: 1,
-      passkeyConfigured: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      disabledAt: new Date().toISOString(),
-    };
-    store.createUser(disabledUser);
-    const disabledKey = createApiKey(store, currentUser(disabledUser), { name: "disabled key", scopes: ["*"] });
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_API_KEY_BROWSER_SESSION_INVALID",
-      store,
-      auth: { passkeys: true, apiKeys: true },
-      routes: defineRoutes({}),
-    });
-
-    const request = (body: string) => app.handleRequest(new Request("http://localhost/api/passkey-auth/api-key", {
-      method: "POST",
-      headers: { origin: "http://localhost", "content-type": "application/json" },
-      body,
-    }));
-
-    expect((await request("{}"))?.status).toBe(400);
-    const invalidResponse = await request(JSON.stringify({ apiKey: "not-a-real-key" }));
-    expect(invalidResponse?.status).toBe(401);
-    const invalidBody = await responseJson<{ error: string; message: string }>(invalidResponse);
-    expect(invalidBody).toEqual({ error: "invalid_api_key", message: "Invalid API key" });
-    expect(JSON.stringify(invalidBody)).not.toContain("not-a-real-key");
-    expect((await request(JSON.stringify({ apiKey: expiredKey.token })))?.status).toBe(401);
-    expect((await request(JSON.stringify({ apiKey: disabledKey.token })))?.status).toBe(401);
-    expect(store.listApiKeys(user.id).map((key) => key.id)).not.toContain(expiredKey.key.id);
-  });
-
-  test("invalid bearer tokens return a stable error without echoing the token", async () => {
-    const token = "not-a-real-token";
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_INVALID_TOKEN",
-      store: testStore("invalid-token"),
-      auth: { passkeys: false, apiKeys: false, deviceAuth: false },
-      routes: defineRoutes({
-        "/api/protected": {
-          auth: "required",
-          GET: () => jsonResponse({ ok: true }),
-        },
-      }),
-    });
-
-    const response = await app.handleRequest(new Request("http://localhost/api/protected", {
-      headers: { authorization: `Bearer ${token}` },
-    }));
-    expect(response?.status).toBe(401);
-    const body = await responseJson<{ error: string; message: string }>(response);
-    expect(body).toEqual({ error: "invalid_token", message: "Invalid authentication token" });
-    expect(JSON.stringify(body)).not.toContain(token);
-  });
-
-  test("route auth helpers return auth errors instead of server errors", async () => {
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST",
-      store: testStore("route-helper-auth-error"),
-      routes: defineRoutes({
-        "/api/current-user": {
-          GET: (_req, ctx) => jsonResponse({ username: ctx.requireUser().username }),
-        },
-      }),
-    });
-
-    const response = await app.handleRequest(new Request("http://localhost/api/current-user"));
-    expect(response?.status).toBe(401);
-    expect(await response?.json()).toMatchObject({ error: "authentication_required" });
-  });
-
-  test("route handler generic errors return sanitized server errors", async () => {
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_ROUTE_ERROR",
-      store: testStore("route-handler-error"),
-      auth: { passkeys: false },
-      routes: defineRoutes({
-        "/api/boom": {
-          auth: "public",
-          GET: () => {
-            throw new Error("secret database detail");
-          },
-        },
-      }),
-    });
-
-    const loggedErrors: string[] = [];
-    const originalError = console.error;
-    console.error = (...args: unknown[]) => loggedErrors.push(args.map(String).join(" "));
-    let response: Response | undefined;
-    try {
-      response = await app.handleRequest(new Request("http://localhost/api/boom"));
-    } finally {
-      console.error = originalError;
-    }
-    const body = await responseJson<{ error: string; message: string }>(response);
-
-    expect(response?.status).toBe(500);
-    expect(body).toEqual({ error: "request_failed", message: "Request failed" });
-    expect(loggedErrors.some((message) => message.includes("secret database detail"))).toBe(true);
-  });
-
-  test("declarative route auth enforces admin and owner roles", async () => {
-    const store = testStore("declarative-route-auth");
-    store.initialize();
-    const owner = configuredUser(store);
-    const alice = configuredUser(store, "alice", "user");
-    const aliceKey = createApiKey(store, currentUser(alice), { name: "alice key", scopes: ["*"] });
-    const ownerKey = createApiKey(store, currentUser(owner), { name: "owner key", scopes: ["*"] });
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_ROUTE_AUTH",
-      store,
-      auth: { apiKeys: true },
-      routes: defineRoutes({
-        "/api/admin-only": {
-          auth: "admin",
-          GET: () => jsonResponse({ ok: true }),
-        },
-        "/api/owner-only": {
-          auth: "owner",
-          GET: () => jsonResponse({ ok: true }),
-        },
-      }),
-    });
-
-    const userAdmin = await app.handleRequest(new Request("http://localhost/api/admin-only", {
-      headers: { authorization: `Bearer ${aliceKey.token}` },
-    }));
-    expect(userAdmin?.status).toBe(403);
-
-    const ownerAdmin = await app.handleRequest(new Request("http://localhost/api/admin-only", {
-      headers: { authorization: `Bearer ${ownerKey.token}` },
-    }));
-    expect(ownerAdmin?.status).toBe(200);
-
-    const userOwner = await app.handleRequest(new Request("http://localhost/api/owner-only", {
-      headers: { authorization: `Bearer ${aliceKey.token}` },
-    }));
-    expect(userOwner?.status).toBe(403);
-  });
-
-  test("owned resource helpers keep user data self-only", async () => {
-    const store = testStore("owned-resource-helpers");
-    store.initialize();
-    const owner = configuredUser(store);
-    const alice = configuredUser(store, "alice", "user");
-    const aliceKey = createApiKey(store, currentUser(alice), { name: "alice key", scopes: ["*"] });
-    const records = [
-      { id: "owner-record", userId: owner.id, value: "owner" },
-      { id: "alice-record", userId: alice.id, value: "alice" },
-    ];
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_OWNED",
-      store,
-      auth: { apiKeys: true },
-      routes: defineRoutes({
-        "/api/records": {
-          auth: "user",
-          GET: (_req, ctx) => jsonResponse(ctx.filterOwned(records)),
-        },
-        "/api/records/:id": {
-          auth: "user",
-          GET: (_req, ctx) => jsonResponse(ctx.requireOwned(records.find((record) => record.id === ctx.params["id"]))),
-        },
-      }),
-    });
-
-    const listed = await responseJson<Array<{ id: string }>>(await app.handleRequest(new Request("http://localhost/api/records", {
-      headers: { authorization: `Bearer ${aliceKey.token}` },
-    })));
-    expect(listed.map((record) => record.id)).toEqual(["alice-record"]);
-
-    const otherUserRecord = await app.handleRequest(new Request("http://localhost/api/records/owner-record", {
-      headers: { authorization: `Bearer ${aliceKey.token}` },
-    }));
-    expect(otherUserRecord?.status).toBe(404);
-  });
-
-  test("API key POST works without Origin or Referer", async () => {
-    const store = testStore("api-key-no-origin");
-    store.initialize();
-    const user = configuredUser(store);
-    store.savePasskey(configuredPasskey(user.id));
-    const { token } = createApiKey(store, currentUser(user), { name: "test", scopes: ["write"] });
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST",
-      store,
-      auth: { apiKeys: true },
-      routes: defineRoutes({
-        "/api/protected": {
-          scopes: ["write"],
-          POST: () => jsonResponse({ ok: true }),
-        },
-      }),
-    });
-
-    const response = await app.handleRequest(new Request("http://localhost/api/protected", {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}` },
-    }));
-    expect(response?.status).toBe(200);
-  });
-
-  test("API key missing scope is rejected", async () => {
-    const store = testStore("api-key-scope");
-    store.initialize();
-    const user = configuredUser(store);
-    store.savePasskey(configuredPasskey(user.id));
-    const { token } = createApiKey(store, currentUser(user), { name: "test", scopes: ["read"] });
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST",
-      store,
-      auth: { apiKeys: true },
-      routes: defineRoutes({
-        "/api/protected": {
-          scopes: ["write"],
-          POST: () => jsonResponse({ ok: true }),
-        },
-      }),
-    });
-
-    const response = await app.handleRequest(new Request("http://localhost/api/protected", {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}` },
-    }));
-    expect(response?.status).toBe(403);
-  });
-
-  test("API keys can be created, listed and deleted through built-in routes", async () => {
-    const previous = process.env["TEST_API_KEY_CRUD_DISABLE_PASSKEY"];
-    process.env["TEST_API_KEY_CRUD_DISABLE_PASSKEY"] = "true";
-    const store = testStore("api-key-crud");
-    store.initialize();
-    configuredUser(store);
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_API_KEY_CRUD",
-      store,
-      auth: { apiKeys: true },
-      routes: defineRoutes({}),
-    });
-
-    try {
-      const created = await responseJson<{ key: { id: string } }>(await app.handleRequest(new Request("http://localhost/api/api-keys", {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: "http://localhost" },
-        body: JSON.stringify({ name: "Browser key", scopes: ["*"] }),
-      })));
-      expect(created.key.id).toBeTruthy();
-
-      const listed = await responseJson<Array<{ id: string }>>(await app.handleRequest(new Request("http://localhost/api/api-keys")));
-      expect(listed.map((key) => key.id)).toContain(created.key.id);
-
-      const deleted = await app.handleRequest(new Request(`http://localhost/api/api-keys/${created.key.id}`, {
-        method: "DELETE",
-        headers: { origin: "http://localhost" },
-      }));
-      expect(deleted?.status).toBe(200);
-
-      const deletedAgain = await app.handleRequest(new Request(`http://localhost/api/api-keys/${created.key.id}`, {
-        method: "DELETE",
-        headers: { origin: "http://localhost" },
-      }));
-      expect(deletedAgain?.status).toBe(200);
-
-      const afterDelete = await responseJson<Array<{ id: string }>>(await app.handleRequest(new Request("http://localhost/api/api-keys")));
-      expect(afterDelete.map((key) => key.id)).not.toContain(created.key.id);
-    } finally {
-      if (previous === undefined) {
-        delete process.env["TEST_API_KEY_CRUD_DISABLE_PASSKEY"];
-      } else {
-        process.env["TEST_API_KEY_CRUD_DISABLE_PASSKEY"] = previous;
-      }
-    }
-  });
-
-  test("managed API keys reconcile by owner and managedBy and revoke idempotently", () => {
-    const store = testStore("managed-api-key-reconciliation");
-    store.initialize();
-    const owner = configuredUser(store);
-    const alice = configuredUser(store, "alice", "user");
-    const ownerGeneration = createManagedApiKey(store, currentUser(owner), { managedBy: "context-1", name: "First generation" });
-    const ownerOtherContext = createManagedApiKey(store, currentUser(owner), { managedBy: "context-2", name: "Other context" });
-    const aliceGeneration = createManagedApiKey(store, currentUser(alice), { managedBy: "context-1", name: "Alice generation" });
-    const userKey = createApiKey(store, currentUser(owner), { name: "User key" });
-
-    expect(listManagedApiKeys(store, owner.id).map((key) => key.id))
-      .toEqual([ownerOtherContext.key.id, ownerGeneration.key.id]);
-    expect(listManagedApiKeys(store, owner.id, "context-1").map((key) => key.id)).toEqual([ownerGeneration.key.id]);
-    expect(listManagedApiKeys(store, alice.id, "context-1").map((key) => key.id)).toEqual([aliceGeneration.key.id]);
-    expect(listManagedApiKeys(store, owner.id, "missing")).toEqual([]);
-
-    expect(revokeManagedApiKey(store, ownerGeneration.key.id, alice.id)).toBe(false);
-    expect(revokeManagedApiKey(store, userKey.key.id, owner.id)).toBe(false);
-    expect(revokeManagedApiKey(store, ownerGeneration.key.id, owner.id)).toBe(true);
-    expect(revokeManagedApiKey(store, ownerGeneration.key.id, owner.id)).toBe(false);
-    expect(listManagedApiKeys(store, owner.id, "context-1")).toEqual([]);
-  });
-
-  test("orders same-timestamp API keys by insertion order", () => {
-    const store = testStore("api-key-same-timestamp-order");
-    store.initialize();
-    const owner = configuredUser(store);
-    const createdAt = "2026-01-01T00:00:00.000Z";
-    const first: ApiKeyRecord = {
-      id: crypto.randomUUID(),
-      userId: owner.id,
-      name: "First",
-      prefix: "wapp",
-      tokenHash: sha256("first-token"),
-      scopes: ["*"],
-      createdAt,
-      kind: "managed",
-      managedBy: "test",
-    };
-    const second: ApiKeyRecord = {
-      id: crypto.randomUUID(),
-      userId: owner.id,
-      name: "Second",
-      prefix: "wapp",
-      tokenHash: sha256("second-token"),
-      scopes: ["*"],
-      createdAt,
-      kind: "managed",
-      managedBy: "test",
-    };
-
-    store.saveApiKey(first);
-    store.saveApiKey(second);
-
-    expect(store.listApiKeys(owner.id).map((key) => key.id)).toEqual([second.id, first.id]);
-  });
-
-  test("managed keys use bearer scopes and public CRUD cannot create or delete them", async () => {
-    const store = testStore("managed-api-key-bearer");
-    store.initialize();
-    const owner = configuredUser(store);
-    const managed = createManagedApiKey(store, currentUser(owner), { managedBy: "runtime", scopes: ["write"] });
-    const expired = createManagedApiKey(store, currentUser(owner), { managedBy: "runtime", scopes: ["write"], expiresAt: isoOffset(-3600) });
-    const userKey = createApiKey(store, currentUser(owner), { name: "Browser key", scopes: ["*"] });
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_MANAGED_API_KEY_BEARER",
-      store,
-      auth: { passkeys: false, apiKeys: true },
-      routes: defineRoutes({
-        "/api/write": {
-          auth: "user",
-          scopes: ["write"],
-          GET: () => jsonResponse({ ok: true }),
-        },
-        "/api/read": {
-          auth: "user",
-          scopes: ["read"],
-          GET: () => jsonResponse({ ok: true }),
-        },
-      }),
-    });
-
-    const write = await app.handleRequest(new Request("http://localhost/api/write", {
-      headers: { authorization: ["Bearer", managed.token].join(" ") },
-    }));
-    expect(write?.status).toBe(200);
-
-    const missingScope = await app.handleRequest(new Request("http://localhost/api/read", {
-      headers: { authorization: ["Bearer", managed.token].join(" ") },
-    }));
-    expect(missingScope?.status).toBe(403);
-
-    const expiredResponse = await app.handleRequest(new Request("http://localhost/api/write", {
-      headers: { authorization: ["Bearer", expired.token].join(" ") },
-    }));
-    expect(expiredResponse?.status).toBe(401);
-    expect(store.listApiKeys(owner.id).map((key) => key.id)).not.toContain(expired.key.id);
-
-    const attemptedManaged = await responseJson<{ key: { id: string; kind?: string; managedBy?: string } }>(await app.handleRequest(new Request("http://localhost/api/api-keys", {
-      method: "POST",
-      headers: { authorization: ["Bearer", userKey.token].join(" "), origin: "http://localhost", "content-type": "application/json" },
-      body: JSON.stringify({ name: "Attempted managed key", kind: "managed", managedBy: "attacker" }),
-    })));
-    expect(attemptedManaged.key.kind).toBeUndefined();
-    expect(attemptedManaged.key.managedBy).toBeUndefined();
-    expect(store.listApiKeys(owner.id).find((key) => key.id === attemptedManaged.key.id)).toMatchObject({ kind: "user" });
-    expect(listManagedApiKeys(store, owner.id, "attacker")).toEqual([]);
-
-    const listedForSettings = await responseJson<Array<{ id: string; kind?: string; managedBy?: string }>>(await app.handleRequest(new Request("http://localhost/api/api-keys", {
-      headers: { authorization: ["Bearer", userKey.token].join(" ") },
-    })));
-    expect(listedForSettings.map((key) => key.id)).not.toContain(managed.key.id);
-    expect(JSON.stringify(listedForSettings)).not.toContain("runtime");
-
-    const deleteManaged = await app.handleRequest(new Request(`http://localhost/api/api-keys/${encodeURIComponent(managed.key.id)}`, {
+    const deleted = await fetch(`${running.baseUrl}/api/api-keys/${encodeURIComponent(createdBody.key.id)}`, {
       method: "DELETE",
-      headers: { authorization: ["Bearer", userKey.token].join(" "), origin: "http://localhost" },
-    }));
-    expect(deleteManaged?.status).toBe(200);
-    expect(store.listApiKeys(owner.id).map((key) => key.id)).toContain(managed.key.id);
-    expect(store.listApiKeys(owner.id).map((key) => key.id)).toContain(userKey.key.id);
+      headers: jsonHeaders(running.baseUrl, ownerKey.token),
+    });
+    expect(deleted.status).toBe(200);
+
+    const afterDelete = await fetch(`${running.baseUrl}/api/api-keys`, {
+      headers: { authorization: bearer(ownerKey.token) },
+    });
+    const remainingKeys = await responseJson<Array<{ id: string }>>(afterDelete);
+    expect(remainingKeys.map(({ id }) => id)).not.toContain(createdBody.key.id);
+  } finally {
+    await running.server.stop(true);
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("completes device authorization and invalidates replayed refresh tokens over HTTP", async () => {
+  const dataDir = testDataDir("device-auth");
+  const store = sqliteWebAppStore({ dataDir });
+  store.initialize();
+  createUser(store, "owner");
+  const routes = defineRoutes({
+    "/api/protected": {
+      auth: "user",
+      scopes: ["write"],
+      POST: () => jsonResponse({ ok: true }),
+    },
+  });
+  const running = await startServer({
+    envPrefix: "TEST_E2E_DEVICE_AUTH",
+    dataDir,
+    auth: { passkeys: true, deviceAuth: true },
+    passkeyDisabled: true,
+    routes,
   });
 
-  test("managed-key authentication rejects disabled users", () => {
-    const store = testStore("managed-api-key-disabled-user");
-    store.initialize();
-    const now = new Date().toISOString();
-    const user: UserRecord = {
-      id: crypto.randomUUID(),
-      username: "disabled-owner",
-      role: "owner",
-      authVersion: 1,
-      passkeyConfigured: false,
-      createdAt: now,
-      updatedAt: now,
-      disabledAt: now,
-    };
-    store.createUser(user);
-    const managed = createManagedApiKey(store, currentUser(user), { managedBy: "runtime" });
-
-    expect(authenticateApiKey(store, managed.token)).toBeUndefined();
-  });
-
-  test("managed keys survive restart and lifecycle cleanup", async () => {
-    const dataDir = `.cache/tests/managed-api-key-lifecycle-${crypto.randomUUID()}`;
-    const initialStore = sqliteWebAppStore({ dataDir });
-    initialStore.initialize();
-    const owner = configuredUser(initialStore);
-    const alice = configuredUser(initialStore, "alice", "user");
-    const managed = createManagedApiKey(initialStore, currentUser(owner), { managedBy: "restart-test" });
-    const expired = createManagedApiKey(initialStore, currentUser(owner), { managedBy: "restart-test", expiresAt: isoOffset(-3600) });
-    const initialApp = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_MANAGED_RESTART_INITIAL",
-      store: initialStore,
-      auth: { passkeys: false, apiKeys: true },
-      routes: defineRoutes({
-        "/api/protected": {
-          auth: "user",
-          GET: () => jsonResponse({ ok: true }),
-        },
-      }),
-    });
-
-    const beforeRestart = await initialApp.handleRequest(new Request("http://localhost/api/protected", {
-      headers: { authorization: ["Bearer", managed.token].join(" ") },
-    }));
-    expect(beforeRestart?.status).toBe(200);
-
-    const restartedStore = sqliteWebAppStore({ dataDir });
-    restartedStore.initialize();
-    const restartedApp = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_MANAGED_RESTARTED",
-      store: restartedStore,
-      auth: { passkeys: false, apiKeys: true },
-      routes: defineRoutes({
-        "/api/protected": {
-          auth: "user",
-          GET: () => jsonResponse({ ok: true }),
-        },
-      }),
-    });
-    const afterRestart = await restartedApp.handleRequest(new Request("http://localhost/api/protected", {
-      headers: { authorization: ["Bearer", managed.token].join(" ") },
-    }));
-    expect(afterRestart?.status).toBe(200);
-    expect(listManagedApiKeys(restartedStore, owner.id, "restart-test").map((key) => key.id)).toEqual([managed.key.id]);
-    expect(restartedStore.listApiKeys(owner.id).map((key) => key.id)).not.toContain(expired.key.id);
-
-    const aliceManaged = createManagedApiKey(restartedStore, currentUser(alice), { managedBy: "delete-test" });
-    await withEnv({ TEST_MANAGED_DELETE_DISABLE_PASSKEY: "true" }, async () => {
-      const deleteApp = createWebAppServer({
-        appName: "Test",
-        envPrefix: "TEST_MANAGED_DELETE",
-        store: restartedStore,
-        auth: { apiKeys: true },
-        routes: defineRoutes({}),
-      });
-      const deleted = await deleteApp.handleRequest(new Request(`http://localhost/api/users/${alice.id}`, {
-        method: "DELETE",
-        headers: { origin: "http://localhost" },
-      }));
-      expect(deleted?.status).toBe(200);
-    });
-    expect(restartedStore.listApiKeys(alice.id)).toEqual([]);
-    expect(authenticateApiKey(restartedStore, aliceManaged.token)).toBeUndefined();
-  });
-
-  test("deleting a passkey clears managed keys", async () => {
-    await withEnv({ TEST_MANAGED_PASSKEY_DELETE_DISABLE_PASSKEY: "true" }, async () => {
-      const store = testStore("managed-api-key-passkey-delete");
-      store.initialize();
-      const owner = configuredUser(store);
-      const managed = createManagedApiKey(store, currentUser(owner), { managedBy: "passkey-delete-test" });
-      const app = createWebAppServer({
-        appName: "Test",
-        envPrefix: "TEST_MANAGED_PASSKEY_DELETE",
-        store,
-        auth: { apiKeys: true },
-        routes: defineRoutes({}),
-      });
-
-      const deleted = await app.handleRequest(new Request("http://localhost/api/passkey-auth/passkey", {
-        method: "DELETE",
-        headers: { origin: "http://localhost" },
-      }));
-      expect(deleted?.status).toBe(200);
-      expect(authenticateApiKey(store, managed.token)).toBeUndefined();
-      expect(listManagedApiKeys(store, owner.id, "passkey-delete-test")).toEqual([]);
-    });
-  });
-
-  test("expired API keys are not listed and are purged", async () => {
-    const store = testStore("api-key-expired-hidden");
-    store.initialize();
-    const owner = configuredUser(store);
-    const activeKey = createApiKey(store, currentUser(owner), { name: "active key", scopes: ["*"], expiresAt: isoOffset(3600) });
-    const expiredKey = createApiKey(store, currentUser(owner), { name: "expired key", scopes: ["*"], expiresAt: isoOffset(-3600) });
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_API_KEY_EXPIRED",
-      store,
-      auth: { apiKeys: true },
-      routes: defineRoutes({}),
-    });
-
-    const listed = await responseJson<Array<{ id: string }>>(await app.handleRequest(new Request("http://localhost/api/api-keys", {
-      headers: { authorization: `Bearer ${activeKey.token}` },
-    })));
-
-    expect(listed.map((key) => key.id)).toEqual([activeKey.key.id]);
-    expect(store.listApiKeys(owner.id).map((key) => key.id)).not.toContain(expiredKey.key.id);
-  });
-
-  test("auth session list only returns active sessions for the authenticated user", async () => {
-    const store = testStore("auth-sessions-active-only");
-    store.initialize();
-    const owner = configuredUser(store);
-    const alice = configuredUser(store, "alice", "user");
-    const ownerKey = createApiKey(store, currentUser(owner), { name: "owner key", scopes: ["*"] });
-    const now = new Date().toISOString();
-    const activeSession = {
-      id: crypto.randomUUID(),
-      userId: owner.id,
-      familyId: crypto.randomUUID(),
-      clientId: "active-client",
-      scope: "*",
-      refreshTokenHash: sha256("active-refresh"),
-      createdAt: now,
-      updatedAt: now,
-      expiresAt: isoOffset(3600),
-    };
-    const duplicateActiveSession = {
-      id: crypto.randomUUID(),
-      userId: owner.id,
-      familyId: crypto.randomUUID(),
-      clientId: "active-client",
-      scope: "*",
-      refreshTokenHash: sha256("duplicate-active-refresh"),
-      createdAt: isoOffset(-60),
-      updatedAt: isoOffset(-60),
-      expiresAt: isoOffset(3600),
-    };
-    const revokedSession = {
-      id: crypto.randomUUID(),
-      userId: owner.id,
-      familyId: crypto.randomUUID(),
-      clientId: "revoked-client",
-      scope: "*",
-      refreshTokenHash: sha256("revoked-refresh"),
-      createdAt: now,
-      updatedAt: now,
-      expiresAt: isoOffset(3600),
-      revokedAt: now,
-    };
-    const expiredSession = {
-      id: crypto.randomUUID(),
-      userId: owner.id,
-      familyId: crypto.randomUUID(),
-      clientId: "expired-client",
-      scope: "*",
-      refreshTokenHash: sha256("expired-refresh"),
-      createdAt: now,
-      updatedAt: now,
-      expiresAt: isoOffset(-3600),
-    };
-    const otherUserSession = {
-      id: crypto.randomUUID(),
-      userId: alice.id,
-      familyId: crypto.randomUUID(),
-      clientId: "alice-client",
-      scope: "*",
-      refreshTokenHash: sha256("alice-refresh"),
-      createdAt: now,
-      updatedAt: now,
-      expiresAt: isoOffset(3600),
-    };
-    store.saveRefreshSession(activeSession);
-    store.saveRefreshSession(duplicateActiveSession);
-    store.saveRefreshSession(revokedSession);
-    store.saveRefreshSession(expiredSession);
-    store.saveRefreshSession(otherUserSession);
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_AUTH_SESSIONS_ACTIVE",
-      store,
-      auth: { apiKeys: true, deviceAuth: true },
-      routes: defineRoutes({}),
-    });
-
-    const listed = await responseJson<Array<{ id: string; active: boolean; clientId: string }>>(await app.handleRequest(new Request("http://localhost/api/auth/sessions", {
-      headers: { authorization: `Bearer ${ownerKey.token}` },
-    })));
-
-    expect(listed.map((session) => ({ id: session.id, active: session.active, clientId: session.clientId })))
-      .toEqual([{ id: activeSession.id, active: true, clientId: "active-client" }]);
-    expect(store.listRefreshSessions(owner.id).map((session) => session.id)).not.toContain(expiredSession.id);
-    expect(store.listRefreshSessions(owner.id).find((session) => session.id === duplicateActiveSession.id)?.revokedAt).toBeTruthy();
-    expect(store.listRefreshSessions(owner.id).map((session) => session.id)).toContain(revokedSession.id);
-  });
-
-  test("admins can create, reset, promote and delete users but not delete owner", async () => {
-    const previous = process.env["TEST_USERS_DISABLE_PASSKEY"];
-    process.env["TEST_USERS_DISABLE_PASSKEY"] = "true";
-    const store = testStore("users-admin");
-    store.initialize();
-    const owner = configuredUser(store);
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_USERS",
-      store,
-      routes: defineRoutes({}),
-    });
-
-    try {
-      const created = await responseJson<{ user: { id: string; username: string; role: string }; setupLink: { url: string } }>(await app.handleRequest(new Request("http://localhost/api/users", {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: "http://localhost" },
-        body: JSON.stringify({ username: "Alice", role: "user" }),
-      })));
-      expect(created.user).toMatchObject({ username: "alice", role: "user" });
-      expect(created.setupLink.url).toContain("/setup?token=");
-      const createdUser = store.getUserById(created.user.id)!;
-      const managedKey = createManagedApiKey(store, currentUser(createdUser), { managedBy: "user-reset-test" });
-      expect(authenticateApiKey(store, managedKey.token)).toBeDefined();
-
-      const promoted = await responseJson<{ role: string }>(await app.handleRequest(new Request(`http://localhost/api/users/${created.user.id}/role`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json", origin: "http://localhost" },
-        body: JSON.stringify({ role: "admin" }),
-      })));
-      expect(promoted.role).toBe("admin");
-
-      const reset = await responseJson<{ setupLink: { url: string } }>(await app.handleRequest(new Request(`http://localhost/api/users/${created.user.id}/reset`, {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: "http://localhost" },
-        body: "{}",
-      })));
-      expect(reset.setupLink.url).toContain("/setup?token=");
-      expect(authenticateApiKey(store, managedKey.token)).toBeUndefined();
-      expect(listManagedApiKeys(store, created.user.id, "user-reset-test")).toEqual([]);
-
-      const resetOwner = await app.handleRequest(new Request(`http://localhost/api/users/${owner.id}/reset`, {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: "http://localhost" },
-        body: "{}",
-      }));
-      expect(resetOwner?.status).toBe(409);
-
-      const deleteOwner = await app.handleRequest(new Request(`http://localhost/api/users/${owner.id}`, {
-        method: "DELETE",
-        headers: { origin: "http://localhost" },
-      }));
-      expect(deleteOwner?.status).toBe(409);
-
-      const deleted = await app.handleRequest(new Request(`http://localhost/api/users/${created.user.id}`, {
-        method: "DELETE",
-        headers: { origin: "http://localhost" },
-      }));
-      expect(deleted?.status).toBe(200);
-    } finally {
-      if (previous === undefined) {
-        delete process.env["TEST_USERS_DISABLE_PASSKEY"];
-      } else {
-        process.env["TEST_USERS_DISABLE_PASSKEY"] = previous;
-      }
-    }
-  });
-
-  test("API keys are scoped to the authenticated user", async () => {
-    const store = testStore("api-key-self-only");
-    store.initialize();
-    const owner = configuredUser(store);
-    const alice = configuredUser(store, "alice", "user");
-    const ownerKey = createApiKey(store, currentUser(owner), { name: "owner key", scopes: ["*"] });
-    const aliceKey = createApiKey(store, currentUser(alice), { name: "alice key", scopes: ["*"] });
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_API_KEY_SELF",
-      store,
-      auth: { apiKeys: true },
-      routes: defineRoutes({}),
-    });
-
-    const listed = await responseJson<Array<{ id: string }>>(await app.handleRequest(new Request("http://localhost/api/api-keys", {
-      headers: { authorization: `Bearer ${aliceKey.token}` },
-    })));
-    expect(listed.map((key) => key.id)).toEqual([aliceKey.key.id]);
-
-    const deleteOwnerAsAlice = await app.handleRequest(new Request(`http://localhost/api/api-keys/${ownerKey.key.id}`, {
-      method: "DELETE",
-      headers: { authorization: `Bearer ${aliceKey.token}`, origin: "http://localhost" },
-    }));
-    expect(deleteOwnerAsAlice?.status).toBe(200);
-    expect(store.listApiKeys(owner.id).map((key) => key.id)).toContain(ownerKey.key.id);
-  });
-
-  test("public routes remain public even after passkey bootstrap", async () => {
-    const store = testStore("public");
-    store.initialize();
-    const user = configuredUser(store);
-    store.savePasskey(configuredPasskey(user.id));
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST",
-      store,
-      routes: defineRoutes({
-        "/api/public": {
-          auth: "public",
-          sameOrigin: "never",
-          POST: () => jsonResponse({ ok: true }),
-        },
-      }),
-    });
-
-    const response = await app.handleRequest(new Request("http://localhost/api/public", { method: "POST" }));
-    expect(response?.status).toBe(200);
-  });
-
-  test("device flow issues one-use code, bearer access and rotated refresh tokens", async () => {
-    const previous = process.env["TEST_DEVICE_FLOW_DISABLE_PASSKEY"];
-    process.env["TEST_DEVICE_FLOW_DISABLE_PASSKEY"] = "true";
-    const store = testStore("device-flow");
-    store.initialize();
-    const user = configuredUser(store);
-    const app = createWebAppServer({
-      appName: "Test",
-      envPrefix: "TEST_DEVICE_FLOW",
-      store,
-      auth: { deviceAuth: true },
-      routes: defineRoutes({
-        "/api/protected": {
-          scopes: ["write"],
-          POST: (_req, ctx) => jsonResponse({ ok: true, auth: ctx.auth.kind }),
-        },
-      }),
-    });
-
-    try {
-      const device = await responseJson<{ device_code: string; user_code: string }>(await app.handleRequest(new Request("http://localhost/api/auth/device", {
+  try {
+    const deviceResponse = await fetch(`${running.baseUrl}/api/auth/device`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ client_id: "test-cli", scope: "write" }),
-    })));
+      body: JSON.stringify({ client_id: "e2e-cli", scope: "write" }),
+    });
+    expect(deviceResponse.status).toBe(200);
+    const device = await responseJson<{ device_code: string; user_code: string }>(deviceResponse);
 
-    const pending = await app.handleRequest(new Request("http://localhost/api/auth/token", {
+    const pending = await fetch(`${running.baseUrl}/api/auth/token`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: device.device_code, client_id: "test-cli" }),
-    }));
-    expect(pending?.status).toBe(400);
-    expect(await pending?.json()).toMatchObject({ error: "authorization_pending" });
+      body: JSON.stringify({
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        device_code: device.device_code,
+        client_id: "e2e-cli",
+      }),
+    });
+    expect(pending.status).toBe(400);
+    expect(await responseJson<{ error: string }>(pending)).toMatchObject({ error: "authorization_pending" });
 
-    const approved = await app.handleRequest(new Request("http://localhost/api/auth/device/approve", {
+    const approved = await fetch(`${running.baseUrl}/api/auth/device/approve`, {
       method: "POST",
-      headers: { "content-type": "application/json", origin: "http://localhost" },
+      headers: jsonHeaders(running.baseUrl),
       body: JSON.stringify({ user_code: device.user_code }),
-    }));
-    expect(approved?.status).toBe(200);
+    });
+    expect(approved.status).toBe(200);
 
-    const token = await responseJson<{ access_token: string; refresh_token: string }>(await app.handleRequest(new Request("http://localhost/api/auth/token", {
+    const tokenResponse = await fetch(`${running.baseUrl}/api/auth/token`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: device.device_code, client_id: "test-cli" }),
-    })));
-    expect(token.access_token).toBeTruthy();
-    expect(token.refresh_token).toBeTruthy();
+      body: JSON.stringify({
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        device_code: device.device_code,
+        client_id: "e2e-cli",
+      }),
+    });
+    expect(tokenResponse.status).toBe(200);
+    const token = await responseJson<{ access_token: string; refresh_token: string }>(tokenResponse);
 
-    const reused = await app.handleRequest(new Request("http://localhost/api/auth/token", {
+    const protectedResponse = await fetch(`${running.baseUrl}/api/protected`, {
+      method: "POST",
+      headers: jsonHeaders(running.baseUrl, token.access_token),
+      body: JSON.stringify({}),
+    });
+    expect(protectedResponse.status).toBe(200);
+    expect(await protectedResponse.json()).toEqual({ ok: true });
+
+    const reusedDeviceCode = await fetch(`${running.baseUrl}/api/auth/token`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: device.device_code, client_id: "test-cli" }),
-    }));
-    expect(reused?.status).toBe(400);
-    expect(await reused?.json()).toMatchObject({ error: "invalid_grant" });
+      body: JSON.stringify({
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        device_code: device.device_code,
+        client_id: "e2e-cli",
+      }),
+    });
+    expect(reusedDeviceCode.status).toBe(400);
+    expect(await responseJson<{ error: string }>(reusedDeviceCode)).toMatchObject({ error: "invalid_grant" });
 
-    const protectedResponse = await app.handleRequest(new Request("http://localhost/api/protected", {
-      method: "POST",
-      headers: { authorization: `Bearer ${token.access_token}` },
-    }));
-    expect(protectedResponse?.status).toBe(200);
-    expect(await protectedResponse?.json()).toMatchObject({ auth: "bearer" });
-
-    const refreshed = await responseJson<{ access_token: string; refresh_token: string }>(await app.handleRequest(new Request("http://localhost/api/auth/refresh", {
+    const refreshed = await fetch(`${running.baseUrl}/api/auth/refresh`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ refresh_token: token.refresh_token, client_id: "test-cli" }),
-    })));
-    expect(refreshed.access_token).toBeTruthy();
-    expect(refreshed.refresh_token).not.toBe(token.refresh_token);
+      body: JSON.stringify({ refresh_token: token.refresh_token, client_id: "e2e-cli" }),
+    });
+    expect(refreshed.status).toBe(200);
+    const rotated = await responseJson<{ refresh_token: string }>(refreshed);
+    expect(rotated.refresh_token).not.toBe(token.refresh_token);
 
-    const refreshedAgain = await responseJson<{ access_token: string; refresh_token: string }>(await app.handleRequest(new Request("http://localhost/api/auth/refresh", {
+    const replay = await fetch(`${running.baseUrl}/api/auth/refresh`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshed.refresh_token, client_id: "test-cli" }),
-    })));
-    expect(refreshedAgain.refresh_token).not.toBe(refreshed.refresh_token);
+      body: JSON.stringify({ refresh_token: token.refresh_token, client_id: "e2e-cli" }),
+    });
+    expect(replay.status).toBe(400);
+    expect(await responseJson<{ error: string }>(replay)).toMatchObject({ error: "invalid_grant" });
 
-    const sessionsResponse = await app.handleRequest(new Request("http://localhost/api/auth/sessions", {
-      headers: { authorization: `Bearer ${refreshedAgain.access_token}` },
-    }));
-    expect(sessionsResponse?.status).toBe(200);
-    const sessions = await responseJson<Array<{ id: string; active: boolean; clientId: string }>>(sessionsResponse);
-    expect(sessions.map((session) => ({ active: session.active, clientId: session.clientId })))
-      .toEqual([{ active: true, clientId: "test-cli" }]);
-    expect(store.listRefreshSessions(user.id).filter((session) => !session.revokedAt)).toHaveLength(1);
-
-    const secondDevice = await responseJson<{ device_code: string; user_code: string }>(await app.handleRequest(new Request("http://localhost/api/auth/device", {
+    const familyRefresh = await fetch(`${running.baseUrl}/api/auth/refresh`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ client_id: "test-cli", scope: "write" }),
-    })));
-    const secondApproval = await app.handleRequest(new Request("http://localhost/api/auth/device/approve", {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: "http://localhost" },
-      body: JSON.stringify({ user_code: secondDevice.user_code }),
-    }));
-    expect(secondApproval?.status).toBe(200);
-    const secondToken = await responseJson<{ access_token: string; refresh_token: string }>(await app.handleRequest(new Request("http://localhost/api/auth/token", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: secondDevice.device_code, client_id: "test-cli" }),
-    })));
-    expect(secondToken.refresh_token).not.toBe(refreshedAgain.refresh_token);
-    const replacedSessionsResponse = await app.handleRequest(new Request("http://localhost/api/auth/sessions", {
-      headers: { authorization: `Bearer ${secondToken.access_token}` },
-    }));
-    expect(replacedSessionsResponse?.status).toBe(200);
-    const replacedSessions = await responseJson<Array<{ id: string; active: boolean; clientId: string }>>(replacedSessionsResponse);
-    expect(replacedSessions.map((session) => ({ active: session.active, clientId: session.clientId })))
-      .toEqual([{ active: true, clientId: "test-cli" }]);
-    expect(store.listRefreshSessions(user.id).filter((session) => !session.revokedAt)).toHaveLength(1);
-
-    const staleRefresh = await app.handleRequest(new Request("http://localhost/api/auth/refresh", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ refresh_token: token.refresh_token, client_id: "test-cli" }),
-    }));
-    expect(staleRefresh?.status).toBe(400);
-    expect(await staleRefresh?.json()).toMatchObject({ error: "invalid_grant" });
-    } finally {
-      if (previous === undefined) {
-        delete process.env["TEST_DEVICE_FLOW_DISABLE_PASSKEY"];
-      } else {
-        process.env["TEST_DEVICE_FLOW_DISABLE_PASSKEY"] = previous;
-      }
-    }
-  });
+      body: JSON.stringify({ refresh_token: rotated.refresh_token, client_id: "e2e-cli" }),
+    });
+    expect(familyRefresh.status).toBe(400);
+  } finally {
+    await running.server.stop(true);
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });
