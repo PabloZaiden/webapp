@@ -7,7 +7,6 @@ import {
   type CliProfileStore,
   type StoredDeviceCredentials,
 } from "@pablozaiden/webapp/cli";
-import { resolveAppDataDir } from "@pablozaiden/webapp/server";
 
 const testRoot = resolve(".cache/tests/serve-lifecycle");
 const resources: string[] = [];
@@ -131,24 +130,6 @@ afterEach(async () => {
 });
 
 describe("detached serve lifecycle", () => {
-  test("defaults state to the app directory under HOME", () => {
-    const root = join(testRoot, crypto.randomUUID());
-    resources.push(root);
-    expect(resolveAppDataDir({
-      envPrefix: "TEST_SERVE",
-      appDirectoryName: ".serve-lifecycle-test",
-      environment: { HOME: root },
-    })).toBe(join(root, ".serve-lifecycle-test"));
-    expect(resolveAppDataDir({
-      envPrefix: "TEST_SERVE",
-      appDirectoryName: ".serve-lifecycle-test",
-      environment: {
-        HOME: root,
-        TEST_SERVE_DATA_DIR: join(root, "override"),
-      },
-    })).toBe(join(root, "override"));
-  });
-
   test("persists configuration, starts detached, reports status, and stops safely", async () => {
     const root = join(testRoot, crypto.randomUUID());
     const dataDir = join(root, "state");

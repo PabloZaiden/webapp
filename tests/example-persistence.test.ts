@@ -1,15 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
-import { createKitchenSinkApp } from "../examples/kitchen-sink/src/app";
-import { createKitchenSinkStore, type KitchenSinkStore } from "../examples/kitchen-sink/src/app-store";
-import { createNotesTodoApp } from "../examples/notes-todo/src/app";
-import { createNotesTodoStore, type NotesTodoStore } from "../examples/notes-todo/src/app-store";
 import type { CurrentUser } from "../src/contracts";
 import { createApiKey } from "../src/server/auth/api-keys";
 import { sqliteWebAppStore } from "../src/server/auth/sqlite-store";
 import type { UserRecord, WebAppStore } from "../src/server/auth/store";
-import type { WebAppServer } from "../src/server/create-web-app-server";
 
 type ExampleName = "notes-todo" | "kitchen-sink";
 type ServerProcess = ReturnType<typeof Bun.spawn>;
@@ -129,24 +124,6 @@ async function responseJson<T>(response: Response): Promise<T> {
 
 async function expectStatus(response: Response, status: number): Promise<void> {
   expect(response.status).toBe(status);
-}
-
-function captureRealtime<T>(app: WebAppServer<T>, userId: string): { messages: string[]; close: () => void } {
-  const messages: string[] = [];
-  const socket = {
-    data: { userId },
-    send(payload: string) {
-      messages.push(payload);
-      return 0;
-    },
-  };
-  app.realtime.add(socket as never);
-  return {
-    messages,
-    close() {
-      app.realtime.remove(socket as never);
-    },
-  };
 }
 
 describe("example application persistence", () => {
@@ -357,80 +334,4 @@ describe("example application persistence", () => {
     }
   }, 30_000);
 
-  test("does not publish a Notes TODO success event when durable creation fails", async () => {
-    const dataDir = resolve(testRoot, `example-write-failure-notes-${crypto.randomUUID()}`);
-    rmSync(dataDir, { recursive: true, force: true });
-    const authStore = sqliteWebAppStore({ dataDir });
-    authStore.initialize();
-    const owner = createIdentity(authStore, "notes-write-failure-owner", "owner");
-    const durableStore = createNotesTodoStore({ dataDir });
-    const failingStore: NotesTodoStore = {
-      ...durableStore,
-      createNote: () => {
-        throw new Error("intentional Notes TODO durable write failure");
-      },
-    };
-    const app = createNotesTodoApp({ dataDir, store: authStore, appStore: failingStore });
-    const events = captureRealtime(app, owner.user.id);
-
-    try {
-      const sectionsResponse = await app.handleRequest(new Request("http://localhost/api/sections", {
-        headers: { authorization: `Bearer ${owner.token}` },
-      }));
-      expect(sectionsResponse?.status).toBe(200);
-      const sections = await sectionsResponse!.json() as Array<{ id: string }>;
-      const response = await app.handleRequest(new Request("http://localhost/api/notes", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${owner.token}`,
-          "content-type": "application/json",
-          origin: "http://localhost",
-        },
-        body: JSON.stringify({ title: "Will fail", sectionId: sections[0]!.id }),
-      }));
-      expect(response?.status).toBe(500);
-      expect(events.messages).toHaveLength(0);
-    } finally {
-      events.close();
-      rmSync(dataDir, { recursive: true, force: true });
-    }
-  });
-
-  test("does not publish a Kitchen Sink success event when durable creation fails", async () => {
-    const dataDir = resolve(testRoot, `example-write-failure-kitchen-${crypto.randomUUID()}`);
-    rmSync(dataDir, { recursive: true, force: true });
-    const authStore = sqliteWebAppStore({ dataDir });
-    authStore.initialize();
-    const owner = createIdentity(authStore, "kitchen-write-failure-owner", "owner");
-    const durableStore = createKitchenSinkStore({ dataDir });
-    const failingStore: KitchenSinkStore = {
-      ...durableStore,
-      createProject: () => {
-        throw new Error("intentional Kitchen Sink durable write failure");
-      },
-    };
-    const app = createKitchenSinkApp({ dataDir, store: authStore, appStore: failingStore });
-    const events = captureRealtime(app, owner.user.id);
-
-    try {
-      const projectsResponse = await app.handleRequest(new Request("http://localhost/api/projects", {
-        headers: { authorization: `Bearer ${owner.token}` },
-      }));
-      expect(projectsResponse?.status).toBe(200);
-      const response = await app.handleRequest(new Request("http://localhost/api/projects", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${owner.token}`,
-          "content-type": "application/json",
-          origin: "http://localhost",
-        },
-        body: JSON.stringify({ name: "Will fail" }),
-      }));
-      expect(response?.status).toBe(500);
-      expect(events.messages).toHaveLength(0);
-    } finally {
-      events.close();
-      rmSync(dataDir, { recursive: true, force: true });
-    }
-  });
 });

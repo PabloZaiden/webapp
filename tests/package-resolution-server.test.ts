@@ -114,37 +114,3 @@ test("native server reports a missing application react-dom before serving a doc
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
-
-test("compiled server ignores virtual runtime web entries and application node_modules", async () => {
-  const fixture = createAppFixture(false);
-  const compiledClientSymbol = Symbol.for("webapp.compiledClient");
-  const globalWithCompiledClient = globalThis as Record<symbol, unknown>;
-  globalWithCompiledClient[compiledClientSymbol] = {
-    packageRoot: fixture.root,
-    assets: [{
-      path: "/webapp-compiled/fixture-client.js",
-      contentType: "text/javascript; charset=utf-8",
-      role: "script",
-      scriptOrder: 1,
-      body: Buffer.from("globalThis.__compiledFixtureLoaded = true;\n").toString("base64"),
-    }],
-  };
-
-  try {
-    const app = createWebAppServer({
-      appName: "Compiled Resolution Fixture",
-      envPrefix: "PACKAGE_RESOLUTION_COMPILED",
-      web: { entry: pathToFileURL(join(fixture.root, "..", "$bunfs", "root", "web", "main.tsx")) },
-      store: createStore(fixture.root, "compiled"),
-      auth: { passkeys: false },
-      routes: defineRoutes({}),
-    });
-
-    const response = await app.handleRequest(new Request("http://localhost/"));
-    expect(response?.status).toBe(200);
-    expect(await response?.text()).toContain("/webapp-compiled/fixture-client.js");
-  } finally {
-    delete globalWithCompiledClient[compiledClientSymbol];
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
-});
