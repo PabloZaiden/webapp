@@ -138,8 +138,38 @@ export function encodePublicAssetBundle(bundle: WebAppPublicAssetBundle): Serial
   };
 }
 
+function isBase64CodeUnit(codeUnit: number): boolean {
+  return (codeUnit >= 0x41 && codeUnit <= 0x5a)
+    || (codeUnit >= 0x61 && codeUnit <= 0x7a)
+    || (codeUnit >= 0x30 && codeUnit <= 0x39)
+    || codeUnit === 0x2b
+    || codeUnit === 0x2f;
+}
+
+function isValidBase64Body(body: string): boolean {
+  if (body.length % 4 !== 0) return false;
+
+  let paddingStart = body.length;
+  for (let index = 0; index < body.length; index += 1) {
+    const codeUnit = body.charCodeAt(index);
+    if (codeUnit === 0x3d) {
+      paddingStart = index;
+      break;
+    }
+    if (!isBase64CodeUnit(codeUnit)) return false;
+  }
+
+  const paddingLength = body.length - paddingStart;
+  if (paddingLength === 0) return true;
+  if (paddingLength > 2) return false;
+  for (let index = paddingStart; index < body.length; index += 1) {
+    if (body.charCodeAt(index) !== 0x3d) return false;
+  }
+  return true;
+}
+
 export function decodePublicAssetBody(body: string, label: string): Uint8Array {
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(body)) {
+  if (!isValidBase64Body(body)) {
     throw new Error(`Invalid Base64 body for ${label}`);
   }
   return new Uint8Array(Buffer.from(body, "base64"));
