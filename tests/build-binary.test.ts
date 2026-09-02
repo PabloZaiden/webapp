@@ -59,7 +59,7 @@ test("builds and serves the Kitchen Sink example as a standalone binary", async 
     const build = Bun.spawn([process.execPath, "src/build.ts"], {
       cwd: exampleDirectory,
       stdout: "ignore",
-      stderr: "pipe",
+      stderr: "ignore",
     });
     const buildExitCode = await build.exited;
     expect(buildExitCode).toBe(0);
