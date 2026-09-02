@@ -9,10 +9,10 @@
 
 ## Browser and UI validation
 
-- Use Playwright for all browser automation and screenshot capture. Do not automate screenshots by launching Chrome directly from platform-specific paths.
+- Use `Bun.WebView` from Bun 1.4+ for browser automation and screenshot capture. Let Bun resolve Chromium from `PATH`; do not launch a browser directly from a platform-specific path.
 - When taking screenshots to validate a visual change, review the screenshots against the specific goal; capturing them is not enough.
 - Don't overwrite existing screenshots unless the user explicitly asks for it. When taking screenshots to validate a visual change, store them either in a temporary location or in a git-ignored folder.
-- Validate that functional changes actually work with Playwright, exercising the affected UI flow end-to-end, unless the change is very simple and has no meaningful browser-facing behavior.
+- Validate that functional changes actually work with `Bun.WebView`, exercising the affected UI flow end-to-end, unless the change is very simple and has no meaningful browser-facing behavior.
 
 ## Framework UI conventions
 
@@ -64,8 +64,8 @@
 - Every retained test should be traceable to a user-visible capability, a security boundary, persistence across a process boundary, or a documented public API contract. If its failure would not describe a meaningful product regression, delete it.
 - Consolidate equivalent cases at the boundary instead of keeping one test per helper branch, HTTP verb, fixture, or configuration permutation. Preserve only materially different outcomes.
 - Keep test fixtures disposable and scenario-oriented. Remove fixtures, mocks, and test-only helpers when the tests that required them are removed.
-- Do not make automated tests assert on visual or layout implementation details, including exact colors, spacing, blur, CSS variables, selector or class-name values, DOM structure, or screenshot pixel baselines. Playwright selectors and locators may be used for interactions, but tests should assert stable user-visible behavior rather than selector or class-name implementation details.
-- Validate visual changes manually with temporary Playwright screenshots stored outside the repository or in a git-ignored location. Do not turn those checks into implementation-pinning regression tests unless an explicit product requirement calls for visual testing.
+- Do not make automated tests assert on visual or layout implementation details, including exact colors, spacing, blur, CSS variables, selector or class-name values, DOM structure, or screenshot pixel baselines. `Bun.WebView` interactions may use stable user-facing selectors, but tests should assert observable behavior rather than selector or class-name implementation details.
+- Validate visual changes manually with temporary `Bun.WebView` screenshots stored outside the repository or in a git-ignored location. Do not turn those checks into implementation-pinning regression tests unless an explicit product requirement calls for visual testing.
 - Do not add tests whose purpose is only to prove the absence of an old implementation, filename, warning, bug symptom, or removed behavior when positive behavior covers the contract.
 - Do not pin incidental copy, punctuation, generated markup, framework warning text, or internal object identity unless it is a documented public contract.
 - Do not test test-only mocks or helpers independently when production tests already exercise them.
