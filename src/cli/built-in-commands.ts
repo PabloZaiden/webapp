@@ -131,7 +131,7 @@ function serveCommand<TAppContext>(
   input: CreateWebAppCliOptions<TAppContext>,
 ): WebAppCliCommandDefinition<TAppContext> {
   return {
-    description: serveCommandDescription(),
+    description: serveCommandDescription(input.serve?.options),
     usage: serveCommandUsage(),
     handler: async (context) => await runServeCommand(input, context),
   };

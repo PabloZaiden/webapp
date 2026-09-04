@@ -104,6 +104,73 @@ used by the default `serve up` mode. The detached parent only resolves
 configuration, builds when requested, and launches the command; it does not
 construct the application server or initialize its database.
 
+Applications can declare typed bootstrap options that are accepted by both
+foreground `serve` and `serve up`, exposed through environment variables, and
+persisted through `serve config`. Option names use lowercase kebab-case;
+webapp derives the environment name by converting it to uppercase snake case
+and prefixing the application's `envPrefix`.
+
+```ts
+createWebAppCli({
+  // ...
+  start: async ({ options }) => {
+    await startApplication({
+      worker: options["worker"] === true,
+      workerName: String(options["worker-name"]),
+      capacity: Number(options["capacity"]),
+    });
+  },
+  serve: {
+    options: [
+      {
+        name: "worker",
+        type: "boolean",
+        description: "Run only the worker server surface.",
+        defaultValue: false,
+      },
+      {
+        name: "worker-name",
+        type: "string",
+        description: "Set the worker display name.",
+        defaultValue: "worker",
+      },
+      {
+        name: "capacity",
+        type: "number",
+        description: "Set the worker capacity.",
+        defaultValue: 1,
+      },
+    ],
+  },
+});
+```
+
+For an application with `envPrefix: "MY_APP"`, the equivalent inputs are:
+
+```bash
+my-app serve --worker true --worker-name local --capacity 2
+my-app serve up --worker true --worker-name detached --capacity 4
+
+MY_APP_WORKER=true \
+MY_APP_WORKER_NAME=environment \
+MY_APP_CAPACITY=6 \
+my-app serve up
+
+my-app serve config set worker true
+my-app serve config set worker-name persisted
+my-app serve config set capacity 8
+my-app serve config unset capacity
+```
+
+Values resolve in this order: invocation flag, environment variable, persisted
+config, then `defaultValue`. Invocation flags are one-shot and do not change
+`config.json`. `serve up` forwards the resolved values to the detached child
+through their derived environment variables. `serve config show` includes the
+typed values under `config.serve.options` and their resolved values under
+`effective.application`. Boolean inputs accept `true`/`false`, `1`/`0`, and
+`yes`/`no`; numbers must be finite. String values beginning with `--` should
+use the `--name=value` form.
+
 `healthPath` and `readinessTimeoutMs` customize the readiness probe when an
 application does not expose its health endpoint at `/api/health`:
 

@@ -18,6 +18,10 @@ import {
   type CliSignalSource,
   type CliWebSocketFactory,
 } from "./websocket-command";
+import type {
+  WebAppServeOptionDefinition,
+  WebAppServeOptionValues,
+} from "./serve-options";
 
 export interface WebAppCliCommandContext<TAppContext = undefined> {
   command: string;
@@ -55,6 +59,13 @@ export interface WebAppServeOptions<TAppContext = undefined> {
   development?: WebAppServeDevelopmentOptions<TAppContext>;
   healthPath?: string;
   readinessTimeoutMs?: number;
+  options?: readonly WebAppServeOptionDefinition[];
+}
+
+export interface WebAppServeStartContext<TAppContext = undefined> {
+  appContext: TAppContext;
+  options: WebAppServeOptionValues;
+  environment: Readonly<Record<string, string | undefined>>;
 }
 
 export interface WebAppCliCommandDefinition<TAppContext = undefined> {
@@ -89,7 +100,7 @@ export interface CreateWebAppCliOptions<TAppContext = undefined> {
   stderr?: CliOutput;
   webSocketFactory?: CliWebSocketFactory;
   signals?: CliSignalSource;
-  start?: () => unknown | Promise<unknown>;
+  start?: (context: WebAppServeStartContext<TAppContext>) => unknown | Promise<unknown>;
   serve?: WebAppServeOptions<TAppContext>;
   config?: () => unknown | Promise<unknown>;
   update?: UpdaterConfig;

@@ -6,6 +6,8 @@ import {
   type WebAppCli,
   type CliProfileStore,
   type StoredDeviceCredentials,
+  type WebAppServeOptionValues,
+  validateServeOptionDefinitions,
 } from "@pablozaiden/webapp/cli";
 
 const testRoot = resolve(".cache/tests/serve-lifecycle");
@@ -20,9 +22,18 @@ Bun.serve({
   hostname: host,
   port,
   fetch(request) {
-    return new URL(request.url).pathname === "/api/health"
-      ? Response.json({ ok: true })
-      : new Response("not found", { status: 404 });
+    const path = new URL(request.url).pathname;
+    if (path === "/api/health") {
+      return Response.json({ ok: true });
+    }
+    if (path === "/api/options") {
+      return Response.json({
+        featureMode: process.env["TEST_SERVE_FEATURE_MODE"],
+        workerName: process.env["TEST_SERVE_WORKER_NAME"],
+        capacity: process.env["TEST_SERVE_CAPACITY"],
+      });
+    }
+    return new Response("not found", { status: 404 });
   },
 });
 await new Promise(() => {});
@@ -85,6 +96,11 @@ function createFixtureCli(input: {
   dataDir: string;
   port: number;
   onBuild?: () => void;
+  environment?: Record<string, string>;
+  onStart?: (
+    options: WebAppServeOptionValues,
+    environment: Readonly<Record<string, string | undefined>>,
+  ) => void;
 }) {
   const fixturePath = join(input.dataDir, "fixture.ts");
   const environment = {
@@ -92,6 +108,7 @@ function createFixtureCli(input: {
     TEST_SERVE_DATA_DIR: input.dataDir,
     TEST_SERVE_HOST: "127.0.0.1",
     TEST_SERVE_PORT: String(input.port),
+    ...input.environment,
   };
   const cli = createWebAppCli({
     appName: "Serve Lifecycle Test",
@@ -101,7 +118,32 @@ function createFixtureCli(input: {
     version: "1.0.0",
     environment,
     profileStore: profileStore(),
+    start: input.onStart
+      ? ({ options, environment: resolvedEnvironment }) => {
+          input.onStart?.(options, resolvedEnvironment);
+        }
+      : undefined,
     serve: {
+      options: [
+        {
+          name: "feature-mode",
+          type: "boolean",
+          description: "Enable fixture feature mode.",
+          defaultValue: false,
+        },
+        {
+          name: "worker-name",
+          type: "string",
+          description: "Set the fixture worker name.",
+          defaultValue: "default-worker",
+        },
+        {
+          name: "capacity",
+          type: "number",
+          description: "Set fixture worker capacity.",
+          defaultValue: 1,
+        },
+      ],
       command: () => [process.execPath, fixturePath, "serve"],
       development: {
         build: () => {
@@ -130,6 +172,140 @@ afterEach(async () => {
 });
 
 describe("detached serve lifecycle", () => {
+  test("rejects application options consumed by global CLI parsing", () => {
+    for (const name of ["help", "profile"]) {
+      expect(() => validateServeOptionDefinitions([{
+        name,
+        type: "boolean",
+        description: "Conflicts with a global CLI option.",
+      }])).toThrow(`serve option name is reserved: ${name}`);
+    }
+  });
+
+  test("resolves application serve options across config, environment, and flags", async () => {
+    const root = join(testRoot, crypto.randomUUID());
+    const dataDir = join(root, "state");
+    mkdirSync(dataDir, { recursive: true });
+    resources.push(root);
+    const port = await freePort();
+    const fixture = createFixtureCli({
+      dataDir,
+      port,
+      environment: {
+        TEST_SERVE_FEATURE_MODE: "false",
+        TEST_SERVE_WORKER_NAME: "environment-worker",
+      },
+    });
+    await Bun.write(fixture.fixturePath, fixtureSource);
+
+    expect((await fixture.cli.execute([
+      "serve",
+      "config",
+      "set",
+      "feature-mode",
+      "true",
+    ])).exitCode).toBe(0);
+    expect((await fixture.cli.execute([
+      "serve",
+      "config",
+      "set",
+      "worker-name",
+      "configured-worker",
+    ])).exitCode).toBe(0);
+    expect((await fixture.cli.execute([
+      "serve",
+      "config",
+      "set",
+      "capacity",
+      "3",
+    ])).exitCode).toBe(0);
+
+    const shown = await fixture.cli.execute(["serve", "config", "show"]);
+    expect(shown.exitCode).toBe(0);
+    expect(JSON.parse(shown.output ?? "")).toMatchObject({
+      config: {
+        serve: {
+          options: {
+            "feature-mode": true,
+            "worker-name": "configured-worker",
+            capacity: 3,
+          },
+        },
+      },
+      effective: {
+        application: {
+          "feature-mode": false,
+          "worker-name": "environment-worker",
+          capacity: 3,
+        },
+      },
+    });
+
+    const started = await fixture.cli.execute([
+      "serve",
+      "up",
+      "--feature-mode",
+      "true",
+      "--worker-name=flag=worker",
+      "--capacity",
+      "7",
+    ]);
+    expect(started.exitCode).toBe(0);
+    const response = await fetch(`http://127.0.0.1:${String(port)}/api/options`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      featureMode: "true",
+      workerName: "flag=worker",
+      capacity: "7",
+    });
+  });
+
+  test("provides resolved application options to foreground servers", async () => {
+    const root = join(testRoot, crypto.randomUUID());
+    const dataDir = join(root, "state");
+    mkdirSync(dataDir, { recursive: true });
+    resources.push(root);
+    const port = await freePort();
+    let observed:
+      | {
+          options: WebAppServeOptionValues;
+          environment: Readonly<Record<string, string | undefined>>;
+        }
+      | undefined;
+    const fixture = createFixtureCli({
+      dataDir,
+      port,
+      onStart: (options, environment) => {
+        observed = { options, environment };
+      },
+    });
+    const result = await fixture.cli.execute([
+      "serve",
+      "--feature-mode",
+      "true",
+      "--worker-name",
+      "foreground-worker",
+      "--capacity=5",
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(observed?.options).toEqual({
+      "feature-mode": true,
+      "worker-name": "foreground-worker",
+      capacity: 5,
+    });
+    expect(observed?.environment).toMatchObject({
+      TEST_SERVE_FEATURE_MODE: "true",
+      TEST_SERVE_WORKER_NAME: "foreground-worker",
+      TEST_SERVE_CAPACITY: "5",
+    });
+    expect(fixture.cli.help("serve")).toContain(
+      "--feature-mode BOOLEAN  Enable fixture feature mode.",
+    );
+    const invalid = await fixture.cli.execute(["serve", "--capacity", "many"]);
+    expect(invalid.exitCode).toBe(1);
+    expect(invalid.error).toContain("--capacity must be a finite number");
+  });
+
   test("persists configuration, starts detached, reports status, and stops safely", async () => {
     const root = join(testRoot, crypto.randomUUID());
     const dataDir = join(root, "state");
