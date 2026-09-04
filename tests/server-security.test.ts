@@ -71,6 +71,8 @@ async function startServer(input: {
   auth?: WebAppServerConfig["auth"];
   routes?: RouteTable;
   publicRoutes?: WebAppServerConfig["publicRoutes"];
+  web?: WebAppServerConfig["web"];
+  requestFilter?: WebAppServerConfig["requestFilter"];
   passkeyDisabled?: boolean;
 }): Promise<{
   app: ReturnType<typeof createWebAppServer>;
@@ -97,7 +99,8 @@ async function startServer(input: {
     appName: runtimeConfig.appName,
     envPrefix: input.envPrefix,
     runtimeConfig,
-    web: testWeb,
+    web: input.web ?? testWeb,
+    requestFilter: input.requestFilter,
     store,
     auth: input.auth,
     publicRoutes: input.publicRoutes,
@@ -111,6 +114,61 @@ async function startServer(input: {
     baseUrl: server.url.toString().replace(/\/$/, ""),
   };
 }
+
+test("supports a headless server with a deny-by-default request surface", async () => {
+  const dataDir = testDataDir("headless-request-filter");
+  const running = await startServer({
+    envPrefix: "TEST_E2E_HEADLESS_REQUEST_FILTER",
+    dataDir,
+    auth: { passkeys: false },
+    web: false,
+    publicRoutes: {
+      "/diagnostics.json": JSON.stringify({ exposed: true }),
+    },
+    routes: defineRoutes({
+      "/api/worker": {
+        auth: "public",
+        sameOrigin: "never",
+        GET: () => jsonResponse({ ok: true }),
+      },
+      "/api/blocked": {
+        auth: "public",
+        sameOrigin: "never",
+        GET: () => jsonResponse({ exposed: true }),
+      },
+    }),
+    requestFilter: (request) => {
+      const path = new URL(request.url).pathname;
+      return path === "/api/health" || path === "/api/worker";
+    },
+  });
+
+  try {
+    const health = await fetch(`${running.baseUrl}/api/health`);
+    expect(health.status).toBe(200);
+
+    const worker = await fetch(`${running.baseUrl}/api/worker`);
+    expect(worker.status).toBe(200);
+    expect(await worker.json()).toEqual({ ok: true });
+
+    for (const path of ["/", "/projects", "/api/config", "/api/blocked", "/diagnostics.json"]) {
+      const denied = await fetch(`${running.baseUrl}${path}`);
+      expect(denied.status).toBe(404);
+    }
+  } finally {
+    await running.server.stop(true);
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("requires headless mode when configuring a request filter", () => {
+  expect(() => createWebAppServer({
+    appName: "Filtered Server",
+    envPrefix: "TEST_FILTERED_SERVER",
+    web: testWeb,
+    requestFilter: () => true,
+  })).toThrow("requestFilter requires web: false");
+});
 
 test("serves framework and application public routes over HTTP", async () => {
   const dataDir = testDataDir("public-routes");

@@ -91,7 +91,7 @@ export interface FrameworkEndpointDependencies {
   configResponse?: WebAppServerConfig["configResponse"];
   onLogLevelChange?: (level: LogLevelName) => void;
   inMemoryLogs: InMemoryLogStorage;
-  ensureWebDocument: () => Promise<WebDocument>;
+  ensureWebDocument?: () => Promise<WebDocument>;
 }
 
 function addHeaders(response: Response, headers: Headers): Response {
@@ -518,7 +518,12 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         setTimeout(() => process.exit(0), 100);
         return successResponse({ success: true, message: "Server is shutting down" });
       }
-      if (deviceAuthEnabled && path === "/device" && req.method === "GET") {
+      if (
+        deviceAuthEnabled
+        && ensureWebDocument
+        && path === "/device"
+        && req.method === "GET"
+      ) {
         return htmlResponse(await ensureWebDocument(), req);
       }
     } catch (error) {

@@ -48,6 +48,7 @@ export type {
   WebAppServerConfig,
   WebAppServerLifecycleHooks,
   WebAppServerOptions,
+  WebAppRequestFilter,
   WebAppWebSocketData,
 } from "./server-types";
 export { WEBAPP_SOCKET_HANDLER };
@@ -61,6 +62,9 @@ function canUseSpaFallback(req: Request): boolean {
 }
 
 export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<TEvent>): WebAppServer<TEvent> {
+  if (input.requestFilter && input.web !== false) {
+    throw new Error("requestFilter requires web: false");
+  }
   const config = input.runtimeConfig ?? readRuntimeConfig({
     appName: input.appName,
     envPrefix: input.envPrefix,
@@ -87,8 +91,12 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const passkeysEnabled = input.auth?.passkeys !== false;
   const apiKeysEnabled = input.auth?.apiKeys ?? false;
   const deviceAuthEnabled = input.auth?.deviceAuth ?? false;
-  const documentProvider = createWebDocumentProvider(config, input.web, publicRoutes);
-  const ensureWebDocument = () => documentProvider.ensure();
+  const documentProvider = input.web === false
+    ? undefined
+    : createWebDocumentProvider(config, input.web, publicRoutes);
+  const ensureWebDocument = documentProvider
+    ? () => documentProvider.ensure()
+    : undefined;
   const authentication = createAuthentication({
     store,
     config,
@@ -112,8 +120,13 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   });
   const publicRouteDispatcher = createPublicRouteDispatcher({
     publicRoutes,
-    generatedRoutePaths: documentProvider.generatedRoutePaths,
-    ensureWebDocument,
+    generatedRoutePaths: documentProvider?.generatedRoutePaths ?? new Set(),
+    ensureWebDocument: async () => {
+      if (!ensureWebDocument) {
+        throw new Error("The web document is disabled");
+      }
+      return await ensureWebDocument();
+    },
   });
   const routeDispatcher = createRouteDispatcher({
     config,
@@ -123,6 +136,9 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   });
 
   async function handleRequest(req: Request, server?: Server<WebAppWebSocketData>): Promise<Response | undefined> {
+    if (input.requestFilter && !await input.requestFilter(req)) {
+      return withSecurityHeaders(notFound());
+    }
     const url = new URL(req.url);
     const publicRoute = await publicRouteDispatcher.dispatch(req);
     if (publicRoute) {
@@ -144,6 +160,9 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       return routeResult.response;
     }
     if (!canUseSpaFallback(req)) {
+      return withSecurityHeaders(notFound());
+    }
+    if (!ensureWebDocument) {
       return withSecurityHeaders(notFound());
     }
     return htmlResponse(await ensureWebDocument(), req);
