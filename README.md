@@ -28,6 +28,30 @@ Each application package must declare `react` and `react-dom`; they are peer dep
 | `@pablozaiden/webapp/cli` | Lazy `createWebAppCli`, profiles, persistent state/config, detached server lifecycle, device/environment auth, API/schema/logs/update and raw WebSocket commands |
 | `@pablozaiden/webapp/build` | Bun single-binary compile helper |
 
+## Headless and restricted servers
+
+Set `web: false` when a process should expose API or websocket transports
+without generating or mounting the browser application. A `requestFilter` can
+then enforce a deny-by-default network surface before public routes, framework
+endpoints, application routes, or websocket upgrades are dispatched:
+
+```ts
+createWebAppServer({
+  appName: "Worker",
+  envPrefix: "WORKER",
+  web: false,
+  requestFilter: (request) => {
+    const path = new URL(request.url).pathname;
+    return path === "/api/health" || path.startsWith("/api/worker/");
+  },
+  routes,
+});
+```
+
+Returning `false` produces a `404` response. `requestFilter` intentionally
+requires `web: false`; otherwise Bun may serve an HTML bundle directly without
+passing through the application request dispatcher.
+
 ## Motion primitives
 
 The web export includes `Presence`, `Collapsible`, `AsyncState`, `AnimatedList`,

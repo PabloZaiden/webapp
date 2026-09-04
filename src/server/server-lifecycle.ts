@@ -18,8 +18,8 @@ export interface ServerLifecycleDependencies<TEvent = unknown> {
   appWebsockets: NonNullable<WebAppServerConfig["websockets"]>;
   realtime: RealtimeBus<TEvent>;
   ensurePublicAssetPaths: () => Promise<ReadonlySet<string>>;
-  ensureWebDocument: () => Promise<WebDocument>;
-  documentProvider: WebDocumentProvider;
+  ensureWebDocument?: () => Promise<WebDocument>;
+  documentProvider?: WebDocumentProvider;
   handleRequest: (req: Request, server?: Server<WebAppWebSocketData>) => Promise<Response | undefined>;
 }
 
@@ -52,11 +52,13 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
       throw new Error("The web app server is already running");
     }
     await hooks?.beforeStart?.();
-    const webDocument = await ensureWebDocument();
+    const webDocument = ensureWebDocument
+      ? await ensureWebDocument()
+      : undefined;
     const publicAssetPaths = await ensurePublicAssetPaths();
     const dynamicHandler = (req: Request, server: Server<WebAppWebSocketData>) => handleRequest(req, server);
     const publicRoutePaths = new Set([
-      ...Object.keys(webDocument.generatedPublicRoutes),
+      ...Object.keys(webDocument?.generatedPublicRoutes ?? {}),
       ...Object.keys(publicRoutes),
       ...publicAssetPaths,
     ]);
@@ -75,12 +77,14 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     // Bun only transforms HTMLBundle modules/HMR when the bundle is mounted directly.
     // Wrapping it in a handler or Response, or adding route-level headers, serves
     // untransformed module paths and breaks generated document routes.
-    const spaDocumentRoute = webDocument.bundle ? {
+    const spaDocumentRoute = webDocument?.bundle ? {
       ...spaFallbackRoute,
       GET: webDocument.bundle as never,
       HEAD: webDocument.bundle as never,
     } : spaFallbackRoute;
-    const entryRoute = webDocument.bundle ? { [webDocument.entryPublicPath]: webDocument.bundle as never } : {};
+    const entryRoute = webDocument?.bundle
+      ? { [webDocument.entryPublicPath]: webDocument.bundle as never }
+      : {};
     const server = Bun.serve<WebAppWebSocketData>({
       hostname: config.host,
       port: config.port,
@@ -146,10 +150,12 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
           } catch (error) {
             errors.push(error);
           }
-          try {
-            documentProvider.dispose(webDocument);
-          } catch (error) {
-            errors.push(error);
+          if (documentProvider && webDocument) {
+            try {
+              documentProvider.dispose(webDocument);
+            } catch (error) {
+              errors.push(error);
+            }
           }
           if (hooks?.afterStop) {
             try {

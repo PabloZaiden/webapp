@@ -40,12 +40,24 @@ export interface WebAppServerLifecycleHooks {
   afterStop?: (server: Server<WebAppWebSocketData>) => void | Promise<void>;
 }
 
+export type WebAppRequestFilter = (
+  request: Request,
+) => boolean | Promise<boolean>;
+
 export interface WebAppServerConfig<TEvent = unknown> {
   appName: string;
   envPrefix: string;
   appDirectoryName?: string;
   runtimeConfig?: RuntimeConfig;
-  web?: WebAppDocumentConfig;
+  web?: WebAppDocumentConfig | false;
+  /**
+   * Runs before public routes, framework endpoints, application routes, and
+   * websocket upgrades. Returning false responds with 404.
+   *
+   * A request filter requires `web: false` so Bun cannot bypass it by serving
+   * the HTML bundle directly.
+   */
+  requestFilter?: WebAppRequestFilter;
   server?: WebAppServerOptions;
   version?: string;
   store?: WebAppStore;
