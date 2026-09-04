@@ -554,9 +554,9 @@ textarea::placeholder {
 }
 
 .wapp-sidebar-item.active {
-  border-color: var(--wapp-primary);
-  background: var(--wapp-primary);
-  color: #ffffff;
+  border-color: var(--wapp-border);
+  background: var(--wapp-surface-pill);
+  color: var(--wapp-text);
 }
 
 :root.dark .wapp-sidebar-item.active {
