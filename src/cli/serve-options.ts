@@ -26,7 +26,13 @@ export type WebAppServeOptionValues = Readonly<
   Record<string, WebAppServeOptionValue | undefined>
 >;
 
-const RESERVED_SERVE_OPTION_NAMES = new Set(["dev", "host", "port"]);
+const RESERVED_SERVE_OPTION_NAMES = new Set([
+  "dev",
+  "help",
+  "host",
+  "port",
+  "profile",
+]);
 
 function environmentName(envPrefix: string, name: string): string {
   return `${envPrefix}_${name.replaceAll("-", "_").toUpperCase()}`;

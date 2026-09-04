@@ -7,6 +7,7 @@ import {
   type CliProfileStore,
   type StoredDeviceCredentials,
   type WebAppServeOptionValues,
+  validateServeOptionDefinitions,
 } from "@pablozaiden/webapp/cli";
 
 const testRoot = resolve(".cache/tests/serve-lifecycle");
@@ -171,6 +172,16 @@ afterEach(async () => {
 });
 
 describe("detached serve lifecycle", () => {
+  test("rejects application options consumed by global CLI parsing", () => {
+    for (const name of ["help", "profile"]) {
+      expect(() => validateServeOptionDefinitions([{
+        name,
+        type: "boolean",
+        description: "Conflicts with a global CLI option.",
+      }])).toThrow(`serve option name is reserved: ${name}`);
+    }
+  });
+
   test("resolves application serve options across config, environment, and flags", async () => {
     const root = join(testRoot, crypto.randomUUID());
     const dataDir = join(root, "state");
