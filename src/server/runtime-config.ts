@@ -45,10 +45,15 @@ export interface WebAppPersistedDevelopmentConfig {
   sourcePath?: string;
 }
 
+export interface WebAppPersistedServeConfig {
+  options?: Record<string, boolean | number | string>;
+}
+
 export interface WebAppPersistedConfig {
   version: typeof WEB_APP_CONFIG_VERSION;
   server?: WebAppPersistedServerConfig;
   development?: WebAppPersistedDevelopmentConfig;
+  serve?: WebAppPersistedServeConfig;
   [key: string]: unknown;
 }
 
@@ -170,6 +175,32 @@ function parsePersistedDevelopmentConfig(value: unknown): WebAppPersistedDevelop
   return sourcePath === undefined ? {} : { sourcePath: resolve(sourcePath.trim()) };
 }
 
+function parsePersistedServeConfig(
+  value: unknown,
+): WebAppPersistedServeConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    throw configError("serve must be an object");
+  }
+  const options = value["options"];
+  if (options === undefined) return {};
+  if (!isRecord(options)) {
+    throw configError("serve.options must be an object");
+  }
+  const result: Record<string, boolean | number | string> = {};
+  for (const [key, optionValue] of Object.entries(options)) {
+    if (
+      typeof optionValue !== "boolean"
+      && typeof optionValue !== "string"
+      && (typeof optionValue !== "number" || !Number.isFinite(optionValue))
+    ) {
+      throw configError(`serve.options.${key} must be a boolean, finite number, or string`);
+    }
+    result[key] = optionValue;
+  }
+  return { options: result };
+}
+
 export function parseWebAppPersistedConfig(value: unknown): WebAppPersistedConfig {
   if (!isRecord(value)) {
     throw configError("the root value must be an object");
@@ -184,6 +215,7 @@ export function parseWebAppPersistedConfig(value: unknown): WebAppPersistedConfi
   };
   const server = parsePersistedServerConfig(value["server"]);
   const development = parsePersistedDevelopmentConfig(value["development"]);
+  const serve = parsePersistedServeConfig(value["serve"]);
   if (server === undefined) {
     delete config["server"];
   } else {
@@ -193,6 +225,11 @@ export function parseWebAppPersistedConfig(value: unknown): WebAppPersistedConfi
     delete config["development"];
   } else {
     config.development = development;
+  }
+  if (serve === undefined) {
+    delete config["serve"];
+  } else {
+    config.serve = serve;
   }
   return config;
 }

@@ -22,6 +22,16 @@ import type {
 import { createJsonFileStore, type JsonFileStore } from "./credentials";
 import type { CliEnvironment } from "./environment-auth";
 import type { CliCommandResult } from "./runtime";
+import {
+  applyServeOptionsToEnvironment,
+  parseServeOptionText,
+  resolveServeOptionValues,
+  serveOptionDefinition,
+  validateServeOptionDefinitions,
+  type WebAppServeOptionDefinition,
+  type WebAppServeOptionValue,
+  type WebAppServeOptionValues,
+} from "./serve-options";
 
 const SERVER_PID_FILE_VERSION = 1;
 const DEFAULT_READINESS_TIMEOUT_MS = 15_000;
@@ -61,6 +71,7 @@ interface ServeUpOptions {
   development: boolean;
   host?: string;
   port?: number;
+  application: Record<string, WebAppServeOptionValue>;
 }
 
 interface ServerLifecyclePaths {
@@ -219,11 +230,14 @@ async function resolveServerCommand<TAppContext>(
 
 function parseServeUpArgs(
   args: readonly string[],
+  definitions: readonly WebAppServeOptionDefinition[] | undefined = undefined,
   commandName = "serve up",
 ): ServeUpOptions | CliCommandResult {
   let development = false;
   let host: string | undefined;
   let port: number | undefined;
+  const application: Record<string, WebAppServeOptionValue> = {};
+  validateServeOptionDefinitions(definitions);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
     if (arg === "--dev") {
@@ -267,6 +281,41 @@ function parseServeUpArgs(
       }
       continue;
     }
+    const separatorIndex = arg.indexOf("=");
+    const rawFlag = separatorIndex === -1 ? arg : arg.slice(0, separatorIndex);
+    const inlineValue = separatorIndex === -1
+      ? undefined
+      : arg.slice(separatorIndex + 1);
+    const optionName = rawFlag?.startsWith("--") ? rawFlag.slice(2) : "";
+    const definition = serveOptionDefinition(definitions, optionName);
+    if (definition) {
+      if (application[definition.name] !== undefined) {
+        return {
+          exitCode: 1,
+          error: `--${definition.name} may only be specified once`,
+        };
+      }
+      const value = inlineValue ?? args[index + 1];
+      if (value === undefined || (inlineValue === undefined && value.startsWith("--"))) {
+        return {
+          exitCode: 1,
+          error: `--${definition.name} requires a ${definition.type} value`,
+        };
+      }
+      if (inlineValue === undefined) {
+        index += 1;
+      }
+      try {
+        application[definition.name] = parseServeOptionText(
+          definition,
+          value,
+          `--${definition.name}`,
+        );
+      } catch (error) {
+        return { exitCode: 1, error: errorMessage(error) };
+      }
+      continue;
+    }
     return { exitCode: 1, error: `Unknown ${commandName} option: ${arg}` };
   }
   if (host !== undefined && (!host.trim() || /[\s/?#]/.test(host))) {
@@ -275,7 +324,7 @@ function parseServeUpArgs(
   if (port === 0) {
     return { exitCode: 1, error: "--port must be between 1 and 65535 for detached servers" };
   }
-  return { development, host: host?.trim(), port };
+  return { development, host: host?.trim(), port, application };
 }
 
 function overrideEnvironment(
@@ -294,6 +343,42 @@ function overrideEnvironment(
     result[`${envPrefix}_PORT`] = String(options.port);
   }
   return result;
+}
+
+function resolveServeEnvironment<TAppContext>(
+  input: CreateWebAppCliOptions<TAppContext>,
+  context: WebAppCliCommandContext<TAppContext>,
+  options: ServeUpOptions,
+): {
+  environment: Record<string, string | undefined>;
+  values: WebAppServeOptionValues;
+} {
+  const baseEnvironment = overrideEnvironment(
+    context.environment,
+    input.envPrefix,
+    options,
+  );
+  const dataDir = resolveAppDataDir({
+    envPrefix: input.envPrefix,
+    appDirectoryName: input.appDirectoryName,
+    environment: baseEnvironment,
+  });
+  const values = resolveServeOptionValues({
+    definitions: input.serve?.options,
+    envPrefix: input.envPrefix,
+    environment: baseEnvironment,
+    persisted: readWebAppConfig(dataDir),
+    overrides: options.application,
+  });
+  return {
+    values,
+    environment: applyServeOptionsToEnvironment({
+      definitions: input.serve?.options,
+      envPrefix: input.envPrefix,
+      environment: baseEnvironment,
+      values,
+    }),
+  };
 }
 
 async function readProcessStream(
@@ -419,7 +504,10 @@ function processCommandMatches(
   return expected.slice(1).every((part) => containsArgument(part));
 }
 
-function serveCommandDescription(): string {
+function serveCommandDescription(
+  definitions: readonly WebAppServeOptionDefinition[] | undefined,
+): string {
+  const applicationOptions = validateServeOptionDefinitions(definitions);
   return [
     "Run the application server in the foreground or manage a detached instance.",
     "",
@@ -433,8 +521,18 @@ function serveCommandDescription(): string {
     "  serve status [--port PORT]",
     "                         Show detached server state as JSON.",
     "  serve config show      Show persisted and effective configuration.",
-    "  serve config set       Set host, port, or development.source-path.",
+    "  serve config set       Persist a framework or application option.",
     "  serve config unset     Remove a persisted setting.",
+    ...(applicationOptions.length === 0
+      ? []
+      : [
+          "",
+          "Application options:",
+          ...applicationOptions.map(
+            (definition) =>
+              `  --${definition.name} ${definition.type.toUpperCase()}  ${definition.description}`,
+          ),
+        ]),
   ].join("\n");
 }
 
@@ -663,10 +761,19 @@ async function stopExistingServer(input: {
   await pidStore.clear();
 }
 
-function configKeyError(key: string): CliCommandResult {
+function configKeyError(
+  key: string,
+  definitions: readonly WebAppServeOptionDefinition[] | undefined,
+): CliCommandResult {
+  const expected = [
+    "host",
+    "port",
+    "development.source-path",
+    ...validateServeOptionDefinitions(definitions).map((definition) => definition.name),
+  ];
   return {
     exitCode: 1,
-    error: `Unknown serve config key: ${key}; expected host, port, or development.source-path`,
+    error: `Unknown serve config key: ${key}; expected ${expected.join(", ")}`,
   };
 }
 
@@ -674,6 +781,7 @@ function setConfigValue(
   config: WebAppPersistedConfig,
   key: string,
   value: string,
+  definitions: readonly WebAppServeOptionDefinition[] | undefined,
 ): WebAppPersistedConfig | CliCommandResult {
   const next: WebAppPersistedConfig = {
     ...config,
@@ -708,12 +816,28 @@ function setConfigValue(
     next.development = { ...(config.development ?? {}), sourcePath: resolve(value.trim()) };
     return next;
   }
-  return configKeyError(key);
+  const definition = serveOptionDefinition(definitions, key);
+  if (definition) {
+    try {
+      next.serve = {
+        ...(config.serve ?? {}),
+        options: {
+          ...(config.serve?.options ?? {}),
+          [key]: parseServeOptionText(definition, value, key),
+        },
+      };
+      return next;
+    } catch (error) {
+      return { exitCode: 1, error: errorMessage(error) };
+    }
+  }
+  return configKeyError(key, definitions);
 }
 
 function unsetConfigValue(
   config: WebAppPersistedConfig,
   key: string,
+  definitions: readonly WebAppServeOptionDefinition[] | undefined,
 ): WebAppPersistedConfig | CliCommandResult {
   const next: WebAppPersistedConfig = { ...config, version: WEB_APP_CONFIG_VERSION };
   if (key === "host" || key === "port") {
@@ -740,7 +864,22 @@ function unsetConfigValue(
     }
     return next;
   }
-  return configKeyError(key);
+  if (
+    serveOptionDefinition(definitions, key)
+    || next.serve?.options?.[key] !== undefined
+  ) {
+    if (next.serve?.options) {
+      const options = { ...next.serve.options };
+      delete options[key];
+      if (Object.keys(options).length === 0) {
+        delete next.serve;
+      } else {
+        next.serve = { ...next.serve, options };
+      }
+    }
+    return next;
+  }
+  return configKeyError(key, definitions);
 }
 
 async function assertDirectory(path: string): Promise<void> {
@@ -772,6 +911,12 @@ async function runServeConfigCommand<TAppContext>(
       return { exitCode: 1, error: "serve config show does not accept arguments" };
     }
     const config = await store.read() ?? { version: WEB_APP_CONFIG_VERSION };
+    const values = resolveServeOptionValues({
+      definitions: input.serve?.options,
+      envPrefix: input.envPrefix,
+      environment: context.environment,
+      persisted: config,
+    });
     const effective = readRuntimeConfig({
       appName: input.appName,
       envPrefix: input.envPrefix,
@@ -783,7 +928,10 @@ async function runServeConfigCommand<TAppContext>(
       output: JSON.stringify({
         path: store.path(),
         config,
-        effective: safeRuntimeConfig(effective),
+        effective: {
+          ...safeRuntimeConfig(effective),
+          ...(Object.keys(values).length > 0 ? { application: values } : {}),
+        },
       }, null, 2),
     };
   }
@@ -803,8 +951,8 @@ async function runServeConfigCommand<TAppContext>(
   await store.withLock!(async () => {
     const current = await store.read() ?? { version: WEB_APP_CONFIG_VERSION };
     result = action === "set"
-      ? setConfigValue(current, key, args[1]!)
-      : unsetConfigValue(current, key);
+      ? setConfigValue(current, key, args[1]!, input.serve?.options)
+      : unsetConfigValue(current, key, input.serve?.options);
     if (!result || "exitCode" in result) return;
     if (key === "development.source-path" && action === "set") {
       const sourcePath = result.development?.sourcePath;
@@ -841,7 +989,8 @@ async function runServeUp<TAppContext>(
   context: WebAppCliCommandContext<TAppContext>,
   options: ServeUpOptions,
 ): Promise<CliCommandResult> {
-  const environment = overrideEnvironment(context.environment, input.envPrefix, options);
+  const resolved = resolveServeEnvironment(input, context, options);
+  const environment = resolved.environment;
   const appDirectoryName = resolveAppDirectoryName(input.envPrefix, input.appDirectoryName);
   const config = readRuntimeConfig({
     appName: input.appName,
@@ -911,7 +1060,7 @@ async function runServeDown<TAppContext>(
   input: CreateWebAppCliOptions<TAppContext>,
   context: WebAppCliCommandContext<TAppContext>,
 ): Promise<CliCommandResult> {
-  const parsed = parseServeUpArgs(context.args, "serve down");
+  const parsed = parseServeUpArgs(context.args, undefined, "serve down");
   if ("exitCode" in parsed) return parsed;
   if (parsed.development) {
     return { exitCode: 1, error: "serve down does not accept --dev" };
@@ -946,7 +1095,7 @@ async function runServeStatus<TAppContext>(
   input: CreateWebAppCliOptions<TAppContext>,
   context: WebAppCliCommandContext<TAppContext>,
 ): Promise<CliCommandResult> {
-  const parsed = parseServeUpArgs(context.args, "serve status");
+  const parsed = parseServeUpArgs(context.args, undefined, "serve status");
   if ("exitCode" in parsed) return parsed;
   if (parsed.development) {
     return { exitCode: 1, error: "serve status does not accept --dev" };
@@ -1004,15 +1153,32 @@ export async function runServeCommand<TAppContext>(
   context: WebAppCliCommandContext<TAppContext>,
 ): Promise<CliCommandResult> {
   const [action, ...rest] = context.args;
-  if (!action) {
+  if (!action || action.startsWith("--")) {
     if (input.start === undefined) {
       return { exitCode: 1, error: "No application start callback is configured" };
     }
-    await input.start();
+    const parsed = parseServeUpArgs(
+      context.args,
+      input.serve?.options,
+      "serve",
+    );
+    if ("exitCode" in parsed) return parsed;
+    if (parsed.development || parsed.host !== undefined || parsed.port !== undefined) {
+      return {
+        exitCode: 1,
+        error: "Foreground serve accepts only application-defined options",
+      };
+    }
+    const resolved = resolveServeEnvironment(input, context, parsed);
+    await input.start({
+      appContext: input.appContext as TAppContext,
+      options: resolved.values,
+      environment: resolved.environment,
+    });
     return { exitCode: 0 };
   }
   if (action === "up") {
-    const parsed = parseServeUpArgs(rest);
+    const parsed = parseServeUpArgs(rest, input.serve?.options);
     if ("exitCode" in parsed) return parsed;
     return await runServeUp(input, context, parsed);
   }
