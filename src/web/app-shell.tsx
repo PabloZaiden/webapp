@@ -1,9 +1,10 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { ActionMenu, IconButton } from "./components";
+import { useHeaderActionsSnapshot } from "./header-actions";
 import { useInertElement, useOverlayLifecycle } from "./overlay";
 import { SidebarTree } from "./sidebar-tree";
 import type { SidebarCollapsedState } from "./sidebar-state";
-import type { ActionMenuItem, SidebarAction, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
+import type { SidebarAction, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
 
 function isSidebarShortcutEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -80,8 +81,6 @@ export interface AppShellProps {
   effectiveVersion: string;
   headerTitle: ReactNode;
   headerActionLabel: string;
-  primaryHeaderActions?: ReactNode;
-  headerActions: ActionMenuItem[];
   routeKey: string;
   nativeRouteTransitions?: boolean;
   view: ReactNode;
@@ -114,12 +113,11 @@ export function AppShell({
   effectiveVersion,
   headerTitle,
   headerActionLabel,
-  primaryHeaderActions,
-  headerActions,
   routeKey,
   nativeRouteTransitions = false,
   view,
 }: AppShellProps) {
+  const { primary: primaryHeaderActions, overflow: headerActions = [] } = useHeaderActionsSnapshot();
   useEffect(() => {
     function handleSidebarShortcut(event: KeyboardEvent) {
       if (

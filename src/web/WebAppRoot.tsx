@@ -10,6 +10,7 @@ import { flattenSidebarItems, useSidebarCollapsedState, useSidebarDesktopCollaps
 import { SettingsView } from "./settings/settings-view";
 import type { HeaderContext, WebAppRootController, WebAppRootProps } from "./root-types";
 import type { ActionMenuItem, SidebarNode, SidebarNodeSnapshot, SidebarTab, WebAppRoute } from "./sidebar/types";
+import { HeaderActionsProvider } from "./header-actions";
 import { ThemeProvider } from "./theme";
 import { WebAppConfigProvider, useWebAppConfig } from "./webapp-config";
 import { setLogLevel } from "./logger";
@@ -19,6 +20,7 @@ const EMPTY_SIDEBAR_TABS: SidebarTab[] = [];
 
 export { replaceHashRoute, replaceWebAppRoute, routeToHash } from "./routing";
 export type {
+  HeaderActionSet,
   HeaderContext,
   SettingsAction,
   SettingsRow,
@@ -341,48 +343,52 @@ function WebAppRootContent({
   const headerContext: HeaderContext = { route, defaultTitle };
   const activeSidebarNode = actionItemsWithPinning.find((node) => routeMatches(node.route, route));
   const activeSidebarActions = activeSidebarNode?.actions ?? [];
-  const headerActions = [
-    ...(header?.getActions?.(headerContext) ?? []),
-    ...activeSidebarActions,
-  ];
+  const configuredHeaderActions = header?.getHeaderActions?.(headerContext) ?? {};
+  const headerActions = {
+    primary: configuredHeaderActions.primary ?? header?.renderActions?.(headerContext),
+    overflow: [
+      ...(configuredHeaderActions.overflow ?? []),
+      ...(header?.getActions?.(headerContext) ?? []),
+      ...activeSidebarActions,
+    ],
+  };
   const headerTitle = header?.renderTitle?.(headerContext) ?? defaultTitle;
-  const primaryHeaderActions = header?.renderActions?.(headerContext);
   const headerActionLabel = typeof headerTitle === "string" ? headerTitle : defaultTitle;
 
   return (
-    <AppShell
-      appName={appName}
-      appIcon={appIcon}
-      homeRoute={homeRoute}
-      topActions={sidebar.topActions ?? []}
-      nodes={nodes}
-      route={route}
-      navigate={navigate}
-      sidebarSearchEnabled={sidebarSearchEnabled}
-      sidebarTabs={sidebarTabs}
-      activeSidebarTab={activeTab}
-      onSidebarTabChange={selectTab}
-      search={search}
-      onSearchChange={setSearch}
-      sidebarSearchId={sidebarSearchId}
-      sidebarSearchInputRef={sidebarSearchInputRef}
-      sidebarOpen={sidebarOpen}
-      setSidebarOpen={setSidebarOpen}
-      sidebarCollapsed={sidebarCollapsed}
-      toggleSidebarCollapsed={toggleSidebarCollapsed}
-      isMobile={isMobile}
-      collapsed={sidebarTreeState.collapsed}
-      toggleCollapsed={sidebarTreeState.toggleCollapsed}
-      searchActive={sidebarSearchActive}
-      effectiveVersion={effectiveVersion}
-      headerTitle={headerTitle}
-      headerActionLabel={headerActionLabel}
-      primaryHeaderActions={primaryHeaderActions}
-      headerActions={headerActions}
-      routeKey={routeToHash(route)}
-      nativeRouteTransitions={supportsViewTransitions() && !reducedMotion}
-      view={view}
-    />
+    <HeaderActionsProvider base={headerActions}>
+      <AppShell
+        appName={appName}
+        appIcon={appIcon}
+        homeRoute={homeRoute}
+        topActions={sidebar.topActions ?? []}
+        nodes={nodes}
+        route={route}
+        navigate={navigate}
+        sidebarSearchEnabled={sidebarSearchEnabled}
+        sidebarTabs={sidebarTabs}
+        activeSidebarTab={activeTab}
+        onSidebarTabChange={selectTab}
+        search={search}
+        onSearchChange={setSearch}
+        sidebarSearchId={sidebarSearchId}
+        sidebarSearchInputRef={sidebarSearchInputRef}
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+        sidebarCollapsed={sidebarCollapsed}
+        toggleSidebarCollapsed={toggleSidebarCollapsed}
+        isMobile={isMobile}
+        collapsed={sidebarTreeState.collapsed}
+        toggleCollapsed={sidebarTreeState.toggleCollapsed}
+        searchActive={sidebarSearchActive}
+        effectiveVersion={effectiveVersion}
+        headerTitle={headerTitle}
+        headerActionLabel={headerActionLabel}
+        routeKey={routeToHash(route)}
+        nativeRouteTransitions={supportsViewTransitions() && !reducedMotion}
+        view={view}
+      />
+    </HeaderActionsProvider>
   );
 }
 

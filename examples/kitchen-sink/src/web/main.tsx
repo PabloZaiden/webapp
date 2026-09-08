@@ -1,4 +1,4 @@
-import { Badge, Button, EmptyState, Page, Panel, TextField, WebAppRoot, appFetch, appPath, appRequest, appWebSocketUrl, renderWebApp, replaceHashRoute, useCallback, useEffect, useMemo, useRealtimeRefresh, useState, useToast, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
+import { Badge, Button, EmptyState, Page, Panel, TextField, WebAppRoot, appFetch, appPath, appRequest, appWebSocketUrl, renderWebApp, replaceHashRoute, useCallback, useEffect, useHeaderActions, useMemo, useRealtimeRefresh, useState, useToast, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
 import favicon from "../favicon.svg";
@@ -59,12 +59,17 @@ function NewProjectView({ refresh }: { refresh: () => Promise<void> }) {
     setName("");
     await refresh();
   }
+  useHeaderActions({
+    primary: <Button type="button" variant="primary" disabled={!name.trim()} onClick={() => void createProject()}>Create</Button>,
+    overflow: [
+      { id: "clear-project-name", label: "Clear", disabled: !name, onAction: () => setName("") },
+    ],
+  });
   return (
     <Page className="sink-stack">
       <Panel title="Create project" description="Framework coverage example.">
         <div className="sink-inline">
           <TextField label="Project name" value={name} onChange={(event) => setName(event.currentTarget.value)} />
-          <Button type="button" variant="primary" onClick={() => void createProject()}>Create</Button>
         </div>
       </Panel>
     </Page>
