@@ -186,7 +186,7 @@ export function HeaderActionsProvider({
 export function useHeaderActions(actions: HeaderActionSet = {}): void {
   const context = useContext(HeaderActionsContext);
   if (!context) {
-    throw new Error("useHeaderActions must be used within WebAppRoot route content.");
+    throw new Error("useHeaderActions must be used within HeaderActionsProvider.");
   }
 
   const ownerRef = useRef<symbol | null>(null);
