@@ -1,5 +1,7 @@
 export * from "./WebAppRoot";
 export * from "./components";
+export { useHeaderActions } from "./header-actions";
+export type { HeaderActionSet } from "./root-types";
 export * from "./render";
 export * from "./motion";
 export { supportsViewTransitions } from "./routing";

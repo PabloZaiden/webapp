@@ -76,6 +76,21 @@ unavailable; use `ConfirmDialog` or `Modal` for normal overlays.
 
 For entity actions, prefer the framework title bar: define one `ActionMenuItem[]` builder and attach it to `SidebarNode.actions` for the route-backed node. The framework reuses those actions for both sidebar right-click and the active route title-bar menu. Use `WebAppRoot.header.getActions` only for additional actions not owned by a sidebar node.
 
+Route views can contribute screen-owned title-bar actions from a child component with `useHeaderActions({ primary, overflow })`. `primary` is an optional visible React node; `overflow` is an `ActionMenuItem[]` rendered in the framework `…` menu. The framework keeps the primary action slot live as the child rerenders while preserving overflow callbacks when only their function identities change. Overflow actions from child views are appended to the configured header and active sidebar actions. A route should normally provide at most one primary action; if nested views provide more than one, the most recently registered primary replaces the previous one.
+
+```tsx
+function ComposeView() {
+  const [name, setName] = useState("");
+  useHeaderActions({
+    primary: <Button disabled={!name.trim()} onClick={() => void save(name)}>Save</Button>,
+    overflow: [{ id: "clear", label: "Clear", onAction: () => setName("") }],
+  });
+  return <Page><TextField label="Name" value={name} onChange={(event) => setName(event.currentTarget.value)} /></Page>;
+}
+```
+
+For new applications that own their header configuration at `WebAppRoot`, `header.getHeaderActions` can return the same `{ primary, overflow }` shape. Existing `renderActions` and `getActions` remain supported and are merged as legacy primary and overflow sources.
+
 Every route component rendered by `WebAppRoot.routes` should return `Page` at the top level, including loading/error/empty states. Do not render a `Panel`, `DataList`, `EmptyState` or custom div directly into `WebAppRoot`; that skips the standard content margins and recreates the visual bug where cards touch the main content edge. For a route whose child owns viewport-sized layout and scrolling, use `<Page layout="full">` rather than overriding `.wapp-page` from the application. Use `EntityHeader` only when the page needs a content-specific heading distinct from the fixed framework title bar; do not duplicate the active route title immediately below the header.
 
 ## Visual validation captures

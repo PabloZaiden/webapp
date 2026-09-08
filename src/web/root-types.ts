@@ -33,6 +33,11 @@ export type SettingsSection = {
   render?: () => ReactNode;
 };
 
+export type HeaderActionSet = {
+  primary?: ReactNode;
+  overflow?: ActionMenuItem[];
+};
+
 export type HeaderContext = {
   route: WebAppRoute;
   defaultTitle: string;
@@ -65,6 +70,7 @@ export interface WebAppRootProps {
     renderTitle?: (ctx: HeaderContext) => ReactNode;
     renderActions?: (ctx: HeaderContext) => ReactNode;
     getActions?: (ctx: HeaderContext) => ActionMenuItem[];
+    getHeaderActions?: (ctx: HeaderContext) => HeaderActionSet;
   };
   onRouteChange?: (route: WebAppRoute) => void;
   settings?: {
