@@ -79,6 +79,26 @@ createWebAppServer({
 
 The maximum supported value is 255 seconds, as required by Bun.
 
+TLS is disabled by default. To terminate TLS in the Bun process, pass Bun's
+TLS options through `server.tls`; the option is forwarded unchanged to
+`Bun.serve`:
+
+```ts
+createWebAppServer({
+  appName: "My App",
+  envPrefix: "MY_APP",
+  server: {
+    tls: {
+      cert: Bun.file("./tls/cert.pem"),
+      key: Bun.file("./tls/key.pem"),
+    },
+  },
+  routes,
+});
+```
+
+When `server.tls` is omitted, the server continues to listen over HTTP.
+
 The framework generates the HTML document, React mount point, fixed-scale viewport metadata, PWA manifest, default SVG icons, and the theme prepaint script. On iPhone, iPad, and other mobile browsers that honor viewport scaling tokens, the generated viewport prevents pinch-to-zoom while preserving normal scrolling; clients that ignore those tokens are unaffected. By default it uses `./web/main.tsx` relative to the Bun entry file as the frontend entrypoint, so apps only need to create that file. Override document defaults only when the app needs different metadata:
 
 ```ts

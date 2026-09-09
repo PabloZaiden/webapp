@@ -31,6 +31,11 @@ export interface WebAppServerOptions {
    * override this value with `ctx.server?.timeout(req, seconds)`.
    */
   idleTimeout?: number;
+
+  /**
+   * Optional Bun TLS configuration. When omitted, the server uses HTTP.
+   */
+  tls?: Bun.TLSOptions | Bun.TLSOptions[];
 }
 
 export interface WebAppServerLifecycleHooks {

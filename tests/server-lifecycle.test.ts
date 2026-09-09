@@ -5,14 +5,20 @@ import {
   createWebAppServer,
   defineRoutes,
   sqliteWebAppStore,
+  type WebAppServerOptions,
   type WebAppServerLifecycleHooks,
 } from "@pablozaiden/webapp/server";
 
 const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
+const testTls = {
+  cert: Bun.file(new URL("./fixtures/tls/localhost-cert.pem", import.meta.url)),
+  key: Bun.file(new URL("./fixtures/tls/localhost-key.pem", import.meta.url)),
+};
 
 function createLifecycleApp(
   envPrefix: string,
   lifecycle: WebAppServerLifecycleHooks,
+  server?: WebAppServerOptions,
 ): { app: ReturnType<typeof createWebAppServer>; dataDir: string } {
   const dataDir = resolve(".cache/tests", `server-lifecycle-${crypto.randomUUID()}`);
   const app = createWebAppServer({
@@ -36,6 +42,7 @@ function createLifecycleApp(
     store: sqliteWebAppStore({ dataDir }),
     auth: { passkeys: false },
     routes: defineRoutes({}),
+    server,
     lifecycle,
   });
   return { app, dataDir };
@@ -63,6 +70,28 @@ test("runs lifecycle hooks around a real server start and stop", async () => {
     await app.start();
     await app.stop(true);
     expect(events).toEqual(["beforeStart", "afterStart", "beforeStop", "afterStop"]);
+  } finally {
+    await app.stop(true);
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("serves HTTPS when TLS options are configured", async () => {
+  const { app, dataDir } = createLifecycleApp(
+    "TEST_SERVER_LIFECYCLE_TLS",
+    {},
+    { tls: testTls },
+  );
+
+  try {
+    const server = await app.start();
+    expect(server.url.protocol).toBe("https:");
+    const response = await fetch(new URL("/api/health", server.url), {
+      tls: { rejectUnauthorized: false },
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+    await app.stop(true);
   } finally {
     await app.stop(true);
     rmSync(dataDir, { recursive: true, force: true });
