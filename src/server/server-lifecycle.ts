@@ -14,6 +14,7 @@ export interface ServerLifecycleDependencies<TEvent = unknown> {
   deviceAuthEnabled: boolean;
   hooks?: WebAppServerLifecycleHooks;
   idleTimeout: number;
+  tls?: Bun.TLSOptions | Bun.TLSOptions[];
   publicRoutes: Readonly<Record<string, unknown>>;
   appWebsockets: NonNullable<WebAppServerConfig["websockets"]>;
   realtime: RealtimeBus<TEvent>;
@@ -31,6 +32,7 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     deviceAuthEnabled,
     hooks,
     idleTimeout,
+    tls,
     publicRoutes,
     appWebsockets,
     realtime,
@@ -89,6 +91,7 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
       hostname: config.host,
       port: config.port,
       idleTimeout,
+      tls,
       routes: {
         ...publicRouteHandlers,
         ...entryRoute,

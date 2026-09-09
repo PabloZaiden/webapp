@@ -173,6 +173,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     deviceAuthEnabled,
     hooks: input.lifecycle,
     idleTimeout,
+    tls: input.server?.tls,
     publicRoutes,
     appWebsockets,
     realtime,
