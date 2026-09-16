@@ -1,6 +1,8 @@
 import { chmodSync, mkdirSync, statSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
 
 export type PrivatePathKind = "directory" | "file";
+const securedWindowsDirectories = new Set<string>();
 
 const WINDOWS_PRIVATE_PATH_SCRIPT = `
 $ErrorActionPreference = "Stop"
@@ -70,6 +72,10 @@ if (
 `;
 
 function secureWindowsPrivatePath(path: string, kind: PrivatePathKind): void {
+  const normalizedPath = resolve(path).toLowerCase();
+  if (kind === "directory" && securedWindowsDirectories.has(normalizedPath)) {
+    return;
+  }
   const encodedScript = Buffer.from(WINDOWS_PRIVATE_PATH_SCRIPT, "utf16le").toString("base64");
   const result = Bun.spawnSync([
     "powershell.exe",
@@ -95,6 +101,9 @@ function secureWindowsPrivatePath(path: string, kind: PrivatePathKind): void {
       `Unable to protect private ${kind} ${path} with a Windows ACL`
       + `${stderr ? `: ${stderr}` : ""}`,
     );
+  }
+  if (kind === "directory") {
+    securedWindowsDirectories.add(normalizedPath);
   }
 }
 
@@ -129,4 +138,34 @@ export function securePrivateFile(path: string): void {
 export function ensurePrivateDirectory(path: string): void {
   mkdirSync(path, { recursive: true, mode: 0o700 });
   securePrivateDirectory(path);
+}
+
+function assertPrivateChild(path: string, privateDirectory: string): void {
+  const resolvedDirectory = resolve(privateDirectory);
+  const childPath = relative(resolvedDirectory, resolve(path));
+  if (!childPath || childPath.startsWith("..") || isAbsolute(childPath)) {
+    throw new Error(`${path} must be a child of private directory ${privateDirectory}`);
+  }
+  if (
+    process.platform === "win32"
+    && !securedWindowsDirectories.has(resolvedDirectory.toLowerCase())
+  ) {
+    throw new Error(`Private Windows ACL has not been verified for ${privateDirectory}`);
+  }
+}
+
+export function securePrivateChildDirectory(path: string, privateDirectory: string): void {
+  assertPrivateChild(path, privateDirectory);
+  if (process.platform === "win32") {
+    securedWindowsDirectories.add(resolve(path).toLowerCase());
+    return;
+  }
+  securePrivateDirectory(path);
+}
+
+export function securePrivateChildFile(path: string, privateDirectory: string): void {
+  assertPrivateChild(path, privateDirectory);
+  if (process.platform !== "win32") {
+    securePrivateFile(path);
+  }
 }

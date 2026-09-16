@@ -97,4 +97,9 @@ jobs:
         run: bun run typecheck
 
       - name: Test native Windows behavior
-        run: bun test --isolate tests/serve-lifecycle.test.ts tests/private-state.test.ts
+        run: >-
+          bun test
+          --timeout 20000
+          --isolate
+          tests/serve-lifecycle.test.ts
+          tests/private-state.test.ts

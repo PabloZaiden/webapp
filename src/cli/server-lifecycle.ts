@@ -24,8 +24,8 @@ import type { CliEnvironment } from "./environment-auth";
 import type { CliCommandResult } from "./runtime";
 import { createServerProcessPlatform } from "./server-process-platform";
 import {
-  securePrivateDirectory,
-  securePrivateFile,
+  securePrivateChildDirectory,
+  securePrivateChildFile,
 } from "../server/private-state";
 import {
   applyServeOptionsToEnvironment,
@@ -544,11 +544,11 @@ async function startDetachedServer<TAppContext>(input: {
   const { context, config, paths, command, pidStore, readinessTimeoutMs, healthPath } = input;
   const logDirectory = join(paths.dataDir, "logs");
   await mkdir(logDirectory, { recursive: true, mode: 0o700 });
-  securePrivateDirectory(logDirectory);
+  securePrivateChildDirectory(logDirectory, paths.dataDir);
   const logFd = openSync(paths.logPath, "a", 0o600);
   let child: ReturnType<typeof Bun.spawn>;
   try {
-    securePrivateFile(paths.logPath);
+    securePrivateChildFile(paths.logPath, logDirectory);
     const environment: Record<string, string | undefined> = {
       ...process.env,
       ...context.environment,

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
   securePrivateDirectory,
-  securePrivateFile,
+  securePrivateChildFile,
 } from "../server/private-state";
 
 export interface JsonFileStoreLockOptions {
@@ -232,7 +232,7 @@ async function publishReclaimGate(
   let operationError: unknown;
   try {
     await Bun.write(candidate, `${JSON.stringify(metadata)}\n`);
-    securePrivateFile(candidate);
+    securePrivateChildFile(candidate, dirname(candidate));
     try {
       await link(candidate, path);
       linked = true;
@@ -271,7 +271,7 @@ async function publishLock(path: string, metadata: LockMetadata): Promise<boolea
   let operationError: unknown;
   try {
     await Bun.write(candidate, `${JSON.stringify(metadata)}\n`);
-    securePrivateFile(candidate);
+    securePrivateChildFile(candidate, dirname(candidate));
     try {
       await link(candidate, path);
       linked = true;
@@ -519,9 +519,9 @@ export function createJsonFileStore<T>(input: {
       const temp = join(dir, `.${input.fileName}.${process.pid}.${crypto.randomUUID()}.tmp`);
       try {
         await Bun.write(temp, `${JSON.stringify(value, null, 2)}\n`);
-        securePrivateFile(temp);
+        securePrivateChildFile(temp, dir);
         await rename(temp, target);
-        securePrivateFile(target);
+        securePrivateChildFile(target, dir);
       } catch (error) {
         await rm(temp, { force: true });
         throw error;
