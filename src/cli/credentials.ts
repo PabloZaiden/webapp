@@ -4,6 +4,7 @@ import { basename, dirname, join } from "node:path";
 import {
   securePrivateDirectory,
   securePrivateChildFile,
+  securePrivateFile,
 } from "../server/private-state";
 
 export interface JsonFileStoreLockOptions {
@@ -170,6 +171,7 @@ function parseReclaimMetadata(value: string): ReclaimMetadata | "invalid" {
 
 async function readLockMetadata(path: string): Promise<LockState> {
   try {
+    securePrivateFile(path);
     return parseLockMetadata(await readFile(path, "utf8"));
   } catch (error) {
     if (errorCode(error) === "ENOENT") return undefined;
@@ -179,6 +181,7 @@ async function readLockMetadata(path: string): Promise<LockState> {
 
 async function readReclaimMetadata(path: string): Promise<ReclaimState> {
   try {
+    securePrivateFile(path);
     return parseReclaimMetadata(await readFile(path, "utf8"));
   } catch (error) {
     if (errorCode(error) === "ENOENT") return undefined;
@@ -236,6 +239,7 @@ async function publishReclaimGate(
     try {
       await link(candidate, path);
       linked = true;
+      securePrivateChildFile(path, dirname(path));
     } catch (error) {
       if (errorCode(error) !== "EEXIST") operationError = error;
     }
@@ -260,7 +264,19 @@ async function publishReclaimGate(
     }
     throw new AggregateError(errors, "Unable to create credentials lock reclaim gate");
   }
-  if (operationError !== undefined) throw operationError;
+  if (operationError !== undefined) {
+    if (linked) {
+      try {
+        await removeReclaimGate(path, metadata);
+      } catch (cleanupPublishedError) {
+        throw new AggregateError(
+          [operationError, cleanupPublishedError],
+          "Unable to create credentials lock reclaim gate",
+        );
+      }
+    }
+    throw operationError;
+  }
   return linked ? metadata : undefined;
 }
 
@@ -275,6 +291,7 @@ async function publishLock(path: string, metadata: LockMetadata): Promise<boolea
     try {
       await link(candidate, path);
       linked = true;
+      securePrivateChildFile(path, dirname(path));
     } catch (error) {
       if (errorCode(error) !== "EEXIST") operationError = error;
     }
@@ -299,7 +316,19 @@ async function publishLock(path: string, metadata: LockMetadata): Promise<boolea
     }
     throw new AggregateError(errors, "Unable to create credentials lock");
   }
-  if (operationError !== undefined) throw operationError;
+  if (operationError !== undefined) {
+    if (linked) {
+      try {
+        await removePublishedLock(path, metadata);
+      } catch (cleanupPublishedError) {
+        throw new AggregateError(
+          [operationError, cleanupPublishedError],
+          "Unable to create credentials lock",
+        );
+      }
+    }
+    throw operationError;
+  }
   return linked;
 }
 
@@ -321,6 +350,7 @@ async function reclaimStaleLock(path: string, expected: LockMetadata): Promise<v
     try {
       await link(path, claimPath);
       claimed = true;
+      securePrivateChildFile(claimPath, dirname(claimPath));
     } catch (error) {
       if (errorCode(error) === "ENOENT") return;
       throw error;
@@ -504,7 +534,10 @@ export function createJsonFileStore<T>(input: {
     path: filePath,
     async read() {
       try {
-        return input.parse(JSON.parse(await readFile(filePath(), "utf8")) as unknown);
+        const target = filePath();
+        securePrivateDirectory(dirname(target));
+        securePrivateFile(target);
+        return input.parse(JSON.parse(await readFile(target, "utf8")) as unknown);
       } catch (error) {
         if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
           return undefined;

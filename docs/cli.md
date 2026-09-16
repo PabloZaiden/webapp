@@ -342,5 +342,6 @@ await store.withLock(async () => {
 });
 ```
 
-On filesystems that support POSIX permissions, credential directories and
-files use `0700` and `0600`; permission changes are best-effort elsewhere.
+Credential directories and files fail closed unless their private access can
+be applied and verified. POSIX filesystems use `0700` and `0600`; Windows uses
+a protected ACL that grants full control only to the current user.

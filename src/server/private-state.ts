@@ -2,7 +2,8 @@ import { chmodSync, mkdirSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 
 export type PrivatePathKind = "directory" | "file";
-const securedWindowsDirectories = new Set<string>();
+const MAX_SECURED_WINDOWS_PATHS = 512;
+const securedWindowsPaths = new Map<string, string>();
 
 const WINDOWS_PRIVATE_PATH_SCRIPT = `
 $ErrorActionPreference = "Stop"
@@ -71,9 +72,48 @@ if (
 }
 `;
 
-function secureWindowsPrivatePath(path: string, kind: PrivatePathKind): void {
-  const normalizedPath = resolve(path).toLowerCase();
-  if (kind === "directory" && securedWindowsDirectories.has(normalizedPath)) {
+function assertPrivatePathKind(kind: unknown): asserts kind is PrivatePathKind {
+  if (kind !== "directory" && kind !== "file") {
+    throw new TypeError(`Invalid private path kind: ${String(kind)}`);
+  }
+}
+
+function privatePathIdentity(path: string, kind: PrivatePathKind): string {
+  const stats = statSync(path);
+  const matchesKind = kind === "directory" ? stats.isDirectory() : stats.isFile();
+  if (!matchesKind) {
+    throw new Error(`Private path kind does not match the filesystem entry: ${path}`);
+  }
+  return `${String(stats.dev)}:${String(stats.ino)}:${String(stats.birthtimeMs)}`;
+}
+
+function windowsPathKey(path: string, kind: PrivatePathKind): string {
+  return `${kind}:${resolve(path).toLowerCase()}`;
+}
+
+function rememberSecuredWindowsPath(path: string, kind: PrivatePathKind): void {
+  const key = windowsPathKey(path, kind);
+  securedWindowsPaths.delete(key);
+  securedWindowsPaths.set(key, privatePathIdentity(path, kind));
+  if (securedWindowsPaths.size > MAX_SECURED_WINDOWS_PATHS) {
+    const oldest = securedWindowsPaths.keys().next().value;
+    if (oldest !== undefined) {
+      securedWindowsPaths.delete(oldest);
+    }
+  }
+}
+
+function isSecuredWindowsPath(path: string, kind: PrivatePathKind): boolean {
+  return securedWindowsPaths.get(windowsPathKey(path, kind)) === privatePathIdentity(path, kind);
+}
+
+function secureWindowsPrivatePath(
+  path: string,
+  kind: PrivatePathKind,
+  identity: string,
+): void {
+  const cacheKey = windowsPathKey(path, kind);
+  if (securedWindowsPaths.get(cacheKey) === identity) {
     return;
   }
   const encodedScript = Buffer.from(WINDOWS_PRIVATE_PATH_SCRIPT, "utf16le").toString("base64");
@@ -102,9 +142,7 @@ function secureWindowsPrivatePath(path: string, kind: PrivatePathKind): void {
       + `${stderr ? `: ${stderr}` : ""}`,
     );
   }
-  if (kind === "directory") {
-    securedWindowsDirectories.add(normalizedPath);
-  }
+  rememberSecuredWindowsPath(path, kind);
 }
 
 function securePosixPrivatePath(path: string, kind: PrivatePathKind): void {
@@ -120,8 +158,10 @@ function securePosixPrivatePath(path: string, kind: PrivatePathKind): void {
 }
 
 export function securePrivatePath(path: string, kind: PrivatePathKind): void {
+  assertPrivatePathKind(kind);
+  const identity = privatePathIdentity(path, kind);
   if (process.platform === "win32") {
-    secureWindowsPrivatePath(path, kind);
+    secureWindowsPrivatePath(path, kind, identity);
     return;
   }
   securePosixPrivatePath(path, kind);
@@ -148,7 +188,7 @@ function assertPrivateChild(path: string, privateDirectory: string): void {
   }
   if (
     process.platform === "win32"
-    && !securedWindowsDirectories.has(resolvedDirectory.toLowerCase())
+    && !isSecuredWindowsPath(resolvedDirectory, "directory")
   ) {
     throw new Error(`Private Windows ACL has not been verified for ${privateDirectory}`);
   }
@@ -157,7 +197,7 @@ function assertPrivateChild(path: string, privateDirectory: string): void {
 export function securePrivateChildDirectory(path: string, privateDirectory: string): void {
   assertPrivateChild(path, privateDirectory);
   if (process.platform === "win32") {
-    securedWindowsDirectories.add(resolve(path).toLowerCase());
+    rememberSecuredWindowsPath(path, "directory");
     return;
   }
   securePrivateDirectory(path);
@@ -165,7 +205,9 @@ export function securePrivateChildDirectory(path: string, privateDirectory: stri
 
 export function securePrivateChildFile(path: string, privateDirectory: string): void {
   assertPrivateChild(path, privateDirectory);
-  if (process.platform !== "win32") {
-    securePrivateFile(path);
+  if (process.platform === "win32") {
+    rememberSecuredWindowsPath(path, "file");
+    return;
   }
+  securePrivateFile(path);
 }

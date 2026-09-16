@@ -1,6 +1,7 @@
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
-import { ensurePrivateDirectory } from "../private-state";
+import { ensurePrivateDirectory, securePrivateFile } from "../private-state";
 import type {
   AccountDisableResult,
   ApiKeyRecord,
@@ -52,7 +53,16 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
   const dataDir = options.dataDir ?? "./data";
   const dbPath = join(dataDir, options.fileName ?? "webapp.sqlite");
   ensurePrivateDirectory(dirname(dbPath));
+  if (existsSync(dbPath)) {
+    securePrivateFile(dbPath);
+  }
   const db = new Database(dbPath);
+  try {
+    securePrivateFile(dbPath);
+  } catch (error) {
+    db.close();
+    throw error;
+  }
   db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};`);
 
   function immediateTransaction<T>(callback: () => T): T {

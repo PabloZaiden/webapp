@@ -427,7 +427,7 @@ describe("detached serve lifecycle", () => {
     await fixture.cli.execute(["serve", "down"]);
   });
 
-  test("refuses to stop an unrelated process that owns the configured port", async () => {
+  test("refuses to stop a case-variant managed command that owns the configured port", async () => {
     const root = join(testRoot, crypto.randomUUID());
     const dataDir = join(root, "state");
     mkdirSync(dataDir, { recursive: true });
@@ -435,7 +435,7 @@ describe("detached serve lifecycle", () => {
     const port = await freePort();
     const fixture = createFixtureCli({ dataDir, port });
     await Bun.write(fixture.fixturePath, fixtureSource);
-    const foreign = Bun.spawn([process.execPath, fixture.fixturePath, "foreign"], {
+    const foreign = Bun.spawn([process.execPath, fixture.fixturePath, "SERVE"], {
       env: {
         ...process.env,
         ...fixture.environment,

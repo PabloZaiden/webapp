@@ -174,7 +174,7 @@ async function readPosixProcessCommand(pid: number): Promise<string | undefined>
 const WINDOWS_INSPECT_PORT_SCRIPT = [
   "$ErrorActionPreference = 'Stop'",
   "$port = [int]$env:WEBAPP_INSPECT_PORT",
-  "$pids = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | Sort-Object)",
+  "$pids = @(Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object { $_.LocalPort -eq $port } | Select-Object -ExpandProperty OwningProcess -Unique | Sort-Object)",
   "[Console]::Out.Write(($pids -join [Environment]::NewLine))",
 ].join("\n");
 

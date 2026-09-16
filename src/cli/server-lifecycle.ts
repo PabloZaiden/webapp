@@ -1,6 +1,6 @@
 import { closeSync, existsSync, openSync } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import {
   WEB_APP_CONFIG_VERSION,
   parsePort,
@@ -390,7 +390,10 @@ function processCommandMatches(
         : candidate === executableName;
     });
   if (!hasExecutable) return false;
-  return expected.slice(1).every((part) => containsArgument(part, windows));
+    return expected.slice(1).every((part) => containsArgument(
+      part,
+      windows && (isAbsolute(part) || part.includes("/") || part.includes("\\")),
+    ));
 }
 
 function serveCommandDescription(
