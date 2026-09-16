@@ -1,6 +1,10 @@
-import { chmodSync } from "node:fs";
 import { link, mkdir, readFile, rename, rm } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import {
+  securePrivateDirectory,
+  securePrivateFile,
+} from "../server/private-state";
 
 export interface JsonFileStoreLockOptions {
   timeoutMs?: number;
@@ -79,7 +83,7 @@ function resolveLockOptions(options?: JsonFileStoreLockOptions): Required<JsonFi
 
 function secureDirectory(path: string): Promise<void> {
   return mkdir(path, { recursive: true, mode: 0o700 }).then(() => {
-    chmodIfPossible(path, 0o700);
+    securePrivateDirectory(path);
   });
 }
 
@@ -228,7 +232,7 @@ async function publishReclaimGate(
   let operationError: unknown;
   try {
     await Bun.write(candidate, `${JSON.stringify(metadata)}\n`);
-    chmodIfPossible(candidate, 0o600);
+    securePrivateFile(candidate);
     try {
       await link(candidate, path);
       linked = true;
@@ -267,7 +271,7 @@ async function publishLock(path: string, metadata: LockMetadata): Promise<boolea
   let operationError: unknown;
   try {
     await Bun.write(candidate, `${JSON.stringify(metadata)}\n`);
-    chmodIfPossible(candidate, 0o600);
+    securePrivateFile(candidate);
     try {
       await link(candidate, path);
       linked = true;
@@ -470,14 +474,6 @@ async function withFileLock<T>(
   return result;
 }
 
-function chmodIfPossible(path: string, mode: number): void {
-  try {
-    chmodSync(path, mode);
-  } catch {
-    // Not all platforms/filesystems support POSIX modes.
-  }
-}
-
 export function createJsonFileStore<T>(input: {
   appDirectoryName?: string;
   fileName: string;
@@ -491,7 +487,11 @@ export function createJsonFileStore<T>(input: {
       return input.stateDirectory();
     }
     const explicit = input.envHome ? process.env[input.envHome]?.trim() : undefined;
-    const home = input.home ?? process.env["HOME"]?.trim();
+    const home = input.home ?? (
+      process.env["HOME"]?.trim()
+      || process.env["USERPROFILE"]?.trim()
+      || homedir()
+    );
     if (explicit) return explicit;
     if (!home) throw new Error("HOME is not set");
     if (!input.appDirectoryName) {
@@ -519,9 +519,9 @@ export function createJsonFileStore<T>(input: {
       const temp = join(dir, `.${input.fileName}.${process.pid}.${crypto.randomUUID()}.tmp`);
       try {
         await Bun.write(temp, `${JSON.stringify(value, null, 2)}\n`);
-        chmodIfPossible(temp, 0o600);
+        securePrivateFile(temp);
         await rename(temp, target);
-        chmodIfPossible(target, 0o600);
+        securePrivateFile(target);
       } catch (error) {
         await rm(temp, { force: true });
         throw error;

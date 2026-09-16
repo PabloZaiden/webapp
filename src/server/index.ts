@@ -5,6 +5,7 @@ export * from "./responses";
 export * from "./public-assets";
 export * from "./public-asset-manifest";
 export * from "./create-web-app-server";
+export * from "./private-state";
 export {
   DEFAULT_LOG_LEVEL,
   VALID_LOG_LEVELS,

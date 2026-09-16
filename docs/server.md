@@ -1,5 +1,15 @@
 # Server API
 
+## Private local state
+
+The server export provides `ensurePrivateDirectory`,
+`securePrivateDirectory`, and `securePrivateFile` for application-owned
+credentials or key material stored beside framework state. POSIX hosts apply
+and verify owner-only modes. Windows hosts replace inherited permissions with a
+protected ACL granting full control only to the current user SID, then verify
+the resulting owner and access rules. Protection failures throw; callers must
+not continue with a success-shaped fallback.
+
 Use `createWebAppServer` with `defineRoutes`. Route patterns support exact path
 segments, named dynamic segments (`:name`), and an optional trailing wildcard
 (`*`):
