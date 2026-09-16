@@ -223,12 +223,12 @@ async function readWindowsProcessCommand(pid: number): Promise<string | undefine
   return output || undefined;
 }
 
-async function terminateWindowsProcess(pid: number, force: boolean): Promise<void> {
+async function terminateWindowsProcess(pid: number, _force: boolean): Promise<void> {
   const result = await runUtility("taskkill.exe", [
     "/PID",
     String(pid),
     "/T",
-    ...(force ? ["/F"] : []),
+    "/F",
   ]);
   if (result.notFound) {
     throw new Error("Unable to stop the Windows process because taskkill.exe is unavailable");
