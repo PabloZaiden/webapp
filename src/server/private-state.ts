@@ -35,9 +35,14 @@ $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
   [System.Security.AccessControl.AccessControlType]::Allow
 )
 [void]$security.AddAccessRule($rule)
-Set-Acl -LiteralPath $path -AclObject $security
-
-$verified = Get-Acl -LiteralPath $path
+$sections = [System.Security.AccessControl.AccessControlSections]::Owner -bor [System.Security.AccessControl.AccessControlSections]::Access
+if ($kind -eq "directory") {
+  [System.IO.Directory]::SetAccessControl($path, $security)
+  $verified = [System.IO.Directory]::GetAccessControl($path, $sections)
+} else {
+  [System.IO.File]::SetAccessControl($path, $security)
+  $verified = [System.IO.File]::GetAccessControl($path, $sections)
+}
 $owner = $verified.GetOwner([System.Security.Principal.SecurityIdentifier])
 $rules = @($verified.GetAccessRules(
   $true,
