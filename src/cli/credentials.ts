@@ -1,6 +1,11 @@
-import { chmodSync } from "node:fs";
 import { link, mkdir, readFile, rename, rm } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import {
+  securePrivateDirectory,
+  securePrivateChildFile,
+  securePrivateFile,
+} from "../server/private-state";
 
 export interface JsonFileStoreLockOptions {
   timeoutMs?: number;
@@ -79,7 +84,7 @@ function resolveLockOptions(options?: JsonFileStoreLockOptions): Required<JsonFi
 
 function secureDirectory(path: string): Promise<void> {
   return mkdir(path, { recursive: true, mode: 0o700 }).then(() => {
-    chmodIfPossible(path, 0o700);
+    securePrivateDirectory(path);
   });
 }
 
@@ -166,6 +171,7 @@ function parseReclaimMetadata(value: string): ReclaimMetadata | "invalid" {
 
 async function readLockMetadata(path: string): Promise<LockState> {
   try {
+    securePrivateFile(path);
     return parseLockMetadata(await readFile(path, "utf8"));
   } catch (error) {
     if (errorCode(error) === "ENOENT") return undefined;
@@ -175,6 +181,7 @@ async function readLockMetadata(path: string): Promise<LockState> {
 
 async function readReclaimMetadata(path: string): Promise<ReclaimState> {
   try {
+    securePrivateFile(path);
     return parseReclaimMetadata(await readFile(path, "utf8"));
   } catch (error) {
     if (errorCode(error) === "ENOENT") return undefined;
@@ -228,10 +235,11 @@ async function publishReclaimGate(
   let operationError: unknown;
   try {
     await Bun.write(candidate, `${JSON.stringify(metadata)}\n`);
-    chmodIfPossible(candidate, 0o600);
+    securePrivateChildFile(candidate, dirname(candidate));
     try {
       await link(candidate, path);
       linked = true;
+      securePrivateChildFile(path, dirname(path));
     } catch (error) {
       if (errorCode(error) !== "EEXIST") operationError = error;
     }
@@ -256,7 +264,19 @@ async function publishReclaimGate(
     }
     throw new AggregateError(errors, "Unable to create credentials lock reclaim gate");
   }
-  if (operationError !== undefined) throw operationError;
+  if (operationError !== undefined) {
+    if (linked) {
+      try {
+        await removeReclaimGate(path, metadata);
+      } catch (cleanupPublishedError) {
+        throw new AggregateError(
+          [operationError, cleanupPublishedError],
+          "Unable to create credentials lock reclaim gate",
+        );
+      }
+    }
+    throw operationError;
+  }
   return linked ? metadata : undefined;
 }
 
@@ -267,10 +287,11 @@ async function publishLock(path: string, metadata: LockMetadata): Promise<boolea
   let operationError: unknown;
   try {
     await Bun.write(candidate, `${JSON.stringify(metadata)}\n`);
-    chmodIfPossible(candidate, 0o600);
+    securePrivateChildFile(candidate, dirname(candidate));
     try {
       await link(candidate, path);
       linked = true;
+      securePrivateChildFile(path, dirname(path));
     } catch (error) {
       if (errorCode(error) !== "EEXIST") operationError = error;
     }
@@ -295,7 +316,19 @@ async function publishLock(path: string, metadata: LockMetadata): Promise<boolea
     }
     throw new AggregateError(errors, "Unable to create credentials lock");
   }
-  if (operationError !== undefined) throw operationError;
+  if (operationError !== undefined) {
+    if (linked) {
+      try {
+        await removePublishedLock(path, metadata);
+      } catch (cleanupPublishedError) {
+        throw new AggregateError(
+          [operationError, cleanupPublishedError],
+          "Unable to create credentials lock",
+        );
+      }
+    }
+    throw operationError;
+  }
   return linked;
 }
 
@@ -317,6 +350,7 @@ async function reclaimStaleLock(path: string, expected: LockMetadata): Promise<v
     try {
       await link(path, claimPath);
       claimed = true;
+      securePrivateChildFile(claimPath, dirname(claimPath));
     } catch (error) {
       if (errorCode(error) === "ENOENT") return;
       throw error;
@@ -470,14 +504,6 @@ async function withFileLock<T>(
   return result;
 }
 
-function chmodIfPossible(path: string, mode: number): void {
-  try {
-    chmodSync(path, mode);
-  } catch {
-    // Not all platforms/filesystems support POSIX modes.
-  }
-}
-
 export function createJsonFileStore<T>(input: {
   appDirectoryName?: string;
   fileName: string;
@@ -491,7 +517,11 @@ export function createJsonFileStore<T>(input: {
       return input.stateDirectory();
     }
     const explicit = input.envHome ? process.env[input.envHome]?.trim() : undefined;
-    const home = input.home ?? process.env["HOME"]?.trim();
+    const home = input.home ?? (
+      process.env["HOME"]?.trim()
+      || process.env["USERPROFILE"]?.trim()
+      || homedir()
+    );
     if (explicit) return explicit;
     if (!home) throw new Error("HOME is not set");
     if (!input.appDirectoryName) {
@@ -504,7 +534,10 @@ export function createJsonFileStore<T>(input: {
     path: filePath,
     async read() {
       try {
-        return input.parse(JSON.parse(await readFile(filePath(), "utf8")) as unknown);
+        const target = filePath();
+        securePrivateDirectory(dirname(target));
+        securePrivateFile(target);
+        return input.parse(JSON.parse(await readFile(target, "utf8")) as unknown);
       } catch (error) {
         if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
           return undefined;
@@ -519,9 +552,9 @@ export function createJsonFileStore<T>(input: {
       const temp = join(dir, `.${input.fileName}.${process.pid}.${crypto.randomUUID()}.tmp`);
       try {
         await Bun.write(temp, `${JSON.stringify(value, null, 2)}\n`);
-        chmodIfPossible(temp, 0o600);
+        securePrivateChildFile(temp, dir);
         await rename(temp, target);
-        chmodIfPossible(target, 0o600);
+        securePrivateChildFile(target, dir);
       } catch (error) {
         await rm(temp, { force: true });
         throw error;

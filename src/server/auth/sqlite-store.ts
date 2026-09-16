@@ -1,6 +1,7 @@
-import { chmodSync, existsSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
+import { ensurePrivateDirectory, securePrivateFile } from "../private-state";
 import type {
   AccountDisableResult,
   ApiKeyRecord,
@@ -51,17 +52,17 @@ function json<T>(value: unknown, fallback: T): T {
 export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string } = {}): WebAppStore {
   const dataDir = options.dataDir ?? "./data";
   const dbPath = join(dataDir, options.fileName ?? "webapp.sqlite");
-  const databaseDirectory = dirname(dbPath);
-  const directoryExisted = existsSync(databaseDirectory);
-  mkdirSync(databaseDirectory, { recursive: true, mode: 0o700 });
-  if (!directoryExisted) {
-    try {
-      chmodSync(databaseDirectory, 0o700);
-    } catch {
-      // Filesystems without POSIX permissions are allowed to ignore chmod.
-    }
+  ensurePrivateDirectory(dirname(dbPath));
+  if (existsSync(dbPath)) {
+    securePrivateFile(dbPath);
   }
   const db = new Database(dbPath);
+  try {
+    securePrivateFile(dbPath);
+  } catch (error) {
+    db.close();
+    throw error;
+  }
   db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};`);
 
   function immediateTransaction<T>(callback: () => T): T {

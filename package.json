@@ -40,11 +40,11 @@
     "test": "bun run test:build-binary && bun run test:remaining",
     "test:build-binary": "bun test tests/build-binary.test.ts",
     "test:remaining": "bun test --isolate --path-ignore-patterns=**/build-binary.test.ts",
-    "typecheck": "mkdir -p .cache/tsc && bunx tsc --noEmit --pretty false --incremental --tsBuildInfoFile .cache/tsc/build.tsbuildinfo",
+    "typecheck": "bun -e \"const { mkdir } = await import('node:fs/promises'); await mkdir('.cache/tsc', { recursive: true });\" && bunx tsc --noEmit --pretty false --incremental --tsBuildInfoFile .cache/tsc/build.tsbuildinfo",
     "tsc": "bun run typecheck"
   },
   "dependencies": {
-    "@pablozaiden/installer": "0.0.10",
+    "@pablozaiden/installer": "0.1.0",
     "@simplewebauthn/browser": "14.0.0",
     "@simplewebauthn/server": "14.0.2",
     "bun-plugin-tailwind": "0.1.2",

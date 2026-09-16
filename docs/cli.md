@@ -71,6 +71,12 @@ returning. If the port is already occupied by an unrecognized process, the
 command fails without stopping it. `serve down` is idempotent and removes
 stale PID metadata after the managed process has stopped.
 
+The detached lifecycle supports Linux, macOS, and Windows. On Windows it uses
+the built-in `powershell.exe` process APIs to identify listeners and command
+lines, then `taskkill.exe` to terminate the verified process tree. Missing
+system utilities or an unreadable command line fail closed instead of stopping
+an unrecognized process.
+
 `serve up --dev` requires a configured, existing `development.source-path`.
 The application-provided build adapter runs before the current server is
 stopped, so a failed build leaves the current server running. On success, the
@@ -336,5 +342,6 @@ await store.withLock(async () => {
 });
 ```
 
-On filesystems that support POSIX permissions, credential directories and
-files use `0700` and `0600`; permission changes are best-effort elsewhere.
+Credential directories and files fail closed unless their private access can
+be applied and verified. POSIX filesystems use `0700` and `0600`; Windows uses
+a protected ACL that grants full control only to the current user.

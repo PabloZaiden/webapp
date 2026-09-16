@@ -1,6 +1,6 @@
-import { chmodSync, closeSync, existsSync, openSync } from "node:fs";
-import { mkdir, readFile, stat } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { closeSync, existsSync, openSync } from "node:fs";
+import { mkdir, stat } from "node:fs/promises";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import {
   WEB_APP_CONFIG_VERSION,
   parsePort,
@@ -22,6 +22,11 @@ import type {
 import { createJsonFileStore, type JsonFileStore } from "./credentials";
 import type { CliEnvironment } from "./environment-auth";
 import type { CliCommandResult } from "./runtime";
+import { createServerProcessPlatform } from "./server-process-platform";
+import {
+  securePrivateChildDirectory,
+  securePrivateChildFile,
+} from "../server/private-state";
 import {
   applyServeOptionsToEnvironment,
   parseServeOptionText,
@@ -39,6 +44,7 @@ const READINESS_REQUEST_TIMEOUT_MS = 1_000;
 const READINESS_POLL_INTERVAL_MS = 100;
 const SERVER_STOP_TIMEOUT_MS = 5_000;
 const SERVER_STOP_POLL_INTERVAL_MS = 100;
+const serverProcessPlatform = createServerProcessPlatform();
 
 interface ServerPidFile {
   version: typeof SERVER_PID_FILE_VERSION;
@@ -54,17 +60,6 @@ function healthPath(value: string): string {
     throw new Error("serve healthPath must be an absolute path without a query or fragment");
   }
   return value;
-}
-
-interface ProcessCommandResult {
-  status: number;
-  stdout: string;
-  stderr: string;
-  notFound: boolean;
-}
-
-interface PortInspection {
-  pids: number[];
 }
 
 interface ServeUpOptions {
@@ -87,14 +82,6 @@ function errorCode(error: unknown): string | undefined {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function chmodIfPossible(path: string, mode: number): void {
-  try {
-    chmodSync(path, mode);
-  } catch {
-    // Filesystems without POSIX permissions are allowed to ignore chmod.
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -381,127 +368,32 @@ function resolveServeEnvironment<TAppContext>(
   };
 }
 
-async function readProcessStream(
-  stream: ReadableStream<Uint8Array> | number | null | undefined,
-): Promise<string> {
-  if (!stream || typeof stream === "number") return "";
-  return await new Response(stream).text();
-}
-
-async function runUtility(command: string, args: readonly string[]): Promise<ProcessCommandResult> {
-  let child: ReturnType<typeof Bun.spawn>;
-  try {
-    child = Bun.spawn([command, ...args], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-  } catch (error) {
-    if (errorCode(error) === "ENOENT") {
-      return { status: 127, stdout: "", stderr: "", notFound: true };
-    }
-    throw new Error(`Unable to run ${command}`, { cause: error });
-  }
-  const [stdout, stderr] = await Promise.all([
-    readProcessStream(child.stdout),
-    readProcessStream(child.stderr),
-  ]);
-  return {
-    status: await child.exited,
-    stdout,
-    stderr,
-    notFound: false,
-  };
-}
-
-function parsePidList(output: string, source: string): number[] {
-  const pids = new Set<number>();
-  for (const value of output.split(/\s+/).filter(Boolean)) {
-    if (!/^\d+$/.test(value)) {
-      throw new Error(`${source} returned an invalid process id`);
-    }
-    const pid = Number(value);
-    if (!Number.isSafeInteger(pid) || pid <= 0) {
-      throw new Error(`${source} returned an invalid process id`);
-    }
-    pids.add(pid);
-  }
-  return [...pids];
-}
-
-function parseSsPids(output: string): number[] {
-  const pids = new Set<number>();
-  for (const line of output.split("\n").map((value) => value.trim()).filter(Boolean)) {
-    const matches = [...line.matchAll(/pid=(\d+)/g)];
-    if (matches.length === 0) {
-      throw new Error("ss could not identify the process listening on the configured port");
-    }
-    for (const match of matches) {
-      const pid = Number(match[1]);
-      if (!Number.isSafeInteger(pid) || pid <= 0) {
-        throw new Error("ss returned an invalid process id");
-      }
-      pids.add(pid);
-    }
-  }
-  return [...pids];
-}
-
-async function inspectPort(port: number): Promise<PortInspection> {
-  const lsof = await runUtility("lsof", [
-    "-nP",
-    "-a",
-    `-iTCP:${String(port)}`,
-    "-sTCP:LISTEN",
-    "-t",
-  ]);
-  if (!lsof.notFound && (lsof.status === 0 || (lsof.status === 1 && !lsof.stderr.trim()))) {
-    return { pids: parsePidList(lsof.stdout, "lsof") };
-  }
-
-  const ss = await runUtility("ss", ["-ltnpH", `sport = :${String(port)}`]);
-  if (!ss.notFound && (ss.status === 0 || (ss.status === 1 && !ss.stderr.trim()))) {
-    return { pids: parseSsPids(ss.stdout) };
-  }
-
-  const details = [lsof.stderr.trim(), ss.stderr.trim()].filter(Boolean).join("; ");
-  throw new Error(
-    `Unable to inspect the process listening on port ${String(port)}${details ? `: ${details}` : ""}`,
-  );
-}
-
-async function readProcessCommand(pid: number): Promise<string | undefined> {
-  if (process.platform === "linux") {
-    try {
-      const commandLine = (await readFile(`/proc/${String(pid)}/cmdline`)).toString();
-      if (commandLine) return commandLine.replaceAll("\0", " ").trim() || undefined;
-    } catch (error) {
-      if (errorCode(error) !== "ENOENT" && errorCode(error) !== "EACCES") {
-        throw new Error(`Unable to inspect process ${String(pid)}`, { cause: error });
-      }
-    }
-  }
-  const ps = await runUtility("ps", ["-p", String(pid), "-o", "command="]);
-  if (ps.notFound) {
-    throw new Error("Unable to inspect running processes because ps is unavailable");
-  }
-  if (ps.status !== 0) return undefined;
-  return ps.stdout.trim() || undefined;
-}
-
 function processCommandMatches(
   commandLine: string,
   expected: WebAppServerCommand,
 ): boolean {
   const executable = expected[0]!;
   const executableName = basename(executable);
-  const containsArgument = (part: string): boolean => {
+  const windows = process.platform === "win32";
+  const containsArgument = (part: string, caseInsensitive = false): boolean => {
     const escaped = part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp(`(?:^|\\s|['"])${escaped}(?:$|\\s|['"])`).test(commandLine);
+    return new RegExp(
+      `(?:^|\\s|['"])${escaped}(?:$|\\s|['"])`,
+      caseInsensitive ? "i" : "",
+    ).test(commandLine);
   };
-  const hasExecutable = containsArgument(executable)
-    || commandLine.split(/\s+/).some((part) => basename(part.replace(/^['"]|['"]$/g, "")) === executableName);
+  const hasExecutable = containsArgument(executable, windows)
+    || commandLine.split(/\s+/).some((part) => {
+      const candidate = basename(part.replace(/^['"]|['"]$/g, ""));
+      return windows
+        ? candidate.toLowerCase() === executableName.toLowerCase()
+        : candidate === executableName;
+    });
   if (!hasExecutable) return false;
-  return expected.slice(1).every((part) => containsArgument(part));
+    return expected.slice(1).every((part) => containsArgument(
+      part,
+      windows && (isAbsolute(part) || part.includes("/") || part.includes("\\")),
+    ));
 }
 
 function serveCommandDescription(
@@ -540,55 +432,43 @@ async function isRecognizedProcess(
   pid: number,
   expectedCommands: readonly WebAppServerCommand[],
 ): Promise<boolean> {
-  const commandLine = await readProcessCommand(pid);
+  const commandLine = await serverProcessPlatform.readProcessCommand(pid);
   return commandLine !== undefined
     && expectedCommands.some((command) => processCommandMatches(commandLine, command));
-}
-
-function processIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    const code = errorCode(error);
-    if (code === "ESRCH") return false;
-    if (code === "EPERM") return true;
-    throw new Error(`Unable to inspect process ${String(pid)}`, { cause: error });
-  }
 }
 
 async function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
-    if (!processIsAlive(pid)) return true;
+    if (!serverProcessPlatform.isProcessAlive(pid)) return true;
     await Bun.sleep(SERVER_STOP_POLL_INTERVAL_MS);
   }
-  return !processIsAlive(pid);
+  return !serverProcessPlatform.isProcessAlive(pid);
 }
 
 async function stopProcess(
   pid: number,
   expectedCommands: readonly WebAppServerCommand[],
 ): Promise<void> {
-  if (!processIsAlive(pid)) return;
+  if (!serverProcessPlatform.isProcessAlive(pid)) return;
   if (!await isRecognizedProcess(pid, expectedCommands)) {
     throw new Error(`Refusing to stop unrecognized process ${String(pid)}`);
   }
-  process.kill(pid, "SIGTERM");
+  await serverProcessPlatform.terminateProcess(pid, false);
   if (await waitForProcessExit(pid, SERVER_STOP_TIMEOUT_MS)) return;
   if (!await isRecognizedProcess(pid, expectedCommands)) {
     throw new Error(`Process ${String(pid)} changed before forced termination`);
   }
-  process.kill(pid, "SIGKILL");
+  await serverProcessPlatform.terminateProcess(pid, true);
   if (!await waitForProcessExit(pid, SERVER_STOP_TIMEOUT_MS)) {
-    throw new Error(`Process ${String(pid)} did not stop after SIGKILL`);
+    throw new Error(`Process ${String(pid)} did not stop after forced termination`);
   }
 }
 
 async function waitForPortFree(port: number): Promise<void> {
   const deadline = Date.now() + SERVER_STOP_TIMEOUT_MS;
   while (Date.now() <= deadline) {
-    if ((await inspectPort(port)).pids.length === 0) return;
+    if ((await serverProcessPlatform.inspectPort(port)).pids.length === 0) return;
     await Bun.sleep(SERVER_STOP_POLL_INTERVAL_MS);
   }
   throw new Error(`Port ${String(port)} did not become available after stopping the server`);
@@ -667,10 +547,11 @@ async function startDetachedServer<TAppContext>(input: {
   const { context, config, paths, command, pidStore, readinessTimeoutMs, healthPath } = input;
   const logDirectory = join(paths.dataDir, "logs");
   await mkdir(logDirectory, { recursive: true, mode: 0o700 });
+  securePrivateChildDirectory(logDirectory, paths.dataDir);
   const logFd = openSync(paths.logPath, "a", 0o600);
-  chmodIfPossible(paths.logPath, 0o600);
   let child: ReturnType<typeof Bun.spawn>;
   try {
+    securePrivateChildFile(paths.logPath, logDirectory);
     const environment: Record<string, string | undefined> = {
       ...process.env,
       ...context.environment,
@@ -678,11 +559,11 @@ async function startDetachedServer<TAppContext>(input: {
       [`${context.envPrefix}_PORT`]: String(config.port),
       [`${context.envPrefix}_DATA_DIR`]: config.dataDir,
     };
-    child = Bun.spawn([...command], {
+    child = serverProcessPlatform.spawnDetached({
+      command,
       cwd: process.cwd(),
-      env: environment,
-      detached: true,
-      stdio: ["ignore", logFd, logFd],
+      environment,
+      logFd,
     });
   } finally {
     closeSync(logFd);
@@ -733,9 +614,9 @@ async function stopExistingServer(input: {
   expectedCommands: readonly WebAppServerCommand[];
 }): Promise<void> {
   const { config, pidStore, stored, expectedCommands } = input;
-  const inspection = await inspectPort(config.port);
+  const inspection = await serverProcessPlatform.inspectPort(config.port);
   const pids = new Set(inspection.pids);
-  if (stored && processIsAlive(stored.pid)) {
+  if (stored && serverProcessPlatform.isProcessAlive(stored.pid)) {
     pids.add(stored.pid);
   }
   if (pids.size === 0) {
@@ -1115,11 +996,12 @@ async function runServeStatus<TAppContext>(
   const store = pidStore(config.dataDir);
   return await store.withLock!(async () => {
     const stored = await store.read();
-    const inspection = await inspectPort(config.port);
+    const inspection = await serverProcessPlatform.inspectPort(config.port);
     const sourcePath = readWebAppConfig(config.dataDir).development?.sourcePath;
     const candidates = await expectedCommands(input, sourcePath);
     const candidatePids = new Set(inspection.pids);
-    const pidFileRunning = stored !== undefined && processIsAlive(stored.pid);
+    const pidFileRunning = stored !== undefined
+      && serverProcessPlatform.isProcessAlive(stored.pid);
     if (pidFileRunning) {
       candidatePids.add(stored.pid);
     }
