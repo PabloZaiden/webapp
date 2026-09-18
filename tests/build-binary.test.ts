@@ -2,7 +2,11 @@ import { expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 
-type ServerProcess = ReturnType<typeof Bun.spawn>;
+interface CommandResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
 
 async function freePort(): Promise<number> {
   const server = Bun.serve({
@@ -18,12 +22,9 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-async function waitForHealth(baseUrl: string, child: ServerProcess): Promise<void> {
+async function waitForHealth(baseUrl: string): Promise<void> {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) {
-      throw new Error(`Compiled example exited before becoming healthy: ${child.exitCode}`);
-    }
     try {
       const response = await fetch(`${baseUrl}/api/health`);
       if (response.ok) {
@@ -39,20 +40,39 @@ async function waitForHealth(baseUrl: string, child: ServerProcess): Promise<voi
   throw new Error(`Compiled example at ${baseUrl} did not become healthy`);
 }
 
-async function stopProcess(child: ServerProcess | undefined): Promise<void> {
-  if (!child) return;
-  if (child.exitCode === null) {
-    child.kill();
-  }
-  await child.exited;
+async function runCommand(
+  command: readonly string[],
+  environment: Record<string, string | undefined>,
+): Promise<CommandResult> {
+  const child = Bun.spawn([...command], {
+    env: environment,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  return { exitCode, stdout, stderr };
 }
 
-test("builds and serves the Kitchen Sink example as a standalone binary", async () => {
+test("builds and manages the Kitchen Sink example as a standalone binary", async () => {
   const exampleDirectory = resolve("examples/kitchen-sink");
-  const binaryPath = resolve(exampleDirectory, "dist/kitchen-sink");
+  const binaryPath = resolve(
+    exampleDirectory,
+    `dist/kitchen-sink${process.platform === "win32" ? ".exe" : ""}`,
+  );
   const dataDirectory = resolve(".cache/tests", `compiled-kitchen-sink-${crypto.randomUUID()}`);
   const port = await freePort();
-  let server: ServerProcess | undefined;
+  const environment = {
+    ...process.env,
+    KITCHEN_SINK_HOST: "127.0.0.1",
+    KITCHEN_SINK_PORT: String(port),
+    KITCHEN_SINK_DATA_DIR: dataDirectory,
+    KITCHEN_SINK_DISABLE_PASSKEY: "true",
+  };
+  let built = false;
 
   rmSync(dataDirectory, { recursive: true, force: true });
   try {
@@ -63,21 +83,20 @@ test("builds and serves the Kitchen Sink example as a standalone binary", async 
     });
     const buildExitCode = await build.exited;
     expect(buildExitCode).toBe(0);
+    built = true;
 
-    server = Bun.spawn([binaryPath, "serve"], {
-      cwd: exampleDirectory,
-      env: {
-        ...process.env,
-        KITCHEN_SINK_HOST: "127.0.0.1",
-        KITCHEN_SINK_PORT: String(port),
-        KITCHEN_SINK_DATA_DIR: dataDirectory,
-        KITCHEN_SINK_DISABLE_PASSKEY: "true",
-      },
-      stdout: "ignore",
-      stderr: "ignore",
-    });
+    const started = await runCommand([binaryPath, "serve", "up"], environment);
+    expect(started).toMatchObject({ exitCode: 0, stderr: "" });
     const baseUrl = `http://127.0.0.1:${String(port)}`;
-    await waitForHealth(baseUrl, server);
+    await waitForHealth(baseUrl);
+
+    const status = await runCommand([binaryPath, "serve", "status"], environment);
+    expect(status).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(JSON.parse(status.stdout)).toMatchObject({
+      managed: true,
+      running: true,
+      config: { port },
+    });
 
     const document = await fetch(`${baseUrl}/`);
     expect(document.status).toBe(200);
@@ -93,8 +112,22 @@ test("builds and serves the Kitchen Sink example as a standalone binary", async 
       app: "kitchen-sink",
       publicRoute: true,
     });
+
+    const stopped = await runCommand([binaryPath, "serve", "down"], environment);
+    expect(stopped).toMatchObject({ exitCode: 0, stderr: "" });
+
+    const stoppedStatus = await runCommand([binaryPath, "serve", "status"], environment);
+    expect(stoppedStatus).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(JSON.parse(stoppedStatus.stdout)).toMatchObject({
+      managed: false,
+      running: false,
+      config: { port },
+    });
   } finally {
-    await stopProcess(server);
+    if (built) {
+      const stopped = await runCommand([binaryPath, "serve", "down"], environment);
+      expect(stopped.exitCode).toBe(0);
+    }
     rmSync(dataDirectory, { recursive: true, force: true });
   }
 }, 120_000);
