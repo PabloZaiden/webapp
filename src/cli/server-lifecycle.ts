@@ -166,7 +166,9 @@ function lifecyclePaths(config: RuntimeConfig): ServerLifecyclePaths {
 
 function currentServerCommand(): WebAppServerCommand {
   const main = typeof Bun.main === "string" ? Bun.main : "";
-  const compiledMain = main.startsWith("/$bunfs/") || main.includes("\\$bunfs\\");
+  const normalizedMain = main.replaceAll("\\", "/");
+  const compiledMain = normalizedMain.startsWith("/$bunfs/")
+    || /^[A-Za-z]:\/~BUN\//i.test(normalizedMain);
   if (main && !compiledMain && existsSync(main)) {
     return [process.execPath, main, "serve"];
   }
