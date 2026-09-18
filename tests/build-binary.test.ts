@@ -112,6 +112,17 @@ test("builds and manages the Kitchen Sink example as a standalone binary", async
       app: "kitchen-sink",
       publicRoute: true,
     });
+
+    const stopped = await runCommand([binaryPath, "serve", "down"], environment);
+    expect(stopped).toMatchObject({ exitCode: 0, stderr: "" });
+
+    const stoppedStatus = await runCommand([binaryPath, "serve", "status"], environment);
+    expect(stoppedStatus).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(JSON.parse(stoppedStatus.stdout)).toMatchObject({
+      managed: false,
+      running: false,
+      config: { port },
+    });
   } finally {
     if (built) {
       const stopped = await runCommand([binaryPath, "serve", "down"], environment);
