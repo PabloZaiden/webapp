@@ -42,6 +42,7 @@
   --wapp-motion-normal: 350ms;
   --wapp-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --wapp-motion-distance: 0.25rem;
+  view-transition-name: none;
   font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
@@ -817,13 +818,12 @@ textarea::placeholder {
   flex-direction: column;
 }
 
-.wapp-route-view,
 .wapp-route-fade {
   animation: wapp-fade-in var(--wapp-motion-normal) var(--wapp-motion-ease) both;
 }
 
-.wapp-native-route-transitions .wapp-route-view {
-  animation: none;
+::view-transition {
+  pointer-events: none;
 }
 
 ::view-transition-old(wapp-main-content) {

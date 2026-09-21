@@ -2,6 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import type { WebAppRoute } from "./sidebar/types";
 
+type ViewTransitionUpdate = () => void;
+type ViewTransitionStarter = (updateCallback: ViewTransitionUpdate) => unknown;
+type ViewTransitionScopeRef = { readonly current: HTMLElement | null };
+
+type ViewTransitionElement = HTMLElement & {
+  startViewTransition: ViewTransitionStarter;
+};
+
 export function routeToHash(route: WebAppRoute): string {
   const params = new URLSearchParams();
   for (const key of Object.keys(route).filter((entry) => entry !== "view").sort()) {
@@ -51,15 +59,20 @@ function prefersReducedMotion(): boolean {
 function updateRoute(
   setRoute: (route: WebAppRoute) => void,
   route: WebAppRoute,
+  transitionScopeRef: ViewTransitionScopeRef,
 ): void {
-  const startViewTransition = typeof document === "undefined" ? undefined : document.startViewTransition;
-  const isDocumentHidden = typeof document !== "undefined" && document.visibilityState === "hidden";
-  if (!startViewTransition || isDocumentHidden || prefersReducedMotion()) {
+  if (prefersReducedMotion()) {
     setRoute(route);
     return;
   }
 
-  document.startViewTransition(() => {
+  const transitionScope = transitionScopeRef.current;
+  if (!transitionScope) {
+    throw new Error("The route transition scope is not mounted.");
+  }
+
+  const startViewTransition = (transitionScope as ViewTransitionElement).startViewTransition;
+  startViewTransition.call(transitionScope, () => {
     flushSync(() => setRoute(route));
   });
 }
@@ -74,11 +87,11 @@ function parseRoute(defaultRoute: WebAppRoute): WebAppRoute {
   return { view: view.replace(/^\//, ""), ...params };
 }
 
-export function useRoute(defaultRoute: WebAppRoute) {
+export function useRoute(defaultRoute: WebAppRoute, transitionScopeRef: ViewTransitionScopeRef) {
   const [route, setRoute] = useState(() => parseRoute(defaultRoute));
   const commitRoute = useCallback((nextRoute: WebAppRoute) => {
-    updateRoute(setRoute, nextRoute);
-  }, []);
+    updateRoute(setRoute, nextRoute, transitionScopeRef);
+  }, [transitionScopeRef]);
 
   useEffect(() => {
     const listener = () => commitRoute(parseRoute(defaultRoute));
