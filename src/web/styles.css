@@ -818,8 +818,13 @@ textarea::placeholder {
   flex-direction: column;
 }
 
+.wapp-route-view,
 .wapp-route-fade {
   animation: wapp-fade-in var(--wapp-motion-normal) var(--wapp-motion-ease) both;
+}
+
+.wapp-native-route-transitions .wapp-route-view {
+  animation: none;
 }
 
 ::view-transition {
