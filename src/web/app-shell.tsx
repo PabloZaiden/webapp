@@ -82,7 +82,6 @@ export interface AppShellProps {
   headerTitle: ReactNode;
   headerActionLabel: string;
   routeKey: string;
-  nativeRouteTransitions?: boolean;
   routeTransitionScopeRef: RefObject<HTMLDivElement | null>;
   view: ReactNode;
 }
@@ -115,7 +114,6 @@ export function AppShell({
   headerTitle,
   headerActionLabel,
   routeKey,
-  nativeRouteTransitions = false,
   routeTransitionScopeRef,
   view,
 }: AppShellProps) {
@@ -206,7 +204,7 @@ export function AppShell({
 
   return (
     <main
-      className={`wapp-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarOpen ? "sidebar-open" : ""} ${nativeRouteTransitions ? "wapp-native-route-transitions" : ""}`.trim()}
+      className={`wapp-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarOpen ? "sidebar-open" : ""}`.trim()}
       onPointerDownCapture={() => {
         if (suppressNextContentClickRef.current) {
           suppressNextContentClickRef.current = false;

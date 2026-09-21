@@ -5,7 +5,7 @@ import { DeviceVerificationScreen, PasskeyAuthScreen, UserSetupScreen } from "./
 import { appPagePath } from "./api-client";
 import { EmptyState, Panel } from "./components";
 import { useMobileBreakpoint, useMobileSidebarSwipe, useMobileViewportHeight } from "./mobile-hooks";
-import { routeToHash, supportsElementViewTransitions, useRoute } from "./routing";
+import { routeToHash, useRoute } from "./routing";
 import { flattenSidebarItems, useSidebarCollapsedState, useSidebarDesktopCollapsedState, useSidebarPins, useSidebarTab } from "./sidebar-state";
 import { SettingsView } from "./settings/settings-view";
 import type { HeaderContext, WebAppRootController, WebAppRootProps } from "./root-types";
@@ -14,7 +14,6 @@ import { HeaderActionsProvider } from "./header-actions";
 import { ThemeProvider } from "./theme";
 import { WebAppConfigProvider, useWebAppConfig } from "./webapp-config";
 import { setLogLevel } from "./logger";
-import { useReducedMotion } from "./motion";
 
 const EMPTY_SIDEBAR_TABS: SidebarTab[] = [];
 
@@ -100,11 +99,9 @@ function WebAppRootContent({
   controllerRef: ForwardedRef<WebAppRootController>;
 }) {
   const isMobile = useMobileBreakpoint();
-  const reducedMotion = useReducedMotion();
   useMobileViewportHeight(isMobile);
   const routeTransitionScopeRef = useRef<HTMLDivElement>(null);
   const { route, navigate } = useRoute(homeRoute, routeTransitionScopeRef);
-  const nativeRouteTransitions = supportsElementViewTransitions() && !reducedMotion;
   const sidebarSearchEnabled = sidebar.search !== false;
   const [search, setSearch] = useState("");
   const sidebarSearchId = useId();
@@ -387,7 +384,6 @@ function WebAppRootContent({
         headerTitle={headerTitle}
         headerActionLabel={headerActionLabel}
         routeKey={routeToHash(route)}
-        nativeRouteTransitions={nativeRouteTransitions}
         routeTransitionScopeRef={routeTransitionScopeRef}
         view={view}
       />
