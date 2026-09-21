@@ -2,6 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import type { WebAppRoute } from "./sidebar/types";
 
+type ViewTransitionUpdate = () => void;
+type ViewTransitionStarter = (updateCallback: ViewTransitionUpdate) => unknown;
+type ViewTransitionScopeRef = { readonly current: HTMLElement | null };
+
+type ViewTransitionElement = HTMLElement & {
+  startViewTransition?: ViewTransitionStarter;
+};
+
 export function routeToHash(route: WebAppRoute): string {
   const params = new URLSearchParams();
   for (const key of Object.keys(route).filter((entry) => entry !== "view").sort()) {
@@ -42,6 +50,14 @@ export function supportsViewTransitions(): boolean {
     && typeof document.startViewTransition === "function";
 }
 
+export function supportsElementViewTransitions(): boolean {
+  if (typeof document === "undefined" || typeof Element === "undefined") {
+    return false;
+  }
+  const prototype = Element.prototype as ViewTransitionElement;
+  return typeof prototype.startViewTransition === "function";
+}
+
 function prefersReducedMotion(): boolean {
   return typeof window !== "undefined"
     && typeof window.matchMedia === "function"
@@ -51,15 +67,19 @@ function prefersReducedMotion(): boolean {
 function updateRoute(
   setRoute: (route: WebAppRoute) => void,
   route: WebAppRoute,
+  transitionScopeRef?: ViewTransitionScopeRef,
 ): void {
-  const startViewTransition = typeof document === "undefined" ? undefined : document.startViewTransition;
+  const transitionScope = transitionScopeRef?.current;
+  const startViewTransition = transitionScope
+    ? (transitionScope as ViewTransitionElement).startViewTransition
+    : undefined;
   const isDocumentHidden = typeof document !== "undefined" && document.visibilityState === "hidden";
   if (!startViewTransition || isDocumentHidden || prefersReducedMotion()) {
     setRoute(route);
     return;
   }
 
-  document.startViewTransition(() => {
+  startViewTransition.call(transitionScope, () => {
     flushSync(() => setRoute(route));
   });
 }
@@ -74,11 +94,11 @@ function parseRoute(defaultRoute: WebAppRoute): WebAppRoute {
   return { view: view.replace(/^\//, ""), ...params };
 }
 
-export function useRoute(defaultRoute: WebAppRoute) {
+export function useRoute(defaultRoute: WebAppRoute, transitionScopeRef?: ViewTransitionScopeRef) {
   const [route, setRoute] = useState(() => parseRoute(defaultRoute));
   const commitRoute = useCallback((nextRoute: WebAppRoute) => {
-    updateRoute(setRoute, nextRoute);
-  }, []);
+    updateRoute(setRoute, nextRoute, transitionScopeRef);
+  }, [transitionScopeRef]);
 
   useEffect(() => {
     const listener = () => commitRoute(parseRoute(defaultRoute));

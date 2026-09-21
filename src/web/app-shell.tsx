@@ -83,6 +83,7 @@ export interface AppShellProps {
   headerActionLabel: string;
   routeKey: string;
   nativeRouteTransitions?: boolean;
+  routeTransitionScopeRef: RefObject<HTMLDivElement | null>;
   view: ReactNode;
 }
 
@@ -115,6 +116,7 @@ export function AppShell({
   headerActionLabel,
   routeKey,
   nativeRouteTransitions = false,
+  routeTransitionScopeRef,
   view,
 }: AppShellProps) {
   const { primary: primaryHeaderActions, overflow: headerActions = [] } = useHeaderActionsSnapshot();
@@ -344,7 +346,7 @@ export function AppShell({
             </div>
           ) : null}
         </header>
-        <div className="wapp-main-content">
+        <div ref={routeTransitionScopeRef} className="wapp-main-content">
           <div key={routeKey} className="wapp-route-view">
             {view}
           </div>
