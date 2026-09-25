@@ -7,6 +7,7 @@ import {
   createWebAppServer,
   defineRoutes,
   jsonResponse,
+  memoryWebAppStore,
   sqliteWebAppStore,
   type RouteTable,
   type RuntimeConfig,
@@ -20,6 +21,25 @@ const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
 function testDataDir(label: string): string {
   return resolve(".cache/tests", `server-${label}-${crypto.randomUUID()}`);
 }
+
+interface TestStoreProvider {
+  name: string;
+  shareWithServer: boolean;
+  create(dataDir: string): WebAppStore;
+}
+
+const testStoreProviders: TestStoreProvider[] = [
+  {
+    name: "SQLite",
+    shareWithServer: false,
+    create: (dataDir) => sqliteWebAppStore({ dataDir }),
+  },
+  {
+    name: "memory",
+    shareWithServer: true,
+    create: (_dataDir) => memoryWebAppStore(),
+  },
+];
 
 function createUser(store: WebAppStore, username: string, role: UserRecord["role"] = "owner"): UserRecord {
   const timestamp = new Date().toISOString();
@@ -68,6 +88,7 @@ async function responseJson<T>(response: Response): Promise<T> {
 async function startServer(input: {
   envPrefix: string;
   dataDir: string;
+  store?: WebAppStore;
   auth?: WebAppServerConfig["auth"];
   routes?: RouteTable;
   publicRoutes?: WebAppServerConfig["publicRoutes"];
@@ -94,7 +115,7 @@ async function startServer(input: {
     trustProxy: { enabled: false, headers: [], chain: "first" },
     development: false,
   };
-  const store = sqliteWebAppStore({ dataDir: input.dataDir });
+  const store = input.store ?? sqliteWebAppStore({ dataDir: input.dataDir });
   const app = createWebAppServer({
     appName: runtimeConfig.appName,
     envPrefix: input.envPrefix,
@@ -120,6 +141,7 @@ test("supports a headless server with a deny-by-default request surface", async 
   const running = await startServer({
     envPrefix: "TEST_E2E_HEADLESS_REQUEST_FILTER",
     dataDir,
+    store: memoryWebAppStore(),
     auth: { passkeys: false },
     web: false,
     publicRoutes: {
@@ -150,6 +172,7 @@ test("supports a headless server with a deny-by-default request surface", async 
     const worker = await fetch(`${running.baseUrl}/api/worker`);
     expect(worker.status).toBe(200);
     expect(await worker.json()).toEqual({ ok: true });
+    expect(await Bun.file(resolve(dataDir, "webapp.sqlite")).exists()).toBe(false);
 
     for (const path of ["/", "/projects", "/api/config", "/api/blocked", "/diagnostics.json"]) {
       const denied = await fetch(`${running.baseUrl}${path}`);
@@ -206,207 +229,211 @@ test("serves framework and application public routes over HTTP", async () => {
   }
 });
 
-test("enforces API-key authentication, scopes, ownership, and CRUD over HTTP", async () => {
-  const dataDir = testDataDir("api-keys");
-  const store = sqliteWebAppStore({ dataDir });
-  store.initialize();
-  const owner = createUser(store, "owner");
-  const alice = createUser(store, "alice", "user");
-  const ownerKey = createApiKey(store, currentUser(owner), { name: "owner key", scopes: ["*"] });
-  const aliceKey = createApiKey(store, currentUser(alice), { name: "alice key", scopes: ["read"] });
-  const records = [
-    { id: "owner-record", userId: owner.id },
-    { id: "alice-record", userId: alice.id },
-  ];
-  const routes = defineRoutes({
-    "/api/records": {
-      auth: "user",
-      GET: (_request, context) => jsonResponse(context.filterOwned(records)),
-    },
-    "/api/admin": {
-      auth: "admin",
-      GET: () => jsonResponse({ ok: true }),
-    },
-    "/api/write": {
-      auth: "user",
-      scopes: ["write"],
-      POST: () => jsonResponse({ ok: true }),
-    },
-  });
-  const running = await startServer({
-    envPrefix: "TEST_E2E_API_KEYS",
-    dataDir,
-    auth: { passkeys: false, apiKeys: true },
-    routes,
-  });
-
-  try {
-    const anonymous = await fetch(`${running.baseUrl}/api/records`);
-    expect(anonymous.status).toBe(401);
-
-    const ownRecords = await fetch(`${running.baseUrl}/api/records`, {
-      headers: { authorization: bearer(aliceKey.token) },
+for (const provider of testStoreProviders) {
+  test(`enforces API-key authentication, scopes, ownership, and CRUD over HTTP (${provider.name})`, async () => {
+    const dataDir = testDataDir(`api-keys-${provider.name.toLowerCase()}`);
+    const store = provider.create(dataDir);
+    store.initialize();
+    const owner = createUser(store, "owner");
+    const alice = createUser(store, "alice", "user");
+    const ownerKey = createApiKey(store, currentUser(owner), { name: "owner key", scopes: ["*"] });
+    const aliceKey = createApiKey(store, currentUser(alice), { name: "alice key", scopes: ["read"] });
+    const records = [
+      { id: "owner-record", userId: owner.id },
+      { id: "alice-record", userId: alice.id },
+    ];
+    const routes = defineRoutes({
+      "/api/records": {
+        auth: "user",
+        GET: (_request, context) => jsonResponse(context.filterOwned(records)),
+      },
+      "/api/admin": {
+        auth: "admin",
+        GET: () => jsonResponse({ ok: true }),
+      },
+      "/api/write": {
+        auth: "user",
+        scopes: ["write"],
+        POST: () => jsonResponse({ ok: true }),
+      },
     });
-    expect(ownRecords.status).toBe(200);
-    const ownRecordIds = (await responseJson<Array<{ id: string }>>(ownRecords)).map(({ id }) => id);
-    expect(ownRecordIds).toEqual(["alice-record"]);
-
-    const forbiddenAdmin = await fetch(`${running.baseUrl}/api/admin`, {
-      headers: { authorization: bearer(aliceKey.token) },
+    const running = await startServer({
+      envPrefix: "TEST_E2E_API_KEYS",
+      dataDir,
+      store: provider.shareWithServer ? store : undefined,
+      auth: { passkeys: false, apiKeys: true },
+      routes,
     });
-    expect(forbiddenAdmin.status).toBe(403);
 
-    const missingScope = await fetch(`${running.baseUrl}/api/write`, {
-      method: "POST",
-      headers: jsonHeaders(running.baseUrl, aliceKey.token),
-    });
-    expect(missingScope.status).toBe(403);
+    try {
+      const anonymous = await fetch(`${running.baseUrl}/api/records`);
+      expect(anonymous.status).toBe(401);
 
-    const invalidToken = "wapp_invalid-token";
-    const invalid = await fetch(`${running.baseUrl}/api/records`, {
-      headers: { authorization: bearer(invalidToken) },
-    });
-    expect(invalid.status).toBe(401);
-    const invalidBody = await invalid.text();
-    expect(invalidBody).not.toContain(invalidToken);
+      const ownRecords = await fetch(`${running.baseUrl}/api/records`, {
+        headers: { authorization: bearer(aliceKey.token) },
+      });
+      expect(ownRecords.status).toBe(200);
+      const ownRecordIds = (await responseJson<Array<{ id: string }>>(ownRecords)).map(({ id }) => id);
+      expect(ownRecordIds).toEqual(["alice-record"]);
 
-    const listed = await fetch(`${running.baseUrl}/api/api-keys`, {
-      headers: { authorization: bearer(ownerKey.token) },
-    });
-    expect(listed.status).toBe(200);
-    const initialKeys = await responseJson<Array<{ id: string }>>(listed);
-    expect(initialKeys.map(({ id }) => id)).toContain(ownerKey.key.id);
+      const forbiddenAdmin = await fetch(`${running.baseUrl}/api/admin`, {
+        headers: { authorization: bearer(aliceKey.token) },
+      });
+      expect(forbiddenAdmin.status).toBe(403);
 
-    const created = await fetch(`${running.baseUrl}/api/api-keys`, {
-      method: "POST",
-      headers: jsonHeaders(running.baseUrl, ownerKey.token),
-      body: JSON.stringify({ name: "Created over HTTP", scopes: ["read"] }),
-    });
-    expect(created.status).toBe(200);
-    const createdBody = await responseJson<{ key: { id: string } }>(created);
+      const missingScope = await fetch(`${running.baseUrl}/api/write`, {
+        method: "POST",
+        headers: jsonHeaders(running.baseUrl, aliceKey.token),
+      });
+      expect(missingScope.status).toBe(403);
 
-    const deleted = await fetch(`${running.baseUrl}/api/api-keys/${encodeURIComponent(createdBody.key.id)}`, {
-      method: "DELETE",
-      headers: jsonHeaders(running.baseUrl, ownerKey.token),
-    });
-    expect(deleted.status).toBe(200);
+      const invalidToken = "wapp_invalid-token";
+      const invalid = await fetch(`${running.baseUrl}/api/records`, {
+        headers: { authorization: bearer(invalidToken) },
+      });
+      expect(invalid.status).toBe(401);
+      const invalidBody = await invalid.text();
+      expect(invalidBody).not.toContain(invalidToken);
 
-    const afterDelete = await fetch(`${running.baseUrl}/api/api-keys`, {
-      headers: { authorization: bearer(ownerKey.token) },
-    });
-    const remainingKeys = await responseJson<Array<{ id: string }>>(afterDelete);
-    expect(remainingKeys.map(({ id }) => id)).not.toContain(createdBody.key.id);
-  } finally {
-    await running.server.stop(true);
-    rmSync(dataDir, { recursive: true, force: true });
-  }
-});
+      const listed = await fetch(`${running.baseUrl}/api/api-keys`, {
+        headers: { authorization: bearer(ownerKey.token) },
+      });
+      expect(listed.status).toBe(200);
+      const initialKeys = await responseJson<Array<{ id: string }>>(listed);
+      expect(initialKeys.map(({ id }) => id)).toContain(ownerKey.key.id);
 
-test("completes device authorization and invalidates replayed refresh tokens over HTTP", async () => {
-  const dataDir = testDataDir("device-auth");
-  const store = sqliteWebAppStore({ dataDir });
-  store.initialize();
-  createUser(store, "owner");
-  const routes = defineRoutes({
-    "/api/protected": {
-      auth: "user",
-      scopes: ["write"],
-      POST: () => jsonResponse({ ok: true }),
-    },
-  });
-  const running = await startServer({
-    envPrefix: "TEST_E2E_DEVICE_AUTH",
-    dataDir,
-    auth: { passkeys: true, deviceAuth: true },
-    passkeyDisabled: true,
-    routes,
+      const created = await fetch(`${running.baseUrl}/api/api-keys`, {
+        method: "POST",
+        headers: jsonHeaders(running.baseUrl, ownerKey.token),
+        body: JSON.stringify({ name: "Created over HTTP", scopes: ["read"] }),
+      });
+      expect(created.status).toBe(200);
+      const createdBody = await responseJson<{ key: { id: string } }>(created);
+
+      const deleted = await fetch(`${running.baseUrl}/api/api-keys/${encodeURIComponent(createdBody.key.id)}`, {
+        method: "DELETE",
+        headers: jsonHeaders(running.baseUrl, ownerKey.token),
+      });
+      expect(deleted.status).toBe(200);
+
+      const afterDelete = await fetch(`${running.baseUrl}/api/api-keys`, {
+        headers: { authorization: bearer(ownerKey.token) },
+      });
+      const remainingKeys = await responseJson<Array<{ id: string }>>(afterDelete);
+      expect(remainingKeys.map(({ id }) => id)).not.toContain(createdBody.key.id);
+    } finally {
+      await running.server.stop(true);
+      rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
-  try {
-    const deviceResponse = await fetch(`${running.baseUrl}/api/auth/device`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ client_id: "e2e-cli", scope: "write" }),
+  test(`completes device authorization and invalidates replayed refresh tokens over HTTP (${provider.name})`, async () => {
+    const dataDir = testDataDir(`device-auth-${provider.name.toLowerCase()}`);
+    const store = provider.create(dataDir);
+    store.initialize();
+    createUser(store, "owner");
+    const routes = defineRoutes({
+      "/api/protected": {
+        auth: "user",
+        scopes: ["write"],
+        POST: () => jsonResponse({ ok: true }),
+      },
     });
-    expect(deviceResponse.status).toBe(200);
-    const device = await responseJson<{ device_code: string; user_code: string }>(deviceResponse);
+    const running = await startServer({
+      envPrefix: "TEST_E2E_DEVICE_AUTH",
+      dataDir,
+      store: provider.shareWithServer ? store : undefined,
+      auth: { passkeys: true, deviceAuth: true },
+      passkeyDisabled: true,
+      routes,
+    });
 
-    const pending = await fetch(`${running.baseUrl}/api/auth/token`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-        device_code: device.device_code,
-        client_id: "e2e-cli",
-      }),
-    });
-    expect(pending.status).toBe(400);
-    expect(await responseJson<{ error: string }>(pending)).toMatchObject({ error: "authorization_pending" });
+    try {
+      const deviceResponse = await fetch(`${running.baseUrl}/api/auth/device`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ client_id: "e2e-cli", scope: "write" }),
+      });
+      expect(deviceResponse.status).toBe(200);
+      const device = await responseJson<{ device_code: string; user_code: string }>(deviceResponse);
 
-    const approved = await fetch(`${running.baseUrl}/api/auth/device/approve`, {
-      method: "POST",
-      headers: jsonHeaders(running.baseUrl),
-      body: JSON.stringify({ user_code: device.user_code }),
-    });
-    expect(approved.status).toBe(200);
+      const pending = await fetch(`${running.baseUrl}/api/auth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+          device_code: device.device_code,
+          client_id: "e2e-cli",
+        }),
+      });
+      expect(pending.status).toBe(400);
+      expect(await responseJson<{ error: string }>(pending)).toMatchObject({ error: "authorization_pending" });
 
-    const tokenResponse = await fetch(`${running.baseUrl}/api/auth/token`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-        device_code: device.device_code,
-        client_id: "e2e-cli",
-      }),
-    });
-    expect(tokenResponse.status).toBe(200);
-    const token = await responseJson<{ access_token: string; refresh_token: string }>(tokenResponse);
+      const approved = await fetch(`${running.baseUrl}/api/auth/device/approve`, {
+        method: "POST",
+        headers: jsonHeaders(running.baseUrl),
+        body: JSON.stringify({ user_code: device.user_code }),
+      });
+      expect(approved.status).toBe(200);
 
-    const protectedResponse = await fetch(`${running.baseUrl}/api/protected`, {
-      method: "POST",
-      headers: jsonHeaders(running.baseUrl, token.access_token),
-      body: JSON.stringify({}),
-    });
-    expect(protectedResponse.status).toBe(200);
-    expect(await protectedResponse.json()).toEqual({ ok: true });
+      const tokenResponse = await fetch(`${running.baseUrl}/api/auth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+          device_code: device.device_code,
+          client_id: "e2e-cli",
+        }),
+      });
+      expect(tokenResponse.status).toBe(200);
+      const token = await responseJson<{ access_token: string; refresh_token: string }>(tokenResponse);
 
-    const reusedDeviceCode = await fetch(`${running.baseUrl}/api/auth/token`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-        device_code: device.device_code,
-        client_id: "e2e-cli",
-      }),
-    });
-    expect(reusedDeviceCode.status).toBe(400);
-    expect(await responseJson<{ error: string }>(reusedDeviceCode)).toMatchObject({ error: "invalid_grant" });
+      const protectedResponse = await fetch(`${running.baseUrl}/api/protected`, {
+        method: "POST",
+        headers: jsonHeaders(running.baseUrl, token.access_token),
+        body: JSON.stringify({}),
+      });
+      expect(protectedResponse.status).toBe(200);
+      expect(await protectedResponse.json()).toEqual({ ok: true });
 
-    const refreshed = await fetch(`${running.baseUrl}/api/auth/refresh`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ refresh_token: token.refresh_token, client_id: "e2e-cli" }),
-    });
-    expect(refreshed.status).toBe(200);
-    const rotated = await responseJson<{ refresh_token: string }>(refreshed);
-    expect(rotated.refresh_token).not.toBe(token.refresh_token);
+      const reusedDeviceCode = await fetch(`${running.baseUrl}/api/auth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+          device_code: device.device_code,
+          client_id: "e2e-cli",
+        }),
+      });
+      expect(reusedDeviceCode.status).toBe(400);
+      expect(await responseJson<{ error: string }>(reusedDeviceCode)).toMatchObject({ error: "invalid_grant" });
 
-    const replay = await fetch(`${running.baseUrl}/api/auth/refresh`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ refresh_token: token.refresh_token, client_id: "e2e-cli" }),
-    });
-    expect(replay.status).toBe(400);
-    expect(await responseJson<{ error: string }>(replay)).toMatchObject({ error: "invalid_grant" });
+      const refreshed = await fetch(`${running.baseUrl}/api/auth/refresh`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ refresh_token: token.refresh_token, client_id: "e2e-cli" }),
+      });
+      expect(refreshed.status).toBe(200);
+      const rotated = await responseJson<{ refresh_token: string }>(refreshed);
+      expect(rotated.refresh_token).not.toBe(token.refresh_token);
 
-    const familyRefresh = await fetch(`${running.baseUrl}/api/auth/refresh`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ refresh_token: rotated.refresh_token, client_id: "e2e-cli" }),
-    });
-    expect(familyRefresh.status).toBe(400);
-  } finally {
-    await running.server.stop(true);
-    rmSync(dataDir, { recursive: true, force: true });
-  }
-});
+      const replay = await fetch(`${running.baseUrl}/api/auth/refresh`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ refresh_token: token.refresh_token, client_id: "e2e-cli" }),
+      });
+      expect(replay.status).toBe(400);
+      expect(await responseJson<{ error: string }>(replay)).toMatchObject({ error: "invalid_grant" });
+
+      const familyRefresh = await fetch(`${running.baseUrl}/api/auth/refresh`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ refresh_token: rotated.refresh_token, client_id: "e2e-cli" }),
+      });
+      expect(familyRefresh.status).toBe(400);
+    } finally {
+      await running.server.stop(true);
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+}

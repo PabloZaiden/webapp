@@ -19,6 +19,7 @@ export {
 } from "./logger";
 export { getRequestBaseUrl, getRequestOriginInfo, type RequestOriginInfo } from "./auth/request-origin";
 export * from "./auth/api-keys";
+export * from "./auth/memory-store";
 export * from "./auth/store";
 export * from "./auth/sqlite-store";
 export * from "./realtime/bus";
