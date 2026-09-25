@@ -107,22 +107,25 @@ The example Dockerfiles default to `node:22-trixie` as a readily available Linux
 Each example uses the configured data directory for two separate persistence
 boundaries:
 
-| Application | Framework database | Application database |
+| Application | Framework database (default) | Application database |
 | --- | --- | --- |
 | Notes TODO | `webapp.sqlite` | `notes-todo.sqlite` |
 | Kitchen Sink | `webapp.sqlite` | `kitchen-sink.sqlite` |
 
-`webapp.sqlite` contains framework authentication and settings state. The
-example database contains only that example's sections, notes, todos, or
-projects; application-specific tables are not added to the framework store.
-The example starts by creating or migrating its schema, and owner seed data is
-transactional and idempotent across restarts.
+`webapp.sqlite` is created by the default framework SQLite store and contains
+framework authentication and settings state. An application that injects
+`memoryWebAppStore()` does not create this database, and its framework auth
+state is lost on restart. The example database contains only that example's
+sections, notes, todos, or projects; application-specific tables are not added
+to the framework store. The example starts by creating or migrating its schema,
+and owner seed data is transactional and idempotent across restarts.
 
 Persist the complete `/app/data` directory, not just `webapp.sqlite`, when
 deploying an example. A container filesystem, process restart, replacement
 deployment, or reverse proxy does not provide durability by itself. Retain
 and back up the volume mounted at `/app/data`; changing the data directory
-intentionally starts a new application state.
+intentionally starts a new application state. Persisting the directory does
+not make an injected memory store durable.
 
 The container should set:
 

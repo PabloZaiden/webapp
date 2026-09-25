@@ -2,6 +2,16 @@
 
 The framework provides three auth modes designed to coexist.
 
+## Store durability
+
+The default `sqliteWebAppStore()` persists framework auth state under the
+configured data directory. `memoryWebAppStore()` is process-local and volatile:
+all users, preferences, passkeys, keys, device requests, signing keys, sessions,
+and audit events are lost when the store instance or process is discarded.
+It retains only the 1,000 most recently inserted audit events while running.
+Do not use it for accounts or credentials that must survive restarts unless
+the application reconstructs them through another trusted mechanism.
+
 ## Users and passkeys
 
 Passkeys are multi-user. The first run creates the immutable owner user and that user's passkey.
@@ -13,12 +23,13 @@ Passkeys are multi-user. The first run creates the immutable owner user and that
 5. Admin resets clear the user's passkey, API keys and device sessions, then issue a new one-time setup link.
 6. If the owner passkey is deleted, the owner setup screen is shown again.
 
-Setup-link completion verifies WebAuthn before opening a short SQLite transaction.
-The transaction claims the unconsumed, unexpired link, persists the verified
-passkey, increments the user's `authVersion`, and commits all three changes
-together. Only the transaction winner receives a browser session and a setup
-completion audit event; a concurrent or reused link is rejected without
-replacing the winner's passkey.
+Setup-link completion verifies WebAuthn before opening a short SQLite
+transaction in the default store. The transaction claims the unconsumed,
+unexpired link, persists the verified passkey, increments the user's
+`authVersion`, and commits all three changes together. Every `WebAppStore`
+implementation must preserve this atomic contract. Only the transaction winner
+receives a browser session and a setup completion audit event; a concurrent or
+reused link is rejected without replacing the winner's passkey.
 
 Account disabling is a store-level lifecycle operation rather than a public
 framework endpoint. `WebAppStore.disableUser(userId, disabledAt)` atomically
@@ -55,7 +66,10 @@ only with disposable or otherwise controlled data.
 
 ## API keys
 
-API keys are user-owned bearer tokens for scripts and agents. They are stored hashed in SQLite and shown only once at creation. Route `scopes` are enforced for API-key requests; `*` grants all scopes.
+API keys are user-owned bearer tokens for scripts and agents. The plaintext token is
+shown only once and is never stored; the default SQLite store persists its hash,
+while the memory store retains it only for the current process. Route `scopes`
+are enforced for API-key requests; `*` grants all scopes.
 
 Expired API keys do not authenticate, are omitted from user-facing lists, and are purged when key lists or expired keys are encountered.
 
@@ -78,8 +92,9 @@ Managed keys have an explicit `kind: "managed"` classification and optional opaq
 `managedBy` metadata. The plaintext token is returned only by creation and is never
 stored; applications must retain it securely. Managed keys use the same bearer
 authentication, ownership, scope, expiration, disabled-user, and lifecycle invalidation
-rules as user keys. They survive an ordinary restart, and applications should explicitly
-revoke each generation during their own resource cleanup.
+rules as user keys. They survive an ordinary restart when used with the default
+SQLite store; applications should explicitly revoke each generation during
+their own resource cleanup.
 
 Managed keys have no browser/API CRUD endpoint. The normal `/api/api-keys` routes and
 Settings UI expose only `kind: "user"` keys, and request input cannot create or convert a
@@ -128,11 +143,12 @@ Device auth is included in V1:
 
 Device approval is first-wins: a pending request can become approved once,
 and a competing approver cannot replace the original approver. Device-code
-exchange uses one SQLite transaction to verify the approved, unexpired request,
-reject disabled or missing approvers, consume the request, revoke active
-same-client sessions, and insert the new refresh session. The access token is
-issued only after that transaction commits, so a concurrent exchange produces
-one token set at most.
+exchange uses one SQLite transaction in the default store to verify the
+approved, unexpired request, reject disabled or missing approvers, consume the
+request, revoke active same-client sessions, and insert the new refresh
+session. Every `WebAppStore` implementation must provide the same atomic
+transition. The access token is issued only after that transition commits, so
+a concurrent exchange produces one token set at most.
 
 Device codes are one-use. Device sessions are self-only in Settings, and only
 active refresh-token sessions are listed. Revoked or expired sessions are
@@ -142,19 +158,18 @@ exchange paths do not delete requests, so consumed or revoked state remains
 available long enough to classify replays until the next creation cleanup.
 Reusing a consumed device code or stale refresh token returns `invalid_grant`.
 
-Refresh rotation also uses a conditional SQLite transition. The old row must
-match the presented hash, be unrevoked, unexpired, and belong to the requested
-client before it is revoked and replaced. A replayed token revokes its entire
-family and never inserts a successor. A disabled or missing user follows the
-same no-successor rule.
+Refresh rotation also uses a conditional SQLite transition in the default
+store. The old row must match the presented hash, be unrevoked, unexpired, and
+belong to the requested client before it is revoked and replaced. A replayed
+token revokes its entire family and never inserts a successor. A disabled or
+missing user follows the same no-successor rule.
 
-Signing keys are stored with a database-backed active marker and a unique
-partial index, so the active key is a singleton across processes. First-use
-initialization uses conflict-safe get-or-create semantics and every caller
-imports the durable winner returned by the database. Existing databases add
-the marker idempotently and retain the key selected by the previous
-newest-created behavior as the sole active key; historical rows remain
-inactive.
+The default SQLite store persists the signing key and enforces one active key
+across processes with a database-backed marker and unique partial index.
+First-use initialization uses conflict-safe get-or-create semantics and every
+caller imports the durable winner returned by the database. The memory store
+keeps one key per store instance, so it is not stable across restarts or
+multiple processes.
 
 Custom `WebAppStore` implementations must provide the same conditional
 transition result contract for device approval/denial/exchange, setup-link

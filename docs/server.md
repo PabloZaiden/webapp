@@ -1,5 +1,29 @@
 # Server API
 
+## Store implementations
+
+`createWebAppServer` uses `sqliteWebAppStore()` by default. Inject
+`memoryWebAppStore()` when framework state should exist only in the current
+process:
+
+```ts
+import { createWebAppServer, memoryWebAppStore } from "@pablozaiden/webapp/server";
+
+const app = createWebAppServer({
+  appName: "Example",
+  envPrefix: "EXAMPLE",
+  store: memoryWebAppStore(),
+});
+```
+
+The memory store implements the same `WebAppStore` operations and security
+transitions, but does not write a database or preserve users, preferences,
+passkeys, keys, audit events, device requests, signing keys, or sessions across
+process restarts. It is instance-local and retains at most 1,000 of the most
+recently inserted audit events. Use it only when this loss is intentional or
+the application can reconstruct the required state; it is not a cache in
+front of SQLite.
+
 ## Private local state
 
 The server export provides `ensurePrivateDirectory`,
