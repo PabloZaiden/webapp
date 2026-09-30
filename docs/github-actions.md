@@ -2,7 +2,7 @@
 
 Use these templates for applications built with `@pablozaiden/webapp`. They follow the framework deployment pattern:
 
-1. Pull requests install, build, test and smoke-test the Bun dev server.
+1. Pull requests install, typecheck, build, test and smoke-test the Bun dev server.
 2. Pushes to `main` publish a `main` Docker image to GHCR.
 3. Published GitHub releases upload standalone binaries.
 4. Published GitHub releases publish semver Docker images to GHCR.
@@ -23,14 +23,18 @@ The templates assume these package scripts:
 {
   "scripts": {
     "dev": "bun --hot src/index.ts serve",
+    "typecheck": "tsc --noEmit",
     "build": "bun src/build.ts",
     "test": "bun test"
   }
 }
 ```
 
-If the app's build does not typecheck, add a `typecheck` script and call
-`bun run typecheck` from the PR workflow before tests.
+Keep the app's TypeScript configuration strict and run the canonical
+`bun run typecheck` command in every CI and release workflow. Do not rely on
+the Bun build or transpiler to perform typechecking.
+Install TypeScript as a development dependency for the sample script, or point
+the `typecheck` script at the app's existing checker.
 
 The smoke templates only hit health/static/public endpoints.
 `MY_APP_DISABLE_PASSKEY=true` authenticates as the stored owner, or creates an
@@ -47,6 +51,7 @@ FROM oven/bun:1 AS builder
 WORKDIR /app
 COPY . .
 RUN bun install --frozen-lockfile
+RUN bun run typecheck
 RUN bun run build
 
 FROM debian:trixie-slim
@@ -142,6 +147,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
 
       - name: Build
         run: bun run build
@@ -266,6 +274,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
       - name: Get latest release version
         id: latest-release
         env:
@@ -352,7 +371,7 @@ jobs:
     permissions:
       contents: write
     with:
-      prebuild_command: bun run build
+      prebuild_command: bun run typecheck && bun run build
       binaries: |
         [
           {
@@ -364,7 +383,7 @@ jobs:
         ]
 ```
 
-If `bun run build` already builds a local default binary and your `src/build.ts` supports `--target`, keep `prebuild_command: bun run build` to validate the app before producing release assets.
+If `bun run build` already builds a local default binary and your `src/build.ts` supports `--target`, keep both commands in `prebuild_command` to typecheck and validate the app before producing release assets.
 
 ## Docker release workflow
 
@@ -390,6 +409,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
 
       - name: Update package.json version
         run: |
