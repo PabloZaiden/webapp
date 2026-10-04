@@ -20,6 +20,7 @@ function parseUpdateArgs(
   args: readonly string[],
 ): UpdateCommandOptions | CliCommandResult {
   let checkOnly = false;
+  let preRelease = false;
   let version: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -29,6 +30,13 @@ function parseUpdateArgs(
         return { exitCode: 1, error: "--check may only be specified once" };
       }
       checkOnly = true;
+      continue;
+    }
+    if (arg === "--pre-release") {
+      if (preRelease) {
+        return { exitCode: 1, error: "--pre-release may only be specified once" };
+      }
+      preRelease = true;
       continue;
     }
     if (arg === "--version") {
@@ -60,15 +68,15 @@ function parseUpdateArgs(
   if (checkOnly && version !== undefined) {
     return { exitCode: 1, error: "Cannot combine --check with --version" };
   }
-  return { checkOnly, version };
+  return { checkOnly, version, preRelease };
 }
 
 export function updateCommand<TAppContext>(
   dependencies: UpdateCommandDependencies<TAppContext>,
 ): WebAppCliCommandDefinition<TAppContext> {
   return {
-    description: "Check for or install application release binaries.",
-    usage: "update [--check] [--version VERSION]",
+    description: "Check for or install stable or prerelease application release binaries.",
+    usage: "update [--check] [--pre-release] [--version VERSION]",
     handler: async ({ args }) => {
       const command = parseUpdateArgs(args);
       if ("exitCode" in command) return command;

@@ -298,8 +298,12 @@ createWebAppCli({
 });
 ```
 
-`update --check` checks the latest release and `update --version VERSION`
-installs a specific release. The command delegates release lookup, platform
+`update --check` checks the latest stable release. `update --pre-release`
+selects a published prerelease only when its version is newer than the latest
+stable release; otherwise, it selects the stable release. Combine it with
+`--check` to inspect that selection without replacing the binary.
+`update --version VERSION` installs a specific release and takes precedence
+over `--pre-release`. The command delegates release lookup, platform
 selection, checksum verification, staging, replacement, rollback, and
 companion-binary handling to `@pablozaiden/installer`. Applications only
 provide the installer configuration; they do not implement update providers.
