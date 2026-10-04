@@ -5,7 +5,7 @@
     "": {
       "name": "@pablozaiden/webapp",
       "dependencies": {
-        "@pablozaiden/installer": "0.1.0",
+        "@pablozaiden/installer": "0.2.0",
         "@simplewebauthn/browser": "14.0.0",
         "@simplewebauthn/server": "14.0.3",
         "bun-plugin-tailwind": "0.1.2",
@@ -83,7 +83,7 @@
 
     "@oven/bun-windows-x64": ["@oven/bun-windows-x64@1.4.2", "", { "os": "win32", "cpu": "x64" }, "sha512-+bN6OuVld/9diT/RLSXSW7JE6CvNE3gL9XsAEjULi1nUsXd6DNO6GuA9jNdNb3r8PdJFnYHr5aypNV1Oj3Rd9g=="],
 
-    "@pablozaiden/installer": ["@pablozaiden/installer@0.1.0", "", { "peerDependencies": { "typescript": "^7.0.0" } }, "sha512-GvQLeMiMszwDSmcNtFdz5UOXBRswrql98VRBlrgrKCyjrfPzG0lJbj0wFU5WN2Ul80c929KoAlbbCwRPO3vJqg=="],
+    "@pablozaiden/installer": ["@pablozaiden/installer@0.2.0", "", { "peerDependencies": { "typescript": "^7.0.0" } }, "sha512-lcdVdqYRdI5cu6ljDZpCGCaDD4MRmjzAq/ZgOkALrRdmH0RuSY2LmIADCuJJtGHmpWo0HNOlHuboNo+4JAQ22A=="],
 
     "@pablozaiden/webapp": ["@pablozaiden/webapp@root:", {}],
 
