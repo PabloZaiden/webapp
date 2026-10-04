@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { buildReleaseAssetName, resolveReleasePlatform } from "@pablozaiden/installer";
 import {
   createWebAppCli,
   type CliProfileStore,
@@ -25,8 +26,13 @@ function createProfileStore(): CliProfileStore {
   };
 }
 
+function updaterAssetName(tagName: string): string {
+  const target = resolveReleasePlatform(process.platform, process.arch);
+  return buildReleaseAssetName("link-cli", tagName, target);
+}
+
 function stableReleaseResponse(tagName: string): Response {
-  const assetName = `link-cli-${tagName}-linux-x64`;
+  const assetName = updaterAssetName(tagName);
   return Response.json({
     tag_name: tagName,
     draft: false,
@@ -39,7 +45,7 @@ function stableReleaseResponse(tagName: string): Response {
 }
 
 function prereleaseListResponse(tagName: string): Response {
-  const assetName = `link-cli-${tagName}-linux-x64`;
+  const assetName = updaterAssetName(tagName);
   return Response.json([{
     tag_name: tagName,
     draft: false,
