@@ -77,7 +77,40 @@ Websocket query filters are combined with the target using AND semantics. A sock
 
 ## Client refresh lifecycle
 
-`useRealtimeRefresh` applies its resource, action, ID, scope, type, and predicate selectors to the received event before invoking `refresh`. `useLiveQuery` combines the initial load with this refresh path:
+`useRealtime` and `useRealtimeRefresh` apply resource, action, ID, scope, type,
+and predicate selectors before updating `lastEvent` or invoking event/refresh
+callbacks. Rejected events do not cause an event-driven hook render and do not
+replace the last accepted event. Selectors and callbacks stay current without
+reconnecting the socket when their identity changes. Server-side `filters`
+still control delivery; client-side selectors avoid unnecessary React work
+for events that reach the browser.
+
+Both hooks track the last accepted event by default. Set `trackLastEvent: false`
+for callback-only consumers that do not render the event itself:
+
+```tsx
+type ChatDeltaEvent = {
+  type: "chat.message.delta";
+  chatId: string;
+  delta: string;
+};
+
+useRealtime<ChatDeltaEvent>({
+  types: ["chat.message.delta"],
+  predicate: (event) => event.chatId === activeChatId,
+  trackLastEvent: false,
+  onEvent: applyChatDelta,
+});
+```
+
+Matching events still invoke callbacks, but do not update event state in this
+mode. Connection status remains reactive and reconnection behavior is unchanged.
+Disabling tracking does not clear an event retained before the option changed;
+a subscription started with tracking disabled has no `lastEvent`.
+
+`useLiveQuery` keeps default tracking and also accepts this option in its
+`realtime` configuration. Its authoritative data updates still render normally.
+It combines the initial load with this refresh path:
 
 ```tsx
 const query = useLiveQuery<Todo[]>({

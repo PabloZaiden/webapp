@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { appWebSocketUrl } from "../api-client";
+import { createLogger } from "../logger";
+
+const log = createLogger("webapp:realtime");
 
 export type RealtimeStatus = "connecting" | "open" | "closed";
 export type RealtimeAction = "created" | "updated" | "changed" | "deleted";
@@ -41,22 +44,27 @@ export function realtimeEventMatches<TEvent>(event: TEvent, selector?: RealtimeE
   return selector.predicate?.(event) ?? true;
 }
 
+export interface UseRealtimeOptions<TEvent> extends RealtimeEventSelector<TEvent> {
+  enabled?: boolean;
+  path?: string;
+  filters?: Record<string, string | undefined>;
+  onEvent?: (event: TEvent) => void;
+  trackLastEvent?: boolean;
+}
+
 export function useRealtime<TEvent>({
   enabled = true,
   path = "/api/ws",
   filters,
   onEvent,
-}: {
-  enabled?: boolean;
-  path?: string;
-  filters?: Record<string, string | undefined>;
-  onEvent?: (event: TEvent) => void;
-}) {
+  trackLastEvent = true,
+  ...selector
+}: UseRealtimeOptions<TEvent>) {
   const [status, setStatus] = useState<RealtimeStatus>("connecting");
   const [lastEvent, setLastEvent] = useState<TEvent>();
   const retryRef = useRef(0);
-  const onEventRef = useRef(onEvent);
-  onEventRef.current = onEvent;
+  const eventOptionsRef = useRef({ onEvent, selector, trackLastEvent });
+  eventOptionsRef.current = { onEvent, selector, trackLastEvent };
 
   useEffect(() => {
     if (!enabled) {
@@ -79,15 +87,29 @@ export function useRealtime<TEvent>({
         setStatus("open");
       };
       socket.onmessage = (message) => {
+        let data: unknown;
         try {
-          const data = JSON.parse(String(message.data)) as { type: string; event?: TEvent };
-          if (data.type === "event" && data.event) {
-            setLastEvent(data.event);
-            onEventRef.current?.(data.event);
-          }
-        } catch {
-          // Ignore malformed realtime payloads from old clients/servers.
+          data = JSON.parse(String(message.data));
+        } catch (error) {
+          log.warn("Ignoring malformed realtime JSON", { error: String(error) });
+          return;
         }
+        if (
+          typeof data !== "object" || data === null
+          || !("type" in data) || data.type !== "event"
+          || !("event" in data) || !data.event
+        ) {
+          return;
+        }
+        const event = data.event as TEvent;
+        const options = eventOptionsRef.current;
+        if (!realtimeEventMatches(event, options.selector)) {
+          return;
+        }
+        if (options.trackLastEvent) {
+          setLastEvent(event);
+        }
+        options.onEvent?.(event);
       };
       socket.onclose = () => {
         setStatus("closed");
@@ -122,26 +144,26 @@ export function useRealtimeRefresh<TEvent = ResourceRealtimeEvent>({
   types,
   predicate,
   onEvent,
+  trackLastEvent,
 }: {
   refresh: (event: TEvent) => void | Promise<void>;
-  enabled?: boolean;
-  path?: string;
-  filters?: Record<string, string | undefined>;
-  onEvent?: (event: TEvent) => void;
-} & RealtimeEventSelector<TEvent>) {
+} & UseRealtimeOptions<TEvent>) {
   const refreshRef = useRef(refresh);
-  const onEventRef = useRef(onEvent);
   refreshRef.current = refresh;
-  onEventRef.current = onEvent;
-  const selector = { resources, actions, ids, scopes, types, predicate } satisfies RealtimeEventSelector<TEvent>;
 
   return useRealtime<TEvent>({
     enabled,
     path,
     filters,
+    resources,
+    actions,
+    ids,
+    scopes,
+    types,
+    predicate,
+    trackLastEvent,
     onEvent: (event) => {
-      if (!realtimeEventMatches(event, selector)) return;
-      onEventRef.current?.(event);
+      onEvent?.(event);
       void refreshRef.current(event);
     },
   });
