@@ -40,12 +40,35 @@ export type WebAppRouteHandler<TParams extends Record<string, string> = Record<s
   ctx: RouteContext<TParams, TEvent>,
 ) => Response | undefined | Promise<Response | undefined>;
 
-export interface RouteAutomationCredential {
+export interface RouteAutomationCredentialResource {
+  name: string;
+  idParameter?: string;
+  purpose: string;
+}
+
+export type RouteAutomationCredential = {
   kind: "ssh";
-  serverParameter: string;
   input?: string;
   header?: string;
-}
+  mapInput?: string;
+  unavailableInput?: string;
+} & (
+  | {
+      serverParameter: string;
+      hostInput?: never;
+      resource?: never;
+    }
+  | {
+      serverParameter?: never;
+      hostInput: string;
+      resource?: never;
+    }
+  | {
+      serverParameter?: never;
+      hostInput?: never;
+      resource: RouteAutomationCredentialResource;
+    }
+);
 
 export interface RouteAutomationMetadata {
   policy: "read" | "write" | "confirm" | "excluded";

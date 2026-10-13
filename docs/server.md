@@ -253,7 +253,7 @@ not a grant of authorization or a framework-managed executor:
 | `reason` | Optional explanation of a restriction or confirmation |
 | `hiddenInputs`, `hiddenQuery` | Input/query field names withheld from automation-facing projections |
 | `completion` | `admission` means accepted/queued/started, not completed; `completed` means the response reports the finished operation |
-| `credential` | Optional private SSH handoff descriptor: `{ kind: "ssh", serverParameter: string, input?: string, header?: string }` |
+| `credential` | Optional `RouteAutomationCredential` private SSH handoff descriptor; exactly one target selector, plus optional private transport/injection names |
 
 If neither the route nor the method declares automation, the resolver returns
 `{ policy: "excluded" }`. An explicitly undefined method `automation` clears an
@@ -264,11 +264,70 @@ Hidden names describe a consumer's projection only; the canonical input/query
 schemas remain intact for server validation and ordinary CLI clients.
 Consumers must obtain hidden values privately, enforce confirmation
 when `policy` is `confirm`, and preserve authentication, same-origin, scope,
-and entity ownership checks when executing. `credential.serverParameter`
-identifies the exact route parameter selecting the SSH server; `input` and
-`header` identify private credential transport names, not values. Never place
-secrets in metadata, generated schemas, model context, logs, or events. This
-descriptor does not obtain credentials or authorize a different execution host.
+and entity ownership checks when executing. Never place secrets in metadata,
+generated schemas, model context, logs, or events. These descriptors do not
+obtain credentials or authorize a different execution host.
+
+#### Private credential target selectors
+
+Every credential descriptor keeps `kind: "ssh"`. Select exactly one target form:
+
+| Selector | Consumer-owned interpretation |
+| --- | --- |
+| `serverParameter: string` | The exact route parameter identifying the SSH server |
+| `hostInput: string` | A canonical request input containing an execution-host reference |
+| `resource: { name: string; idParameter?: string; purpose: string }` | An owned resource and operation purpose used to resolve its authoritative host; an optional route parameter identifies the resource |
+
+`RouteAutomationCredential` is a union requiring one selector and rejecting
+multiple selectors. `serverParameter` is optional on all other forms; existing
+direct-server declarations remain valid. `RouteAutomationCredentialResource`
+exports the resource shape. Resource names, purposes, input shapes, ownership
+checks, target lookup and bulk semantics belong to the consuming application's
+core resolver. Webapp only stores and catalogs this generic metadata.
+
+These optional common fields name private injection destinations, not target
+selectors or credential values. They may be combined with any selector,
+including a resource that resolves multiple authoritative SSH servers:
+
+| Field | Consumer-owned private injection |
+| --- | --- |
+| `input` | Request input for a private credential token |
+| `header` | Request header for a private credential token |
+| `mapInput` | Request input for credentials indexed by authoritative server identifier |
+| `unavailableInput` | Request input for authoritative server identifiers whose credentials are unavailable |
+
+Unavailable credentials must remain explicit; never silently replace a selected
+execution host. The application decides whether the operation may proceed for
+other targets and how to report unavailable credentials.
+
+```ts
+import type { RouteAutomationCredential } from "@pablozaiden/webapp/server";
+
+const direct = {
+  kind: "ssh",
+  serverParameter: "serverId",
+  header: "x-private-credential",
+} satisfies RouteAutomationCredential;
+
+const requestHost = {
+  kind: "ssh",
+  hostInput: "executionHost",
+  input: "credentialToken",
+} satisfies RouteAutomationCredential;
+
+const owned = {
+  kind: "ssh",
+  resource: { name: "documents", idParameter: "documentId", purpose: "execute" },
+  header: "x-private-credential",
+} satisfies RouteAutomationCredential;
+
+const bulk = {
+  kind: "ssh",
+  resource: { name: "documents", purpose: "restart-workers" },
+  mapInput: "credentialTokensByServerId",
+  unavailableInput: "credentialUnavailableServerIds",
+} satisfies RouteAutomationCredential;
+```
 
 Prefer explicit `auth: "user"`, `auth: "admin"` or `auth: "owner"` on app routes. They enforce the role before the handler runs, including API-key and device bearer requests.
 
