@@ -131,6 +131,12 @@ test("builds and manages the Kitchen Sink example as a standalone binary", async
       requestSchema: { required: ["name"] },
       responseSchema: { type: "object", required: ["id", "userId", "name", "status", "updatedAt"] },
     });
+    const missingSchemaMethod = await runCommand([binaryPath, "schema", "projects", "--method"], environment);
+    expect(missingSchemaMethod.exitCode).toBe(1);
+    expect(missingSchemaMethod.stderr).toContain("requires a value");
+    const missingApiMethod = await runCommand([binaryPath, "api", "projects", "-X"], environment);
+    expect(missingApiMethod.exitCode).toBe(1);
+    expect(missingApiMethod.stderr).toContain("requires a value");
 
     const stopped = await runCommand([binaryPath, "serve", "down"], environment);
     expect(stopped).toMatchObject({ exitCode: 0, stderr: "" });

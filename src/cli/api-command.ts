@@ -70,6 +70,24 @@ function endpointArg(args: string[]): string | undefined {
   return args.find((arg) => !arg.startsWith("--"));
 }
 
+function hasMissingOptionValue(args: readonly string[], names: readonly string[]): boolean {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg) continue;
+    for (const name of names) {
+      if (arg === name) {
+        const value = args[index + 1];
+        if (!value?.trim() || value.startsWith("-")) {
+          return true;
+        }
+      } else if (arg.startsWith(`${name}=`) && !arg.slice(name.length + 1).trim()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 interface ResolvedApiCliAuth {
   headers: Headers;
   source: CliAuthSource;
@@ -91,6 +109,10 @@ async function resolveAuth(input: ApiCliCommandOptions): Promise<ResolvedApiCliA
 }
 
 export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<CliCommandResult> {
+  const methodOptions = ["--method", "-X"];
+  if (hasMissingOptionValue(input.args, methodOptions)) {
+    return { exitCode: 1, error: "Option --method/-X requires a value" };
+  }
   const endpoint = endpointArg(input.args);
   if (!endpoint) {
     return { exitCode: 0, output: listOutput(input.catalog) };
@@ -99,7 +121,7 @@ export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<Cli
   if (!match) {
     return { exitCode: 1, error: `Unknown API endpoint: ${endpoint}` };
   }
-  const methodOption = readOption(input.args, ["--method", "-X"]);
+  const methodOption = readOption(input.args, methodOptions);
   const method = (methodOption ?? match.entry.methods[0] ?? "GET").toUpperCase();
   if (!match.entry.methods.includes(method as never)) {
     return { exitCode: 1, error: `Method ${method} is not available for ${match.entry.cliPath}` };

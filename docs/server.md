@@ -278,12 +278,14 @@ Every credential descriptor keeps `kind: "ssh"`. Select exactly one target form:
 | `hostInput: string` | A canonical request input containing an execution-host reference |
 | `resource: { name: string; idParameter?: string; purpose: string }` | An owned resource and operation purpose used to resolve its authoritative host; an optional route parameter identifies the resource |
 
-`RouteAutomationCredential` is a union requiring one selector and rejecting
-multiple selectors. `serverParameter` is optional on all other forms; existing
-direct-server declarations remain valid. `RouteAutomationCredentialResource`
-exports the resource shape. Resource names, purposes, input shapes, ownership
-checks, target lookup and bulk semantics belong to the consuming application's
-core resolver. Webapp only stores and catalogs this generic metadata.
+`RouteAutomationCredential` is a union requiring exactly one selector form:
+`serverParameter` for a direct server, `hostInput` for an execution-host input,
+or `resource` for an owned resource. The other selector fields are excluded
+from each form. Existing direct-server declarations remain valid.
+`RouteAutomationCredentialResource` exports the resource shape. Resource names,
+purposes, input shapes, ownership checks, target lookup and bulk semantics
+belong to the consuming application's core resolver. Webapp only stores and
+catalogs this generic metadata.
 
 These optional common fields name private injection destinations, not target
 selectors or credential values. They may be combined with any selector,

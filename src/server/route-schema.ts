@@ -24,7 +24,27 @@ function copyJsonValue(value: unknown, ancestors: Set<object>): unknown {
   ancestors.add(value);
   try {
     if (Array.isArray(value)) {
-      return value.map((item: unknown) => copyJsonValue(item, ancestors));
+      if (Object.getOwnPropertySymbols(value).length > 0) {
+        throw new TypeError("Route JSON schemas must not contain symbol properties");
+      }
+      const propertyNames = Object.getOwnPropertyNames(value);
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+      if (!lengthDescriptor || !("value" in lengthDescriptor) || typeof lengthDescriptor.value !== "number") {
+        throw new TypeError("Route JSON schema arrays must have a valid length");
+      }
+      const length = lengthDescriptor.value;
+      if (!Number.isInteger(length) || propertyNames.length !== length + 1) {
+        throw new TypeError("Route JSON schema arrays must be dense and contain no extra properties");
+      }
+      const items: unknown[] = [];
+      for (let index = 0; index < length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !("value" in descriptor)) {
+          throw new TypeError("Route JSON schema arrays must contain dense data properties");
+        }
+        items.push(copyJsonValue(descriptor.value, ancestors));
+      }
+      return items;
     }
     if (Object.getOwnPropertySymbols(value).length > 0) {
       throw new TypeError("Route JSON schemas must not contain symbol properties");
