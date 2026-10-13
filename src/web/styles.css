@@ -195,6 +195,7 @@ textarea::placeholder {
 }
 
 .wapp-sidebar-header {
+  flex-wrap: wrap;
   justify-content: space-between;
   padding: 0.375rem 0.75rem;
 }
@@ -225,6 +226,7 @@ textarea::placeholder {
 }
 
 .wapp-brand {
+  flex: 1 1 2.25rem;
   min-width: 0;
   overflow: hidden;
   border: 0;
@@ -277,9 +279,27 @@ textarea::placeholder {
 }
 
 .wapp-sidebar-actions {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+  align-items: flex-start;
+}
+
+.wapp-sidebar-actions,
+.wapp-sidebar-app-actions,
+.wapp-sidebar-fixed-actions {
   display: flex;
-  align-items: center;
   gap: 0.5rem;
+}
+
+.wapp-sidebar-app-actions {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.wapp-sidebar-fixed-actions {
+  flex: 0 0 auto;
 }
 
 .wapp-icon-button {
@@ -330,6 +350,12 @@ textarea::placeholder {
 .wapp-sidebar-top-button:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--wapp-muted), transparent 20%);
   outline-offset: 2px;
+}
+
+.wapp-sidebar-top-button:disabled,
+.wapp-sidebar-action:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .wapp-svg {
@@ -487,7 +513,8 @@ textarea::placeholder {
   border-radius: 0.375rem;
 }
 
-.wapp-sidebar-action:hover {
+.wapp-sidebar-action:hover,
+.wapp-sidebar-action.active {
   background: color-mix(in srgb, var(--wapp-muted), transparent 88%);
   color: var(--wapp-text);
 }

@@ -1,5 +1,6 @@
-import { z } from "zod";
-import { findRouteCatalogEntry, type RouteCatalogEntry } from "../server/route-catalog";
+import { findRouteCatalogEntry, resolveRouteOperation, type RouteCatalogEntry } from "../server/route-catalog";
+import { routeSchemaToJsonSchema } from "../server/route-schema";
+import type { HttpMethod, RouteOperationMetadata } from "../server/routes";
 import {
   forceRefreshCliAuth,
   resolveCliAuth,
@@ -29,15 +30,6 @@ export interface ApiCliCommandOptions {
   now?: () => Date;
 }
 
-function schemaJson(schema: unknown): unknown {
-  if (!schema) return undefined;
-  try {
-    return z.toJSONSchema(schema as z.ZodTypeAny);
-  } catch {
-    return schema;
-  }
-}
-
 function listOutput(catalog: readonly RouteCatalogEntry[]): string {
   return catalog
     .filter((entry) => entry.path.startsWith("/api/"))
@@ -45,7 +37,18 @@ function listOutput(catalog: readonly RouteCatalogEntry[]): string {
     .join("\n");
 }
 
-function schemaOutput(entry: RouteCatalogEntry): string {
+function operationSchemaOutput(operation: RouteOperationMetadata) {
+  return {
+    description: operation.description,
+    querySchema: routeSchemaToJsonSchema(operation.querySchema),
+    requestSchema: routeSchemaToJsonSchema(operation.requestSchema),
+    responseSchema: routeSchemaToJsonSchema(operation.responseSchema, { io: "output" }),
+    automation: operation.automation,
+  };
+}
+
+function schemaOutput(entry: RouteCatalogEntry, method?: HttpMethod): string {
+  const metadata = method ? resolveRouteOperation(entry, method) : entry;
   return JSON.stringify({
     path: entry.path,
     cliPath: entry.cliPath,
@@ -53,11 +56,13 @@ function schemaOutput(entry: RouteCatalogEntry): string {
     auth: entry.auth,
     sameOrigin: entry.sameOrigin,
     scopes: entry.scopes,
-    description: entry.description,
     tags: entry.tags,
-    querySchema: schemaJson(entry.querySchema),
-    requestSchema: schemaJson(entry.requestSchema),
-    responseSchema: schemaJson(entry.responseSchema),
+    ...operationSchemaOutput(metadata),
+    ...(method ? { method } : {}),
+    operations: Object.fromEntries((method ? [method] : entry.methods).map((availableMethod) => [
+      availableMethod,
+      operationSchemaOutput(resolveRouteOperation(entry, availableMethod)),
+    ])),
   }, null, 2);
 }
 
@@ -94,12 +99,17 @@ export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<Cli
   if (!match) {
     return { exitCode: 1, error: `Unknown API endpoint: ${endpoint}` };
   }
-  if (input.mode === "schema") {
-    return { exitCode: 0, output: schemaOutput(match.entry) };
-  }
-  const method = (readOption(input.args, ["--method", "-X"]) ?? match.entry.methods[0] ?? "GET").toUpperCase();
+  const methodOption = readOption(input.args, ["--method", "-X"]);
+  const method = (methodOption ?? match.entry.methods[0] ?? "GET").toUpperCase();
   if (!match.entry.methods.includes(method as never)) {
     return { exitCode: 1, error: `Method ${method} is not available for ${match.entry.cliPath}` };
+  }
+  if (input.mode === "schema") {
+    try {
+      return { exitCode: 0, output: schemaOutput(match.entry, methodOption ? method as HttpMethod : undefined) };
+    } catch (error) {
+      return { exitCode: 1, error: `Cannot represent schemas for ${match.entry.cliPath}: ${String(error)}` };
+    }
   }
   const payload = readOption(input.args, ["--payload", "--data", "-d"]);
   const auth = await resolveAuth(input);

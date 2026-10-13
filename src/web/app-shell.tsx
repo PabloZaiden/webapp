@@ -144,7 +144,6 @@ export function AppShell({
     return () => document.removeEventListener("keydown", handleSidebarShortcut);
   }, [isMobile, toggleSidebarCollapsed]);
 
-  const topSidebarActions = topActions.slice(0, 2);
   const sidebarToggleLabel = sidebarCollapsed ? "Show sidebar" : "Collapse sidebar";
   const appIconSource = normalizeAppIconSource(appIcon);
   const hasAppIcon = Boolean(appIconSource);
@@ -170,6 +169,9 @@ export function AppShell({
     closeSidebar();
   };
   const runSidebarHeaderAction = (action: SidebarAction) => {
+    if (action.disabled || action.busy) {
+      return;
+    }
     if (action.onAction) {
       action.onAction();
     } else if (action.route) {
@@ -264,9 +266,29 @@ export function AppShell({
             {hasAppIcon ? <img src={appIconSource} alt="" /> : appName}
           </button>
           <div className="wapp-sidebar-actions">
-            {topSidebarActions.map((action) => <IconButton key={action.id} className="wapp-sidebar-top-button" title={action.title} aria-label={action.title} onClick={() => runSidebarHeaderAction(action)}><ActionIcon icon={action.icon} /></IconButton>)}
-            <IconButton className="wapp-sidebar-top-button" title="Settings" aria-label="Open settings" active={route.view === "settings"} onClick={() => navigateFromSidebarHeader({ view: "settings" })}><Icon name="settings" /></IconButton>
-            {!isMobile ? <IconButton className="wapp-sidebar-top-button" title={sidebarToggleLabel} aria-label={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
+            {topActions.length ? (
+              <div className="wapp-sidebar-app-actions">
+                {topActions.map((action) => (
+                  <IconButton
+                    key={action.id}
+                    className="wapp-sidebar-top-button"
+                    title={action.title}
+                    aria-label={action.title}
+                    disabled={action.disabled || action.busy}
+                    active={action.active}
+                    aria-pressed={action.active}
+                    aria-busy={action.busy || undefined}
+                    onClick={() => runSidebarHeaderAction(action)}
+                  >
+                    <ActionIcon icon={action.icon} />
+                  </IconButton>
+                ))}
+              </div>
+            ) : null}
+            <div className="wapp-sidebar-fixed-actions">
+              <IconButton className="wapp-sidebar-top-button" title="Settings" aria-label="Open settings" active={route.view === "settings"} onClick={() => navigateFromSidebarHeader({ view: "settings" })}><Icon name="settings" /></IconButton>
+              {!isMobile ? <IconButton className="wapp-sidebar-top-button" title={sidebarToggleLabel} aria-label={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
+            </div>
           </div>
         </div>
         <div className="wapp-sidebar-scroll">

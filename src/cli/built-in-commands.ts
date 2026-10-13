@@ -201,7 +201,7 @@ function apiCommand<TAppContext>(
       : "Print schema metadata for an application API route.",
     usage: mode === "api"
       ? "api [endpoint] [--method METHOD] [--payload JSON]"
-      : "schema [endpoint]",
+      : "schema [endpoint] [--method METHOD]",
     handler: async ({ args, profile }) => await runApiCliCommand({
       catalog: await dependencies.routeCatalog(),
       args,

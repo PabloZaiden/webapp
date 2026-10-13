@@ -278,7 +278,24 @@ the persisted access token is still the token that was rejected; if another
 caller already replaced that token, it reuses the newer persisted credentials
 without a redundant refresh. A final `401` is returned unchanged. Environment
 API-key requests are never refreshed or retried. `schema` prints route and
-schema metadata. `logs` reuses the same selected profile/environment
+schema metadata. Existing route-level fields remain available; `operations`
+also contains the resolved contracts of each registered method:
+
+```bash
+my-app schema projects
+my-app schema projects --method POST
+```
+
+With `--method` (or `-X`), the top-level description and schemas describe that
+method, and `operations` contains only the selected method. Explicit undefined
+method schemas clear inherited schemas. Invalid methods fail without sending a
+request. Request/query schemas use Zod input conversion; response schemas use
+output conversion. Unrepresentable schemas fail the command with an explicit
+error rather than emitting schema implementation internals. Schema inspection
+does not apply automation hidden-field projections: it is the ordinary
+canonical API contract. Automation descriptors must never contain secrets.
+
+`logs` reuses the same selected profile/environment
 authentication and requests `GET /api/server/logs`.
 
 ## Updating installed binaries

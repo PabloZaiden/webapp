@@ -40,13 +40,34 @@ export type WebAppRouteHandler<TParams extends Record<string, string> = Record<s
   ctx: RouteContext<TParams, TEvent>,
 ) => Response | undefined | Promise<Response | undefined>;
 
-export interface RouteMetadata {
+export interface RouteAutomationCredential {
+  kind: "ssh";
+  serverParameter: string;
+  input?: string;
+  header?: string;
+}
+
+export interface RouteAutomationMetadata {
+  policy: "read" | "write" | "confirm" | "excluded";
+  reason?: string;
+  hiddenInputs?: readonly string[];
+  hiddenQuery?: readonly string[];
+  completion?: "admission" | "completed";
+  credential?: RouteAutomationCredential;
+}
+
+export interface RouteOperationMetadata {
   description?: string;
-  cliPath?: string;
-  tags?: string[];
   requestSchema?: unknown;
   querySchema?: unknown;
   responseSchema?: unknown;
+  automation?: RouteAutomationMetadata;
+}
+
+export interface RouteMetadata extends RouteOperationMetadata {
+  cliPath?: string;
+  tags?: string[];
+  operations?: Partial<Record<HttpMethod, RouteOperationMetadata>>;
   catalog?: boolean;
 }
 
@@ -348,6 +369,11 @@ function compileRoute<TEvent>(pattern: string, route: RouteDefinition<TEvent>): 
   const methods = methodsFor(route);
   if (methods.length === 0) {
     invalidRouteDefinition(pattern, "at least one supported HTTP method handler is required");
+  }
+  for (const method of Object.keys(route.operations ?? {})) {
+    if (!methods.includes(method as HttpMethod)) {
+      invalidRouteDefinition(pattern, `operation metadata "${method}" requires a registered supported method handler`);
+    }
   }
   if (route.userParam !== undefined && !patterns.api.captures.some((capture) => capture.name === route.userParam)) {
     invalidRouteDefinition(pattern, `userParam "${route.userParam}" is not declared in the API path`);

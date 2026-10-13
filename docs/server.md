@@ -182,9 +182,93 @@ output; it does not generate prose documentation automatically:
 | `cliPath` | CLI-friendly path; defaults to the API path without `/api/` |
 | `tags` | Grouping labels exposed through the route catalog and schema output |
 | `requestSchema`, `querySchema`, `responseSchema` | Optional schema objects for CLI/schema output; use the same runtime `requestSchema` with `parseJson` when a route accepts a body |
+| `operations` | Optional `Partial<Record<HttpMethod, RouteOperationMetadata>>` refinements for each registered method |
+| `automation` | Optional explicit automation policy; inherited by method metadata |
 | `catalog: false` | Exclude a route from generated catalogs |
 
 Use `createRouteCatalog(routes)` and `findRouteCatalogEntry(catalog, input)` to power app CLI commands without maintaining a second route catalog.
+
+### Per-method operation contracts
+
+`RouteOperationMetadata` declares `description`, `requestSchema`, `querySchema`,
+`responseSchema`, and `automation`. `RouteMetadata`, `RouteDefinition`, and
+`RouteCatalogEntry` expose `operations` without changing existing route-level
+metadata. Metadata may describe only methods with registered handlers; an
+unsupported or unregistered metadata method fails route compilation.
+
+Use method contracts when a collection route lists and creates different data:
+
+```ts
+const routes = defineRoutes({
+  "/api/projects": {
+    auth: "user",
+    requestSchema: projectCreateSchema,
+    operations: {
+      GET: {
+        description: "List your projects",
+        requestSchema: undefined,
+        querySchema: z.object({ status: z.string().optional() }),
+        automation: { policy: "read", completion: "completed" },
+      },
+      POST: {
+        description: "Create a project",
+        querySchema: undefined,
+        automation: { policy: "write", completion: "completed" },
+      },
+    },
+    GET: listProjects,
+    POST: createProject,
+  },
+});
+```
+
+`resolveRouteOperation(entry, method)` returns `ResolvedRouteOperation`,
+including the selected `method`. Method properties override route properties;
+an explicitly present `requestSchema: undefined` or `querySchema: undefined`
+clears an inherited schema, so query-only and body-free operations do not
+advertise a creation body. An omitted property inherits the route default.
+`null` also denotes no schema for conversion. Resolving an unregistered method
+throws. Metadata is descriptive, not automatic request validation: handlers
+still parse and validate their actual input.
+
+`routeSchemaToJsonSchema(schema, options?)` returns a
+`Record<string, unknown>` or `undefined` for an absent schema. It uses Zod's
+JSON Schema conversion with `io: "input"` by default: a transformed or
+defaulted input is described as the caller supplies it, not as the parsed
+output. Pass `{ io: "output" }` for response schemas. Plain JSON schema objects
+are copied as JSON values. Unsupported schemas, non-JSON values, accessors,
+class instances and circular references throw; no fallback serializes Zod
+internals and no unrepresentable schema silently becomes an unconstrained
+schema. Conversion does not replace runtime validation or encode arbitrary
+Zod refinements that JSON Schema cannot express.
+
+### Automation metadata
+
+`RouteAutomationMetadata` is an explicit contract for generic consumers,
+not a grant of authorization or a framework-managed executor:
+
+| Field | Meaning |
+| --- | --- |
+| `policy` | `read`, `write`, `confirm`, or `excluded` |
+| `reason` | Optional explanation of a restriction or confirmation |
+| `hiddenInputs`, `hiddenQuery` | Input/query field names withheld from automation-facing projections |
+| `completion` | `admission` means accepted/queued/started, not completed; `completed` means the response reports the finished operation |
+| `credential` | Optional private SSH handoff descriptor: `{ kind: "ssh", serverParameter: string, input?: string, header?: string }` |
+
+If neither the route nor the method declares automation, the resolver returns
+`{ policy: "excluded" }`. An explicitly undefined method `automation` clears an
+inherited policy and also resolves to excluded. Never infer admission, safety,
+or automation eligibility from the HTTP method alone.
+
+Hidden names describe a consumer's projection only; the canonical input/query
+schemas remain intact for server validation and ordinary CLI clients.
+Consumers must obtain hidden values privately, enforce confirmation
+when `policy` is `confirm`, and preserve authentication, same-origin, scope,
+and entity ownership checks when executing. `credential.serverParameter`
+identifies the exact route parameter selecting the SSH server; `input` and
+`header` identify private credential transport names, not values. Never place
+secrets in metadata, generated schemas, model context, logs, or events. This
+descriptor does not obtain credentials or authorize a different execution host.
 
 Prefer explicit `auth: "user"`, `auth: "admin"` or `auth: "owner"` on app routes. They enforce the role before the handler runs, including API-key and device bearer requests.
 

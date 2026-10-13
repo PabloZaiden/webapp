@@ -8,22 +8,45 @@ import {
   type CompiledRoutePatterns,
   type HttpMethod,
   type RouteAuth,
+  type RouteAutomationMetadata,
+  type RouteOperationMetadata,
   type RouteTable,
   type SameOriginMode,
 } from "./routes";
 
-export interface RouteCatalogEntry {
+export interface RouteCatalogEntry extends RouteOperationMetadata {
   path: string;
   cliPath: string;
   methods: HttpMethod[];
   auth: RouteAuth;
   sameOrigin: SameOriginMode;
   scopes: string[];
-  description?: string;
   tags: string[];
-  requestSchema?: unknown;
-  querySchema?: unknown;
-  responseSchema?: unknown;
+  operations?: Partial<Record<HttpMethod, RouteOperationMetadata>>;
+}
+
+export interface ResolvedRouteOperation extends RouteOperationMetadata {
+  method: HttpMethod;
+  automation: RouteAutomationMetadata;
+}
+
+export function resolveRouteOperation(entry: RouteCatalogEntry, method: HttpMethod): ResolvedRouteOperation {
+  if (!entry.methods.includes(method)) {
+    throw new Error(`Method ${method} is not available for ${entry.path}`);
+  }
+  const metadata: RouteOperationMetadata = {
+    description: entry.description,
+    requestSchema: entry.requestSchema,
+    querySchema: entry.querySchema,
+    responseSchema: entry.responseSchema,
+    automation: entry.automation,
+    ...entry.operations?.[method],
+  };
+  return {
+    ...metadata,
+    method,
+    automation: metadata.automation ?? { policy: "excluded" },
+  };
 }
 
 export interface RouteCatalogMatch {
@@ -71,6 +94,8 @@ function catalogEntry<TEvent>(compiled: CompiledRoute<TEvent>): RouteCatalogEntr
     requestSchema: compiled.route.requestSchema,
     querySchema: compiled.route.querySchema,
     responseSchema: compiled.route.responseSchema,
+    automation: compiled.route.automation,
+    operations: compiled.route.operations,
   };
   compiledCatalogEntries.set(entry, compiled.patterns);
   return entry;

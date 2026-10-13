@@ -23,11 +23,32 @@ const projectUpdateSchema = z.object({
   status: z.enum(["idle", "running", "failed"]).optional(),
 });
 
+const projectSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  name: z.string(),
+  status: z.enum(["idle", "running", "failed"]),
+  updatedAt: z.string(),
+});
+
 function createKitchenSinkRoutes(store: WebAppStore, appStore: KitchenSinkStore) {
   return defineRoutes<Event>({
     "/api/projects": {
       auth: "user",
       requestSchema: projectCreateSchema,
+      operations: {
+        GET: {
+          description: "List your projects",
+          requestSchema: undefined,
+          responseSchema: z.array(projectSchema),
+          automation: { policy: "read", completion: "completed" },
+        },
+        POST: {
+          description: "Create a project",
+          responseSchema: projectSchema,
+          automation: { policy: "write", completion: "completed" },
+        },
+      },
       GET: (_req, ctx) => {
         const user = ctx.requireUser();
         ensureSeedProjects(store, appStore, user.id);
@@ -47,6 +68,13 @@ function createKitchenSinkRoutes(store: WebAppStore, appStore: KitchenSinkStore)
     "/api/projects/:id": {
       auth: "user",
       requestSchema: projectUpdateSchema,
+      operations: {
+        PATCH: {
+          description: "Update a project",
+          responseSchema: projectSchema,
+          automation: { policy: "write", completion: "completed" },
+        },
+      },
       async PATCH(req, ctx) {
         const user = ctx.requireUser();
         const project = ctx.requireOwned(appStore.getProject(ctx.params["id"]!, user.id));
