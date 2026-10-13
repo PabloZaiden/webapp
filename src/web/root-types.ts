@@ -58,6 +58,7 @@ export interface WebAppRootProps {
   sidebar: {
     search?: boolean;
     topActions?: SidebarAction[];
+    bottomContent?: ReactNode;
     tabs?: SidebarTab[];
     pinning?: false | {
       sectionTitle?: string;

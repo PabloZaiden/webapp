@@ -117,6 +117,28 @@ Sidebar nodes support:
 | `render` | Optional custom content renderer for `type: "item"` nodes; it receives the node, active/child-collapse state, navigation, and actions |
 | `defaultCollapsed` | Initial collapsed state |
 
+### Fixed bottom content
+
+Use optional `sidebar.bottomContent` for application-owned controls that must
+stay above the version/reload row, outside the scrollable search and tree.
+The framework owns the slot's spacing and placement; the application owns its
+content and state:
+
+```tsx
+sidebar={{
+  getNodes: buildSidebarNodes,
+  bottomContent: activeConnection ? <ConnectionControls /> : null,
+}}
+```
+
+The slot is independent of the selected tab and search. It remains in the same
+place in the mobile drawer; buttons inside it do not automatically dismiss the
+drawer. Collapsing or closing the sidebar hides the controls but does not unmount
+their shell-owned state. Put long-lived connection ownership outside the content
+component. When content is absent, the existing layout is unchanged. Version,
+reload and optional tabs remain framework-owned below the slot; do not recreate
+them or position content through framework DOM queries, portals or overrides.
+
 Search is intentionally app-defined: `getNodes({ search, activeTab })` receives trimmed search text (an empty string for a blank or whitespace-only query) and the selected tab id, and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
 
 `getNodes` can return either the node array or an explicit snapshot:

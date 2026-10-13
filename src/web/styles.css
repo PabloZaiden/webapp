@@ -683,6 +683,12 @@ textarea::placeholder {
   color: var(--wapp-text);
 }
 
+.wapp-sidebar-bottom-content {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 0.5rem 0.625rem 0;
+}
+
 .wapp-sidebar-footer {
   display: flex;
   align-items: center;

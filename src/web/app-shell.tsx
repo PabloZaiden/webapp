@@ -59,6 +59,7 @@ export interface AppShellProps {
   appIcon?: string | URL;
   homeRoute: WebAppRoute;
   topActions: SidebarAction[];
+  sidebarBottomContent?: ReactNode;
   nodes: SidebarNode[];
   route: WebAppRoute;
   navigate: (route: WebAppRoute) => void;
@@ -92,6 +93,7 @@ export function AppShell({
   appIcon,
   homeRoute,
   topActions,
+  sidebarBottomContent,
   nodes,
   route,
   navigate,
@@ -315,6 +317,9 @@ export function AppShell({
           ) : null}
           <SidebarTree nodes={nodes} route={route} navigate={(next) => { navigate(next); setSidebarOpen(false); }} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} />
         </div>
+        {sidebarBottomContent != null && sidebarBottomContent !== false ? (
+          <div className="wapp-sidebar-bottom-content">{sidebarBottomContent}</div>
+        ) : null}
         <div className="wapp-sidebar-footer">v{effectiveVersion}<button type="button" aria-label="Reload" onClick={() => window.location.reload()}><Icon name="refresh" /></button></div>
         {sidebarTabs.length ? (
           <nav className="wapp-sidebar-tabs" aria-label="Sidebar sections">
