@@ -427,13 +427,19 @@ the root logger and all cached sub-loggers. It is selected from
 default, in that order.
 
 Every emitted entry is written through `tslog` to the appropriate stdout or
-stderr stream. When in-memory capture is enabled, the same rendered entries
-from both framework and application loggers are also retained in the
-process-local buffer. Capture is disabled by default and can be initialized
-with `{PREFIX}_IN_MEMORY_LOGS=true`; an administrator can then change the
-runtime toggle from Developer Settings. The environment value is an initial
-value, not a lock, and capture is cleared when disabled or when the process
-starts.
+stderr stream. When temporary-file capture is enabled, the same rendered
+entries from framework and application loggers are appended as JSON Lines to a
+private directory under the operating system's temporary directory. Capture
+is disabled by default and can be initialized with
+`{PREFIX}_IN_MEMORY_LOGS=true`; the environment variable retains its historical
+name. An administrator can change the runtime toggle from Developer Settings.
+The environment value is an initial value, not a lock. Disabling capture and
+clean server shutdown remove the file; abrupt termination can leave it for the
+OS to clean. The directory and file use owner-only permissions on platforms
+that support POSIX modes. The file is not encrypted, so avoid logging secrets.
+Writes are synchronous and can add latency at high log volume. There is no
+count or size cap, so capture can exhaust temporary disk space. Retrieving all
+logs materializes the complete snapshot in memory.
 
 Built-in endpoints include:
 
@@ -450,8 +456,8 @@ Built-in endpoints include:
 | `/device` | Browser device-code approval screen |
 | `/.well-known/jwks.json`, `/.well-known/openid-configuration` | Token verification metadata |
 | `/api/preferences/theme`, `/api/preferences/log-level` | Settings persistence |
-| `GET /api/server/logs` | Admin-only snapshot of the in-memory server logs |
-| `PUT /api/server/logs/settings` | Admin-only runtime toggle for in-memory server logs |
+| `GET /api/server/logs` | Admin-only snapshot of temporary server logs |
+| `PUT /api/server/logs/settings` | Admin-only runtime toggle for temporary server logs |
 | `/api/server/kill` | Admin-only server shutdown |
 | `/api/ws` | Realtime websocket by default |
 
@@ -468,10 +474,11 @@ and the rendered `tslog` line. When capture is disabled, the endpoint returns
 `200` with `enabled: false` and an empty list. `PUT /api/server/logs/settings`
 accepts `{ "enabled": boolean }`, is restricted to admins, and uses the normal
 same-origin policy for browser mutations. API-key and bearer callers continue
-to use the existing token-auth behavior. The in-memory buffer is limited to
-the newest 1,000 entries and 512 KiB of rendered UTF-8 lines; disabling capture
-clears it. These endpoints expose entries emitted through the shared WebApp
-logger and never make the logs durable.
+to use the existing token-auth behavior. Entries are appended without a count
+or size limit to the private temporary file; disabling capture deletes it.
+The endpoint returns the complete snapshot as one response, so very large
+captures can also consume substantial memory and response bandwidth. This is
+temporary diagnostics, not durable log retention.
 
 ## Client logging
 

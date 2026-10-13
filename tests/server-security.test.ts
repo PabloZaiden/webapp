@@ -1,8 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import type { CurrentUser } from "../src/contracts";
 import { createApiKey } from "../src/server/auth/api-keys";
+import { createLogger } from "../src/server/logger";
 import {
   createWebAppServer,
   defineRoutes,
@@ -95,6 +96,7 @@ async function startServer(input: {
   web?: WebAppServerConfig["web"];
   requestFilter?: WebAppServerConfig["requestFilter"];
   passkeyDisabled?: boolean;
+  inMemoryLogsEnabled?: boolean;
 }): Promise<{
   app: ReturnType<typeof createWebAppServer>;
   store: WebAppStore;
@@ -109,7 +111,7 @@ async function startServer(input: {
     dataDir: input.dataDir,
     logLevel: "info",
     logLevelFromEnv: false,
-    inMemoryLogsEnabled: false,
+    inMemoryLogsEnabled: input.inMemoryLogsEnabled ?? false,
     passkeyDisabled: input.passkeyDisabled ?? false,
     sameOriginDisabled: false,
     trustProxy: { enabled: false, headers: [], chain: "first" },
@@ -135,6 +137,89 @@ async function startServer(input: {
     baseUrl: server.url.toString().replace(/\/$/, ""),
   };
 }
+
+test("captures more than 1,000 server log entries through the admin endpoint", async () => {
+  const dataDir = testDataDir("server-log-capture");
+  const store = memoryWebAppStore();
+  store.initialize();
+  const owner = createUser(store, "log-owner");
+  const ownerKey = createApiKey(store, currentUser(owner), { name: "server log test key", scopes: ["*"] });
+  const running = await startServer({
+    envPrefix: "TEST_E2E_SERVER_LOG_CAPTURE",
+    dataDir,
+    store,
+    auth: { passkeys: false, apiKeys: true },
+    web: false,
+    inMemoryLogsEnabled: true,
+  });
+
+  try {
+    const captureLogger = createLogger("server-log-capture-test");
+    const consoleOutput = spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      for (let index = 0; index < 1_001; index += 1) {
+        captureLogger.info(`capture-entry:${index}`);
+      }
+      captureLogger.info(`capture-large:${"x".repeat(512 * 1024)}`);
+    } finally {
+      consoleOutput.mockRestore();
+    }
+
+    const response = await fetch(`${running.baseUrl}/api/server/logs`, {
+      headers: { authorization: bearer(ownerKey.token) },
+    });
+    expect(response.status).toBe(200);
+    const body = await responseJson<{ enabled: boolean; logs: Array<{ message: string }> }>(response);
+    expect(body.enabled).toBe(true);
+    const regularEntries = body.logs.filter((entry) => entry.message.startsWith("capture-entry:"));
+    expect(regularEntries).toHaveLength(1_001);
+    expect(regularEntries[0]?.message).toBe("capture-entry:0");
+    expect(regularEntries.at(-1)?.message).toBe("capture-entry:1000");
+    const largeEntry = body.logs.find((entry) => entry.message.startsWith("capture-large:"));
+    expect(largeEntry?.message.length).toBeGreaterThan(512 * 1024);
+
+    const disabled = await fetch(`${running.baseUrl}/api/server/logs/settings`, {
+      method: "PUT",
+      headers: jsonHeaders(running.baseUrl, ownerKey.token),
+      body: JSON.stringify({ enabled: false }),
+    });
+    expect(disabled.status).toBe(200);
+    const afterDisable = await fetch(`${running.baseUrl}/api/server/logs`, {
+      headers: { authorization: bearer(ownerKey.token) },
+    });
+    expect(await responseJson<{ enabled: boolean; logs: unknown[] }>(afterDisable)).toEqual({
+      enabled: false,
+      logs: [],
+    });
+
+    const reenabled = await fetch(`${running.baseUrl}/api/server/logs/settings`, {
+      method: "PUT",
+      headers: jsonHeaders(running.baseUrl, ownerKey.token),
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(reenabled.status).toBe(200);
+
+    const restartConsoleOutput = spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      captureLogger.info("capture-before-clean-shutdown");
+      await running.app.stop(true);
+      const restartedServer = await running.app.start();
+      captureLogger.info("capture-after-clean-shutdown");
+      const restartedBaseUrl = restartedServer.url.toString().replace(/\/$/, "");
+      const afterRestart = await fetch(`${restartedBaseUrl}/api/server/logs`, {
+        headers: { authorization: bearer(ownerKey.token) },
+      });
+      const restartedLogs = await responseJson<{ logs: Array<{ message: string }> }>(afterRestart);
+      expect(restartedLogs.logs.some((entry) => entry.message === "capture-before-clean-shutdown")).toBe(false);
+      expect(restartedLogs.logs.some((entry) => entry.message === "capture-after-clean-shutdown")).toBe(true);
+    } finally {
+      restartConsoleOutput.mockRestore();
+    }
+  } finally {
+    await running.app.stop(true);
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
 
 test("supports a headless server with a deny-by-default request surface", async () => {
   const dataDir = testDataDir("headless-request-filter");

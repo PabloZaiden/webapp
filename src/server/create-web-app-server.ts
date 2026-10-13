@@ -11,7 +11,13 @@ import {
 import { createAuthentication } from "./authentication";
 import { createFrameworkEndpointHandler } from "./framework-endpoints";
 import { createServerLifecycle } from "./server-lifecycle";
-import { inMemoryLogStorage, resetInMemoryLogStorage, setInMemoryLogStorageEnabled, setLogLevel } from "./logger";
+import {
+  resetServerLogStorage,
+  serverLogStorage,
+  setLogLevel,
+  setServerLogStorageEnabled,
+  type ServerLogStorage,
+} from "./logger";
 import { createWebDocumentProvider, htmlResponse } from "./web-document";
 import { createPublicRouteDispatcher } from "./public-route-dispatch";
 import { createRouteDispatcher } from "./route-dispatch";
@@ -74,8 +80,27 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     throw new Error("runtimeConfig appName and envPrefix must match the createWebAppServer inputs");
   }
   const routes = compileRouteTable(input.routes ?? {});
-  resetInMemoryLogStorage();
-  setInMemoryLogStorageEnabled(config.inMemoryLogsEnabled);
+  let serverLogsEnabled = config.inMemoryLogsEnabled;
+  resetServerLogStorage();
+  setServerLogStorageEnabled(config.inMemoryLogsEnabled);
+  const serverLogs: ServerLogStorage = {
+    isEnabled: serverLogStorage.isEnabled,
+    setEnabled(enabled) {
+      try {
+        serverLogStorage.setEnabled(enabled);
+      } finally {
+        serverLogsEnabled = serverLogStorage.isEnabled();
+      }
+    },
+    getEntries: serverLogStorage.getEntries,
+    reset() {
+      try {
+        serverLogStorage.reset();
+      } finally {
+        serverLogsEnabled = serverLogStorage.isEnabled();
+      }
+    },
+  };
   const store = input.store ?? sqliteWebAppStore({ dataDir: config.dataDir });
   store.initialize();
   const savedLogLevel = store.getLogLevelPreference();
@@ -115,7 +140,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     deviceAuthEnabled,
     configResponse: input.configResponse,
     onLogLevelChange: input.logLevel?.onChange,
-    inMemoryLogs: inMemoryLogStorage,
+    serverLogs,
     ensureWebDocument,
   });
   const publicRouteDispatcher = createPublicRouteDispatcher({
@@ -171,7 +196,30 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const lifecycle = createServerLifecycle({
     config,
     deviceAuthEnabled,
-    hooks: input.lifecycle,
+    hooks: {
+      ...(input.lifecycle ?? {}),
+      beforeStart: async () => {
+        setServerLogStorageEnabled(serverLogsEnabled);
+        await input.lifecycle?.beforeStart?.();
+      },
+      afterStop: async (server) => {
+        const errors: unknown[] = [];
+        try {
+          await input.lifecycle?.afterStop?.(server);
+        } catch (error) {
+          errors.push(error);
+        }
+        try {
+          resetServerLogStorage();
+        } catch (error) {
+          errors.push(error);
+        }
+        if (errors.length === 1) throw errors[0];
+        if (errors.length > 1) {
+          throw new AggregateError(errors, "Web app server cleanup failed");
+        }
+      },
+    },
     idleTimeout,
     tls: input.server?.tls,
     publicRoutes,
@@ -183,5 +231,23 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     handleRequest,
   });
 
-  return { config, store, realtime, handleRequest, ...lifecycle };
+  async function stop(closeActiveConnections?: boolean): Promise<void> {
+    const errors: unknown[] = [];
+    try {
+      await lifecycle.stop(closeActiveConnections);
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      resetServerLogStorage();
+    } catch (error) {
+      errors.push(error);
+    }
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) {
+      throw new AggregateError(errors, "Web app server cleanup failed");
+    }
+  }
+
+  return { config, store, realtime, handleRequest, ...lifecycle, stop };
 }

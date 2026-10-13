@@ -19,7 +19,7 @@ export function AccountSection({ config, refresh, setError }: AccountSectionProp
   const { preference, setPreference, loading, error, retry } = useTheme();
   const logLevel = useLogLevel();
   const [logLevelSaving, setLogLevelSaving] = useState(false);
-  const [inMemoryLogsSaving, setInMemoryLogsSaving] = useState(false);
+  const [serverLogsSaving, setServerLogsSaving] = useState(false);
 
   async function updateLogLevel(value: string) {
     if (!isLogLevelName(value)) {
@@ -38,10 +38,10 @@ export function AccountSection({ config, refresh, setError }: AccountSectionProp
     }
   }
 
-  async function updateInMemoryLogs(enabled: boolean) {
+  async function updateServerLogs(enabled: boolean) {
     try {
       setError(undefined);
-      setInMemoryLogsSaving(true);
+      setServerLogsSaving(true);
       await appJson<unknown>("/api/server/logs/settings", {
         method: "PUT",
         body: JSON.stringify({ enabled }),
@@ -50,7 +50,7 @@ export function AccountSection({ config, refresh, setError }: AccountSectionProp
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setInMemoryLogsSaving(false);
+      setServerLogsSaving(false);
     }
   }
 
@@ -105,11 +105,11 @@ export function AccountSection({ config, refresh, setError }: AccountSectionProp
           ) : null}
           <br />
           <CheckboxField
-            label="Store server logs in memory"
-            hint="Temporary; disabled and cleared when the server process starts or this setting is turned off."
+            label="Store server logs in a temporary file"
+            hint="Uses a private OS temp file; removed when disabled or on clean shutdown. No size limit; it can fill disk space. Avoid logging secrets."
             checked={config.inMemoryLogs.enabled}
-            disabled={inMemoryLogsSaving}
-            onChange={(event) => void updateInMemoryLogs(event.currentTarget.checked)}
+            disabled={serverLogsSaving}
+            onChange={(event) => void updateServerLogs(event.currentTarget.checked)}
           />
         </FormSection>
       ) : null}

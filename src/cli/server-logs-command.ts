@@ -10,7 +10,7 @@ const serverLogsRoute: RouteCatalogEntry = {
   auth: "admin",
   sameOrigin: "never",
   scopes: [],
-  description: "Retrieve the in-memory server log snapshot.",
+  description: "Retrieve the temporary server log snapshot.",
   tags: ["server"],
 };
 

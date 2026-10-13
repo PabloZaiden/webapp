@@ -160,6 +160,7 @@ export interface WebAppConfigResponse {
     level: LogLevelName;
     fromEnv: boolean;
   };
+  /** Legacy field name retained for temporary server-log capture. */
   inMemoryLogs: {
     enabled: boolean;
   };
