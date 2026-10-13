@@ -9,8 +9,9 @@ Settings is framework-owned so apps stay consistent. It includes:
   storage when available
 - Admin user management
 - Admin log-level preference unless `{PREFIX}_LOG_LEVEL` is set
-- Admin in-memory server-log capture toggle; disabled and cleared on process
-  start or when turned off; `{PREFIX}_IN_MEMORY_LOGS` can enable it initially
+- Admin server-log capture toggle; disabled by default, with temporary files
+  removed on clean shutdown or when turned off; `{PREFIX}_IN_MEMORY_LOGS` can
+  enable it initially
 - Admin server kill
 - Version/about
 
@@ -45,12 +46,17 @@ the shared hook state after a successful save, and `fromEnv` is true when
 `{PREFIX}_LOG_LEVEL` locks the value. Applications should not add a separate
 configuration fetch or initializer component.
 
-Developer Settings also includes **Store server logs in memory**. It is an
-admin-only, process-local setting and is disabled when the server starts unless
-`{PREFIX}_IN_MEMORY_LOGS` is set to `true`, `1`, or `yes`. When enabled, the
-shared `tslog` service retains only the newest 1,000 eligible entries within a
-512 KiB rendered-line limit; disabling it immediately clears the buffer. The
-setting and captured logs are never stored in SQLite.
+Developer Settings also includes **Store server logs in a temporary file**. It
+is an admin-only, process-local setting and is disabled when the server starts
+unless `{PREFIX}_IN_MEMORY_LOGS` is set to `true`, `1`, or `yes` (the
+environment variable keeps its historical name). When enabled, the shared
+`tslog` service appends eligible entries to a private JSON Lines file in the
+operating system's temporary directory. There is no entry or size limit;
+disabling capture or a clean shutdown removes the file. Abrupt termination may
+leave it for the operating system's temporary-file cleanup. Retrieving the
+snapshot loads all entries into memory, and the unbounded file can exhaust the
+temporary filesystem. Writes are synchronous and can add latency at high log
+volume; avoid logging secrets. Captured logs are never stored in SQLite.
 
 Security lists only show useful active user credentials. Managed API keys created by
 server-side applications, and their metadata, are not returned by the browser API-key

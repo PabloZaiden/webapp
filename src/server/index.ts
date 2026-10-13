@@ -1,6 +1,7 @@
 export * from "./runtime-config";
 export * from "./routes";
 export * from "./route-catalog";
+export * from "./route-schema";
 export * from "./responses";
 export * from "./public-assets";
 export * from "./public-asset-manifest";

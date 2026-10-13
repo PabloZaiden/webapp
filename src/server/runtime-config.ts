@@ -24,6 +24,7 @@ export interface RuntimeConfig {
   developmentSourcePath?: string;
   logLevel: LogLevelName;
   logLevelFromEnv: boolean;
+  /** Historical field name for the initial temporary server-log capture setting. */
   inMemoryLogsEnabled: boolean;
   passkeyDisabled: boolean;
   sameOriginDisabled: boolean;

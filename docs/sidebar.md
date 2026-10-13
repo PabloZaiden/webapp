@@ -47,10 +47,44 @@ entrypoints and configure the server-side `web.icons` option described in
 />
 ```
 
-The first two app actions are optional; settings and desktop
-collapse/uncollapse are always framework-owned and always appear as the
-rightmost fixed actions on desktop. The desktop collapse preference is
-persisted separately from per-node tree expansion state.
+All configured `topActions` render in array order. The action row wraps when
+needed instead of dropping actions or shrinking buttons. Settings and desktop
+collapse/uncollapse remain framework-owned, non-shrinking controls at the right
+of the row. The desktop collapse preference is persisted separately from
+per-node tree expansion state.
+
+`SidebarAction` supports optional controlled state for both top actions and
+inline section actions:
+
+| Field | Behavior |
+| --- | --- |
+| `disabled` | Native disabled button; callback/navigation is unavailable |
+| `active` | Active styling and `aria-pressed`; leave undefined for an ordinary action rather than a toggle |
+| `busy` | `aria-busy` and native disabled state while an operation is pending |
+
+For example, an app-owned toggle can update its accessible label while keeping
+its state in a shell-level provider:
+
+```tsx
+topActions: [
+  {
+    id: "connection",
+    title: connected ? "Disconnect" : "Connect",
+    icon: <ConnectionIcon />,
+    active: connected,
+    busy: connecting,
+    disabled: !connectionAvailable,
+    onAction: toggleConnection,
+  },
+  { id: "inbox", title: "Inbox", route: { view: "inbox" } },
+  { id: "create", title: "Create", icon: "+", onAction: openCreateDialog },
+]
+```
+
+The app controls these values and any custom state icon; the framework does not
+infer asynchronous completion from `onAction`. A successful top action retains
+the existing mobile-drawer dismissal behavior; keep ongoing app state outside
+the drawer when it should survive navigation.
 
 Optional sidebar tabs stay fixed at the bottom of the sidebar, below the version footer, while the tree and search remain independently scrollable. The first tab is selected by default and the selected tab id is persisted in browser `localStorage` per app on a best-effort basis. Stored ids are validated against the configured tabs; an unavailable, unreadable, or stale value falls back to the first available tab without disabling navigation. The active id is passed to `getNodes` as `activeTab`, alongside the normalized search value. Header actions and pinned-item actions are resolved from the visible tab first and expanded to other configured tabs when the active route or a stored pin is not present there.
 
@@ -82,6 +116,28 @@ Sidebar nodes support:
 | `itemLayout` | `default` (default) or `subtitle-above-title`; the latter keeps the subtitle and textual badge on the first line and lets the title wrap below |
 | `render` | Optional custom content renderer for `type: "item"` nodes; it receives the node, active/child-collapse state, navigation, and actions |
 | `defaultCollapsed` | Initial collapsed state |
+
+### Fixed bottom content
+
+Use optional `sidebar.bottomContent` for application-owned controls that must
+stay above the version/reload row, outside the scrollable search and tree.
+The framework owns the slot's spacing and placement; the application owns its
+content and state:
+
+```tsx
+sidebar={{
+  getNodes: buildSidebarNodes,
+  bottomContent: activeConnection ? <ConnectionControls /> : null,
+}}
+```
+
+The slot is independent of the selected tab and search. It remains in the same
+place in the mobile drawer; buttons inside it do not automatically dismiss the
+drawer. Collapsing or closing the sidebar hides the controls but does not unmount
+their shell-owned state. Put long-lived connection ownership outside the content
+component. When content is absent, the existing layout is unchanged. Version,
+reload and optional tabs remain framework-owned below the slot; do not recreate
+them or position content through framework DOM queries, portals or overrides.
 
 Search is intentionally app-defined: `getNodes({ search, activeTab })` receives trimmed search text (an empty string for a blank or whitespace-only query) and the selected tab id, and returns the tree that should be rendered. Set `sidebar.search: false` when an app has a small fixed navigation tree and should not show the sidebar search box.
 

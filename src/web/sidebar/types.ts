@@ -32,6 +32,9 @@ export interface SidebarAction {
   title: string;
   label?: string;
   icon?: ReactNode;
+  disabled?: boolean;
+  active?: boolean;
+  busy?: boolean;
   route?: WebAppRoute;
   onAction?: () => void;
 }

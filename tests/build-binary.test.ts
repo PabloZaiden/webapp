@@ -113,6 +113,31 @@ test("builds and manages the Kitchen Sink example as a standalone binary", async
       publicRoute: true,
     });
 
+    const projectSchemas = await runCommand([binaryPath, "schema", "projects"], environment);
+    expect(projectSchemas).toMatchObject({ exitCode: 0, stderr: "" });
+    const catalog = JSON.parse(projectSchemas.stdout);
+    expect(catalog).toMatchObject({
+      methods: ["GET", "POST"],
+      requestSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+      operations: {
+        GET: { responseSchema: { type: "array" }, automation: { policy: "read" } },
+        POST: { requestSchema: { required: ["name"] }, automation: { policy: "write", completion: "completed" } },
+      },
+    });
+    const createSchema = await runCommand([binaryPath, "schema", "projects", "--method", "POST"], environment);
+    expect(createSchema).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(JSON.parse(createSchema.stdout)).toMatchObject({
+      method: "POST",
+      requestSchema: { required: ["name"] },
+      responseSchema: { type: "object", required: ["id", "userId", "name", "status", "updatedAt"] },
+    });
+    const missingSchemaMethod = await runCommand([binaryPath, "schema", "projects", "--method"], environment);
+    expect(missingSchemaMethod.exitCode).toBe(1);
+    expect(missingSchemaMethod.stderr).toContain("requires a value");
+    const missingApiMethod = await runCommand([binaryPath, "api", "projects", "-X"], environment);
+    expect(missingApiMethod.exitCode).toBe(1);
+    expect(missingApiMethod.stderr).toContain("requires a value");
+
     const stopped = await runCommand([binaryPath, "serve", "down"], environment);
     expect(stopped).toMatchObject({ exitCode: 0, stderr: "" });
 

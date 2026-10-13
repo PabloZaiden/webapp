@@ -52,7 +52,20 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
                 ) : (
                   <div className="wapp-sidebar-section-label">{node.title}</div>
                 )}
-                {node.action ? <button type="button" className="wapp-sidebar-action" title={node.action.title} aria-label={node.action.title} onClick={node.action.onAction ?? (() => node.action?.route && navigate(node.action.route))}>{node.action.label ?? "New"}</button> : null}
+                {node.action ? (
+                  <button
+                    type="button"
+                    className={`wapp-sidebar-action${node.action.active ? " active" : ""}`}
+                    title={node.action.title}
+                    aria-label={node.action.title}
+                    disabled={node.action.disabled || node.action.busy}
+                    aria-pressed={node.action.active}
+                    aria-busy={node.action.busy || undefined}
+                    onClick={node.action.onAction ?? (() => node.action?.route && navigate(node.action.route))}
+                  >
+                    {node.action.label ?? "New"}
+                  </button>
+                ) : null}
               </div>
               {hasChildren ? (
                 <Collapsible open={!isCollapsed} className="wapp-sidebar-collapsible">

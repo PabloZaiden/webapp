@@ -148,6 +148,6 @@ export const logLevelPreferenceRequestSchema = z.object({
   level: z.enum(VALID_LOG_LEVELS),
 });
 
-export const inMemoryLogSettingsRequestSchema = z.object({
+export const serverLogSettingsRequestSchema = z.object({
   enabled: z.boolean(),
 });

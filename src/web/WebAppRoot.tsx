@@ -364,6 +364,7 @@ function WebAppRootContent({
         appIcon={appIcon}
         homeRoute={homeRoute}
         topActions={sidebar.topActions ?? []}
+        sidebarBottomContent={sidebar.bottomContent}
         nodes={nodes}
         route={route}
         navigate={navigate}

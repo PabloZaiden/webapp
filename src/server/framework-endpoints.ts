@@ -51,7 +51,7 @@ import {
   createUserRequestSchema,
   deviceAuthorizationRequestSchema,
   deviceCodeActionRequestSchema,
-  inMemoryLogSettingsRequestSchema,
+  serverLogSettingsRequestSchema,
   logLevelPreferenceRequestSchema,
   passkeyBootstrapOptionsSchema,
   refreshTokenRequestSchema,
@@ -65,7 +65,7 @@ import {
 } from "./request-schemas";
 import { resolveEffectiveLogLevel, type RuntimeConfig } from "./runtime-config";
 import { setLogLevel } from "./logger";
-import type { InMemoryLogStorage } from "./logger";
+import type { ServerLogStorage } from "./logger";
 import {
   errorResponse,
   jsonResponse,
@@ -90,7 +90,7 @@ export interface FrameworkEndpointDependencies {
   deviceAuthEnabled: boolean;
   configResponse?: WebAppServerConfig["configResponse"];
   onLogLevelChange?: (level: LogLevelName) => void;
-  inMemoryLogs: InMemoryLogStorage;
+  serverLogs: ServerLogStorage;
   ensureWebDocument?: () => Promise<WebDocument>;
 }
 
@@ -113,7 +113,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
     deviceAuthEnabled,
     configResponse: extendConfigResponse,
     onLogLevelChange,
-    inMemoryLogs,
+    serverLogs,
     ensureWebDocument,
   } = dependencies;
 
@@ -134,7 +134,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         fromEnv: config.logLevelFromEnv,
       },
       inMemoryLogs: {
-        enabled: inMemoryLogs.isEnabled(),
+        enabled: serverLogs.isEnabled(),
       },
       apiKeys: { enabled: Boolean(apiKeysEnabled) },
       deviceAuth: { enabled: Boolean(deviceAuthEnabled) },
@@ -490,10 +490,10 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         if (req.method !== "GET") {
           return methodNotAllowed();
         }
-        const enabled = inMemoryLogs.isEnabled();
+        const enabled = serverLogs.isEnabled();
         return jsonResponse({
           enabled,
-          logs: enabled ? inMemoryLogs.getEntries() : [],
+          logs: enabled ? serverLogs.getEntries() : [],
         });
       }
       if (path === "/api/server/logs/settings") {
@@ -505,9 +505,9 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         }
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
-        const body = await parseJson(req, inMemoryLogSettingsRequestSchema);
-        inMemoryLogs.setEnabled(body.enabled);
-        return successResponse({ enabled: inMemoryLogs.isEnabled() });
+        const body = await parseJson(req, serverLogSettingsRequestSchema);
+        serverLogs.setEnabled(body.enabled);
+        return successResponse({ enabled: serverLogs.isEnabled() });
       }
       if (path === "/api/server/kill" && req.method === "POST") {
         const auth = await authentication.authorize(req, true);

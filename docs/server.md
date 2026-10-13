@@ -182,9 +182,154 @@ output; it does not generate prose documentation automatically:
 | `cliPath` | CLI-friendly path; defaults to the API path without `/api/` |
 | `tags` | Grouping labels exposed through the route catalog and schema output |
 | `requestSchema`, `querySchema`, `responseSchema` | Optional schema objects for CLI/schema output; use the same runtime `requestSchema` with `parseJson` when a route accepts a body |
+| `operations` | Optional `Partial<Record<HttpMethod, RouteOperationMetadata>>` refinements for each registered method |
+| `automation` | Optional explicit automation policy; inherited by method metadata |
 | `catalog: false` | Exclude a route from generated catalogs |
 
 Use `createRouteCatalog(routes)` and `findRouteCatalogEntry(catalog, input)` to power app CLI commands without maintaining a second route catalog.
+
+### Per-method operation contracts
+
+`RouteOperationMetadata` declares `description`, `requestSchema`, `querySchema`,
+`responseSchema`, and `automation`. `RouteMetadata`, `RouteDefinition`, and
+`RouteCatalogEntry` expose `operations` without changing existing route-level
+metadata. Metadata may describe only methods with registered handlers; an
+unsupported or unregistered metadata method fails route compilation.
+
+Use method contracts when a collection route lists and creates different data:
+
+```ts
+const routes = defineRoutes({
+  "/api/projects": {
+    auth: "user",
+    requestSchema: projectCreateSchema,
+    operations: {
+      GET: {
+        description: "List your projects",
+        requestSchema: undefined,
+        querySchema: z.object({ status: z.string().optional() }),
+        automation: { policy: "read", completion: "completed" },
+      },
+      POST: {
+        description: "Create a project",
+        querySchema: undefined,
+        automation: { policy: "write", completion: "completed" },
+      },
+    },
+    GET: listProjects,
+    POST: createProject,
+  },
+});
+```
+
+`resolveRouteOperation(entry, method)` returns `ResolvedRouteOperation`,
+including the selected `method`. Method properties override route properties;
+an explicitly present `requestSchema: undefined` or `querySchema: undefined`
+clears an inherited schema, so query-only and body-free operations do not
+advertise a creation body. An omitted property inherits the route default.
+`null` also denotes no schema for conversion. Resolving an unregistered method
+throws. Metadata is descriptive, not automatic request validation: handlers
+still parse and validate their actual input.
+
+`routeSchemaToJsonSchema(schema, options?)` returns a
+`Record<string, unknown>` or `undefined` for an absent schema. It uses Zod's
+JSON Schema conversion with `io: "input"` by default: a transformed or
+defaulted input is described as the caller supplies it, not as the parsed
+output. Pass `{ io: "output" }` for response schemas. Plain JSON schema objects
+are copied as JSON values. Unsupported schemas, non-JSON values, accessors,
+class instances and circular references throw; no fallback serializes Zod
+internals and no unrepresentable schema silently becomes an unconstrained
+schema. Conversion does not replace runtime validation or encode arbitrary
+Zod refinements that JSON Schema cannot express.
+
+### Automation metadata
+
+`RouteAutomationMetadata` is an explicit contract for generic consumers,
+not a grant of authorization or a framework-managed executor:
+
+| Field | Meaning |
+| --- | --- |
+| `policy` | `read`, `write`, `confirm`, or `excluded` |
+| `reason` | Optional explanation of a restriction or confirmation |
+| `hiddenInputs`, `hiddenQuery` | Input/query field names withheld from automation-facing projections |
+| `completion` | `admission` means accepted/queued/started, not completed; `completed` means the response reports the finished operation |
+| `credential` | Optional `RouteAutomationCredential` private SSH handoff descriptor; exactly one target selector, plus optional private transport/injection names |
+
+If neither the route nor the method declares automation, the resolver returns
+`{ policy: "excluded" }`. An explicitly undefined method `automation` clears an
+inherited policy and also resolves to excluded. Never infer admission, safety,
+or automation eligibility from the HTTP method alone.
+
+Hidden names describe a consumer's projection only; the canonical input/query
+schemas remain intact for server validation and ordinary CLI clients.
+Consumers must obtain hidden values privately, enforce confirmation
+when `policy` is `confirm`, and preserve authentication, same-origin, scope,
+and entity ownership checks when executing. Never place secrets in metadata,
+generated schemas, model context, logs, or events. These descriptors do not
+obtain credentials or authorize a different execution host.
+
+#### Private credential target selectors
+
+Every credential descriptor keeps `kind: "ssh"`. Select exactly one target form:
+
+| Selector | Consumer-owned interpretation |
+| --- | --- |
+| `serverParameter: string` | The exact route parameter identifying the SSH server |
+| `hostInput: string` | A canonical request input containing an execution-host reference |
+| `resource: { name: string; idParameter?: string; purpose: string }` | An owned resource and operation purpose used to resolve its authoritative host; an optional route parameter identifies the resource |
+
+`RouteAutomationCredential` is a union requiring exactly one selector form:
+`serverParameter` for a direct server, `hostInput` for an execution-host input,
+or `resource` for an owned resource. The other selector fields are excluded
+from each form. Existing direct-server declarations remain valid.
+`RouteAutomationCredentialResource` exports the resource shape. Resource names,
+purposes, input shapes, ownership checks, target lookup and bulk semantics
+belong to the consuming application's core resolver. Webapp only stores and
+catalogs this generic metadata.
+
+These optional common fields name private injection destinations, not target
+selectors or credential values. They may be combined with any selector,
+including a resource that resolves multiple authoritative SSH servers:
+
+| Field | Consumer-owned private injection |
+| --- | --- |
+| `input` | Request input for a private credential token |
+| `header` | Request header for a private credential token |
+| `mapInput` | Request input for credentials indexed by authoritative server identifier |
+| `unavailableInput` | Request input for authoritative server identifiers whose credentials are unavailable |
+
+Unavailable credentials must remain explicit; never silently replace a selected
+execution host. The application decides whether the operation may proceed for
+other targets and how to report unavailable credentials.
+
+```ts
+import type { RouteAutomationCredential } from "@pablozaiden/webapp/server";
+
+const direct = {
+  kind: "ssh",
+  serverParameter: "serverId",
+  header: "x-private-credential",
+} satisfies RouteAutomationCredential;
+
+const requestHost = {
+  kind: "ssh",
+  hostInput: "executionHost",
+  input: "credentialToken",
+} satisfies RouteAutomationCredential;
+
+const owned = {
+  kind: "ssh",
+  resource: { name: "documents", idParameter: "documentId", purpose: "execute" },
+  header: "x-private-credential",
+} satisfies RouteAutomationCredential;
+
+const bulk = {
+  kind: "ssh",
+  resource: { name: "documents", purpose: "restart-workers" },
+  mapInput: "credentialTokensByServerId",
+  unavailableInput: "credentialUnavailableServerIds",
+} satisfies RouteAutomationCredential;
+```
 
 Prefer explicit `auth: "user"`, `auth: "admin"` or `auth: "owner"` on app routes. They enforce the role before the handler runs, including API-key and device bearer requests.
 
@@ -284,13 +429,19 @@ the root logger and all cached sub-loggers. It is selected from
 default, in that order.
 
 Every emitted entry is written through `tslog` to the appropriate stdout or
-stderr stream. When in-memory capture is enabled, the same rendered entries
-from both framework and application loggers are also retained in the
-process-local buffer. Capture is disabled by default and can be initialized
-with `{PREFIX}_IN_MEMORY_LOGS=true`; an administrator can then change the
-runtime toggle from Developer Settings. The environment value is an initial
-value, not a lock, and capture is cleared when disabled or when the process
-starts.
+stderr stream. When temporary-file capture is enabled, the same rendered
+entries from framework and application loggers are appended as JSON Lines to a
+private directory under the operating system's temporary directory. Capture
+is disabled by default and can be initialized with
+`{PREFIX}_IN_MEMORY_LOGS=true`; the environment variable retains its historical
+name. An administrator can change the runtime toggle from Developer Settings.
+The environment value is an initial value, not a lock. Disabling capture and
+clean server shutdown remove the file; abrupt termination can leave it for the
+OS to clean. The directory and file use owner-only permissions on platforms
+that support POSIX modes. The file is not encrypted, so avoid logging secrets.
+Writes are synchronous and can add latency at high log volume. There is no
+count or size cap, so capture can exhaust temporary disk space. Retrieving all
+logs materializes the complete snapshot in memory.
 
 Built-in endpoints include:
 
@@ -307,8 +458,8 @@ Built-in endpoints include:
 | `/device` | Browser device-code approval screen |
 | `/.well-known/jwks.json`, `/.well-known/openid-configuration` | Token verification metadata |
 | `/api/preferences/theme`, `/api/preferences/log-level` | Settings persistence |
-| `GET /api/server/logs` | Admin-only snapshot of the in-memory server logs |
-| `PUT /api/server/logs/settings` | Admin-only runtime toggle for in-memory server logs |
+| `GET /api/server/logs` | Admin-only snapshot of temporary server logs |
+| `PUT /api/server/logs/settings` | Admin-only runtime toggle for temporary server logs |
 | `/api/server/kill` | Admin-only server shutdown |
 | `/api/ws` | Realtime websocket by default |
 
@@ -325,10 +476,11 @@ and the rendered `tslog` line. When capture is disabled, the endpoint returns
 `200` with `enabled: false` and an empty list. `PUT /api/server/logs/settings`
 accepts `{ "enabled": boolean }`, is restricted to admins, and uses the normal
 same-origin policy for browser mutations. API-key and bearer callers continue
-to use the existing token-auth behavior. The in-memory buffer is limited to
-the newest 1,000 entries and 512 KiB of rendered UTF-8 lines; disabling capture
-clears it. These endpoints expose entries emitted through the shared WebApp
-logger and never make the logs durable.
+to use the existing token-auth behavior. Entries are appended without a count
+or size limit to the private temporary file; disabling capture deletes it.
+The endpoint returns the complete snapshot as one response, so very large
+captures can also consume substantial memory and response bandwidth. This is
+temporary diagnostics, not durable log retention.
 
 ## Client logging
 
