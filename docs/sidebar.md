@@ -341,6 +341,19 @@ and the controller's `sidebar.close()` when moving controls from the mobile
 drawer to `mainOverlay`. Do not query or portal into framework-owned shell DOM
 to implement this placement in application code.
 
+For a bottom strip aligned with the sidebar tabs, use the public
+`--wapp-sidebar-tabs-height` CSS variable as its minimum height. It includes the
+tab buttons' `--wapp-sidebar-tab-min-height`, the strip's top padding and border,
+and `--wapp-safe-area-bottom`; the button height alone is not the strip height.
+The framework uses the same dimensions for its tabs, so applications do not need
+to measure shell DOM or duplicate its spacing:
+
+```css
+.connection-strip {
+  min-height: var(--wapp-sidebar-tabs-height);
+}
+```
+
 ## Native pinning
 
 Pinning is framework-owned and persisted in browser `localStorage` on a
