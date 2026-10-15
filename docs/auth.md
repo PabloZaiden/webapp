@@ -64,6 +64,31 @@ PATCH: (_req, ctx) => {
 stored owner, or creates an owner named `admin` when no owner exists. Use it
 only with disposable or otherwise controlled data.
 
+### Current user in application UI
+
+Components rendered inside `WebAppRoot` can read the current user with the public
+`useCurrentUser()` hook from `@pablozaiden/webapp/web`:
+
+```tsx
+import { useCurrentUser } from "@pablozaiden/webapp/web";
+
+export function AccountLabel() {
+  const user = useCurrentUser();
+  if (!user) return null;
+  return <span>{user.username} ({user.role})</span>;
+}
+```
+
+It returns the existing `CurrentUser` contract (`id`, `username`, `role`,
+`isOwner`, `isAdmin`), or `undefined` until configuration is available or when
+no current user is present. It subscribes to the framework configuration context
+without fetching configuration again or maintaining a separate user cache.
+Calling it outside `WebAppRoot` throws.
+
+Use this information for presentation and role-aware UI loading, not as an
+authorization boundary. Server routes must still enforce their declared auth
+policy and ownership checks; client-side role checks do not grant access.
+
 ## API keys
 
 API keys are user-owned bearer tokens for scripts and agents. The plaintext token is

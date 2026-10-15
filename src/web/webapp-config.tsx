@@ -75,6 +75,10 @@ export function useWebAppConfig(consumer = "useWebAppConfig"): WebAppConfigState
   return context;
 }
 
+export function useCurrentUser(): WebAppConfigResponse["currentUser"] {
+  return useWebAppConfig("useCurrentUser").config?.currentUser;
+}
+
 export function WebAppConfigProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<WebAppConfigResponse>();
   const [loading, setLoading] = useState(true);
