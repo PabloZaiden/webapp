@@ -806,6 +806,8 @@ textarea::placeholder {
 }
 
 .wapp-main {
+  position: relative;
+  isolation: isolate;
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -813,6 +815,17 @@ textarea::placeholder {
   display: flex;
   flex-direction: column;
   background: var(--wapp-shell-bg);
+}
+
+.wapp-main-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.wapp-main-overlay > * {
+  pointer-events: auto;
 }
 
 .wapp-main-header h1 {
