@@ -255,7 +255,10 @@ function AppShell() {
 ```
 
 `sidebar.open()` makes the sidebar visible: it opens the transient mobile drawer
-or uncollapses the persisted desktop sidebar preference. `sidebar.focusSearch()`
+or uncollapses the persisted desktop sidebar preference. `sidebar.close()`
+dismisses the transient mobile drawer without changing the desktop collapse
+preference or resetting the active route. Use it when an app-owned sidebar
+control moves its controls into the main content area. `sidebar.focusSearch()`
 does the same as needed and focuses the search input after the visibility state
 is committed. It is a no-op when `sidebar.search` is `false`.
 `sidebar.selectTab(id)` accepts only ids from the configured `sidebar.tabs`;
@@ -300,6 +303,43 @@ return {
   }}
 />
 ```
+
+## Persistent main-content overlay
+
+Use optional `WebAppRoot.mainOverlay` for application-owned controls that should
+remain above the main content across navigation, outside route transitions and
+scrolling:
+
+```tsx
+<WebAppRoot
+  appName="My App"
+  homeRoute={{ view: "home" }}
+  sidebar={{ getNodes: buildSidebarNodes }}
+  routes={routes}
+  mainOverlay={activeConnection ? <FloatingConnectionControls /> : null}
+/>
+```
+
+The framework owns the overlay container and stacking; the application owns its
+content, positioning and lifecycle. Position the control relative to the main
+area rather than the viewport, and account for the framework safe-area variables
+on mobile. The empty container does not block pointer events; its direct children
+are interactive. No overlay container is rendered when the prop is absent.
+
+The overlay also remains visible inside an open native popover that covers the
+main area, such as a fullscreen terminal. When surfaces overlap, placement
+follows their activation order rather than their DOM order, including when the
+overlay is first mounted with surfaces already open. The framework moves the
+content into that top-layer surface and restores its normal placement when the
+surface closes or is removed. This move can remount the control component: keep
+long-lived connection, recording and other resource ownership above the slot
+rather than inside its content. The slot is not a modal, focus trap or dialog
+replacement.
+
+Use `sidebar.bottomContent` for controls intentionally confined to the sidebar
+and the controller's `sidebar.close()` when moving controls from the mobile
+drawer to `mainOverlay`. Do not query or portal into framework-owned shell DOM
+to implement this placement in application code.
 
 ## Native pinning
 

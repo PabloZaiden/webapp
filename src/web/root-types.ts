@@ -46,6 +46,7 @@ export type HeaderContext = {
 export interface WebAppRootController {
   sidebar: {
     open: () => void;
+    close: () => void;
     focusSearch: () => void;
     selectTab: (id: string) => void;
   };
@@ -67,6 +68,8 @@ export interface WebAppRootProps {
     getNodes: (ctx: SidebarBuildContext) => SidebarNode[] | SidebarNodeSnapshot;
   };
   routes: Record<string, ReactNode | ((route: WebAppRoute) => ReactNode)>;
+  /** Persistent overlay above main content, outside scrolling and route transitions. */
+  mainOverlay?: ReactNode;
   header?: {
     renderTitle?: (ctx: HeaderContext) => ReactNode;
     renderActions?: (ctx: HeaderContext) => ReactNode;

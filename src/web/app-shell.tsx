@@ -3,6 +3,7 @@ import { ActionMenu, IconButton } from "./components";
 import { useHeaderActionsSnapshot } from "./header-actions";
 import { useInertElement, useOverlayLifecycle } from "./overlay";
 import { SidebarTree } from "./sidebar-tree";
+import { MainContentOverlay } from "./main-content-overlay";
 import type { SidebarCollapsedState } from "./sidebar-state";
 import type { SidebarAction, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
 
@@ -60,6 +61,7 @@ export interface AppShellProps {
   homeRoute: WebAppRoute;
   topActions: SidebarAction[];
   sidebarBottomContent?: ReactNode;
+  mainOverlay?: ReactNode;
   nodes: SidebarNode[];
   route: WebAppRoute;
   navigate: (route: WebAppRoute) => void;
@@ -94,6 +96,7 @@ export function AppShell({
   homeRoute,
   topActions,
   sidebarBottomContent,
+  mainOverlay,
   nodes,
   route,
   navigate,
@@ -378,6 +381,7 @@ export function AppShell({
             {view}
           </div>
         </div>
+        {mainOverlay != null ? <MainContentOverlay mainRef={mainRef}>{mainOverlay}</MainContentOverlay> : null}
       </section>
     </main>
   );

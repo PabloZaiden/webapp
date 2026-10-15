@@ -83,6 +83,7 @@ function WebAppRootContent({
   homeRoute,
   sidebar,
   routes,
+  mainOverlay,
   header,
   onRouteChange,
   settings,
@@ -308,6 +309,7 @@ function WebAppRootContent({
   useImperativeHandle(controllerRef, () => ({
     sidebar: {
       open: openSidebar,
+      close: () => setSidebarOpen(false),
       focusSearch: focusSidebarSearch,
       selectTab,
     },
@@ -365,6 +367,7 @@ function WebAppRootContent({
         homeRoute={homeRoute}
         topActions={sidebar.topActions ?? []}
         sidebarBottomContent={sidebar.bottomContent}
+        mainOverlay={mainOverlay}
         nodes={nodes}
         route={route}
         navigate={navigate}
