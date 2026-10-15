@@ -61,6 +61,13 @@ Use these first:
 
 The default `Panel` is the muted card surface, `DataList` renders card rows, and `Button` uses the primary medium-sized action treatment. Use an explicit variant or size only when the surface is intentionally different from the application baseline.
 
+`DataListRow` places `meta` beside the content by default. Use
+`metaPlacement="below"` for metadata below the description within the main
+content column, or `metaPlacement="footer"` for a full-width footer below
+the content, badge, and actions. A footer's width does not depend on the
+badge or action widths, so it is suitable for timestamps and right-aligned
+item/provider indicators. Existing side and below placements are unchanged.
+
 `Modal`, `ConfirmModal`, and `ConfirmDialog` are framework-owned modal overlays.
 They share focus entry and restoration, topmost-only Escape and backdrop
 dismissal, Tab containment, body scroll locking, and inert background content.

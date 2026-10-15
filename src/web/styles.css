@@ -1287,6 +1287,20 @@ textarea::placeholder {
   overflow-wrap: anywhere;
 }
 
+.wapp-data-list-row-with-footer {
+  flex-wrap: wrap;
+  row-gap: 0.5rem;
+}
+
+.wapp-data-list-row-footer {
+  flex: 0 0 100%;
+  min-width: 0;
+  color: var(--wapp-muted);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  overflow-wrap: anywhere;
+}
+
 .wapp-data-list-row-card.interactive:hover,
 .wapp-data-list-cards .wapp-data-list-row.interactive:hover {
   border-color: var(--wapp-border);
