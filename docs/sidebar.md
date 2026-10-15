@@ -327,11 +327,14 @@ on mobile. The empty container does not block pointer events; its direct childre
 are interactive. No overlay container is rendered when the prop is absent.
 
 The overlay also remains visible inside an open native popover that covers the
-main area, such as a fullscreen terminal. The framework moves the content into
-that top-layer surface and restores its normal placement when the surface closes
-or is removed. This move can remount the control component: keep long-lived
-connection, recording and other resource ownership above the slot rather than
-inside its content. The slot is not a modal, focus trap or dialog replacement.
+main area, such as a fullscreen terminal. When surfaces overlap, placement
+follows their activation order rather than their DOM order, including when the
+overlay is first mounted with surfaces already open. The framework moves the
+content into that top-layer surface and restores its normal placement when the
+surface closes or is removed. This move can remount the control component: keep
+long-lived connection, recording and other resource ownership above the slot
+rather than inside its content. The slot is not a modal, focus trap or dialog
+replacement.
 
 Use `sidebar.bottomContent` for controls intentionally confined to the sidebar
 and the controller's `sidebar.close()` when moving controls from the mobile
