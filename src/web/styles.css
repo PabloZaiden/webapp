@@ -36,6 +36,8 @@
   --wapp-safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --wapp-safe-area-left: env(safe-area-inset-left, 0px);
   --wapp-safe-area-right: env(safe-area-inset-right, 0px);
+  --wapp-sidebar-tab-min-height: 3.5rem;
+  --wapp-sidebar-tabs-height: calc(var(--wapp-sidebar-tab-min-height) + 0.25rem + 1px + var(--wapp-safe-area-bottom));
   --wapp-mobile-bottom-clearance: max(var(--wapp-safe-area-bottom), 0.75rem);
   --wapp-viewport-height: 100vh;
   --wapp-motion-fast: 350ms;
@@ -722,6 +724,7 @@ textarea::placeholder {
 
 .wapp-sidebar-tabs {
   flex: 0 0 auto;
+  min-height: var(--wapp-sidebar-tabs-height);
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0.25rem 0.625rem var(--wapp-safe-area-bottom);
@@ -750,7 +753,7 @@ textarea::placeholder {
 .wapp-sidebar-tab {
   flex: 1 1 0;
   min-width: 3.25rem;
-  min-height: 3.5rem;
+  min-height: var(--wapp-sidebar-tab-min-height);
   display: inline-flex;
   align-items: center;
   justify-content: center;
