@@ -79,6 +79,7 @@ the application being built; they are not expected to exist beside this skill.
 - For user-owned live updates, prefer `ctx.userRealtime.publishEntityChanged(resource, id)` / `publishChanged(resource)` and `useLiveQuery` for initial loading plus live refresh, or `useRealtimeRefresh({ resources, refresh })` for an existing loader. Use global `ctx.realtime` only for public/global-admin events or server-validated non-user scopes.
 - Use app-owned websocket upgrade handlers only for raw transports such as terminals, VNC or port-forward proxies; keep normal app state on framework realtime.
 - Prefer `Page`, `Panel`, `DataList`, `DataListRow`, `DangerZone`, `LoadingState`, `ErrorState`, `FormGroup`, `FormActions`, and `CodeValue` for main content before custom CSS. Use `EntityHeader` only when the content needs an entity-specific heading that is not already provided by the fixed framework title bar.
+- Use `DataListRow`'s `metaPlacement="footer"` for metadata that must span the full row below the content, badge, and actions. `metaPlacement="below"` stays within the main content column; do not use it for indicators that must align independently of badge width.
 - Prefer structured `settings.sections[].rows` for settings; keep `render` only as an escape hatch.
 - All destructive delete actions must show a framework `ConfirmDialog` before the mutation. Never wire Delete buttons directly to `DELETE` requests.
 - Server lifecycle actions such as kill/reboot must show confirmation first and then a 15-second shutdown countdown progress bar after a successful response.

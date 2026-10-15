@@ -216,7 +216,7 @@ export function DataListRow({
   description?: ReactNode;
   descriptionClassName?: string;
   meta?: ReactNode;
-  metaPlacement?: "side" | "below";
+  metaPlacement?: "side" | "below" | "footer";
   badge?: ReactNode;
   actions?: ReactNode;
   onClick?: () => void;
@@ -226,6 +226,7 @@ export function DataListRow({
 }) {
   const rowClassName = [
     "wapp-data-list-row",
+    meta && metaPlacement === "footer" ? "wapp-data-list-row-with-footer" : "",
     variant === "card" ? "wapp-data-list-row-card" : "",
     onClick && !disabled ? "interactive" : "",
     disabled ? "disabled" : "",
@@ -241,6 +242,7 @@ export function DataListRow({
       {meta && metaPlacement === "side" ? <span className="wapp-data-list-row-meta">{meta}</span> : null}
       {badge ? <span className="wapp-data-list-row-badge">{badge}</span> : null}
       {actions ? <span className="wapp-data-list-row-actions">{actions}</span> : null}
+      {meta && metaPlacement === "footer" ? <small className="wapp-data-list-row-footer">{meta}</small> : null}
     </>
   );
   return onClick && !disabled ? (
