@@ -156,6 +156,13 @@ The `load` callback is kept current without using its identity as a reload trigg
 
 Each started load has a generation. Only the newest generation can commit `data`, `error`, or the final `loading` state; an older promise that resolves or rejects later is ignored. Unmounting invalidates pending generations. Load failures are normalized to `Error` and remain available through `query.error`.
 
+Keep initial loading, mutation refreshes, and reconnect recovery on the same
+query. Return snapshots from `load` instead of writing independent React state
+inside it; those side effects are not protected by the query's generation.
+Related collections can be returned together as one snapshot. Derive sidebar
+readiness from that snapshot and the query's loading/error state, and surface
+load errors through the application's normal error UI.
+
 Realtime events are coalesced while work is active. At most one realtime load runs at a time, with one queued follow-up for a burst of additional matching events. The follow-up uses the latest loader and runs after active work settles, preventing an event burst from creating unbounded concurrent requests.
 
 `ctx.realtime.publish(customEvent)` and `useRealtime({ onEvent })` still exist as low-level escape hatches. The hook reconnects with exponential backoff and uses the same origin as the page.

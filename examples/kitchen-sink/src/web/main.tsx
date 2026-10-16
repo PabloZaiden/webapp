@@ -1,4 +1,4 @@
-import { Badge, Button, EmptyState, Page, Panel, TextField, WebAppRoot, appFetch, appPath, appRequest, appWebSocketUrl, renderWebApp, replaceHashRoute, useCallback, useEffect, useHeaderActions, useMemo, useRealtimeRefresh, useState, useToast, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
+import { Badge, Button, EmptyState, ErrorState, Page, Panel, TextField, WebAppRoot, appFetch, appPath, appRequest, appWebSocketUrl, renderWebApp, replaceHashRoute, useCallback, useEffect, useHeaderActions, useLiveQuery, useMemo, useState, useToast, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
 import favicon from "../favicon.svg";
@@ -113,23 +113,22 @@ function ActivityView({ projects, publicPing }: { projects: Project[]; publicPin
 }
 
 function KitchenSinkApp() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [sidebarSnapshotReady, setSidebarSnapshotReady] = useState(false);
   const [publicPing, setPublicPing] = useState<"checking" | "ok" | "failed">("checking");
-  const refresh = useCallback(async () => {
-    setSidebarSnapshotReady(false);
-    const config = await api<{ passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }>("/api/config");
-    if (needsAuthentication(config)) return;
-    setProjects(await api<Project[]>("/api/projects"));
-    setSidebarSnapshotReady(true);
-  }, []);
-  useEffect(() => void refresh().catch(() => undefined), [refresh]);
+  const { data, error, loading, refresh } = useLiveQuery<Project[] | null>({
+    load: async () => {
+      const config = await api<{ passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }>("/api/config");
+      if (needsAuthentication(config)) return null;
+      return api<Project[]>("/api/projects");
+    },
+    realtime: { resources: ["projects"] },
+  });
+  const projects = data ?? [];
+  const sidebarSnapshotReady = data != null && !loading && !error;
   useEffect(() => {
     void appRequest("/api/public/ping")
       .then((response) => setPublicPing(response.ok ? "ok" : "failed"))
       .catch(() => setPublicPing("failed"));
   }, []);
-  useRealtimeRefresh({ resources: ["projects"], refresh: () => refresh(), onOpen: () => refresh() });
 
   const updateProjectStatus = useCallback(async (project: Project, status: Project["status"]) => {
     await api(`/api/projects/${project.id}`, { method: "PATCH", body: JSON.stringify({ status }) });
@@ -180,6 +179,9 @@ function KitchenSinkApp() {
       appName="Kitchen Sink"
       appIcon={favicon}
       homeRoute={{ view: "home" }}
+      mainOverlay={error ? (
+        <ErrorState title="Could not load projects" description={error.message} action={<Button type="button" onClick={() => void refresh()}>Retry</Button>} />
+      ) : undefined}
       sidebar={{
         topActions: [
           { id: "activity", title: "Activity", icon: "↯", route: { view: "activity" } },

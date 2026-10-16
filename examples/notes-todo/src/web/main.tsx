@@ -1,4 +1,4 @@
-import { Badge, Button, DataList, DataListRow, EmptyState, EntityHeader, FormActions, Page, Panel, SelectField, TextAreaField, TextField, WebAppRoot, appJson, renderWebApp, replaceWebAppRoute, useCallback, useEffect, useRealtimeRefresh, useState, type ActionMenuItem, type SidebarNode, type SidebarNodeSnapshot, type WebAppRoute } from "@pablozaiden/webapp/web";
+import { Badge, Button, DataList, DataListRow, EmptyState, EntityHeader, ErrorState, FormActions, Page, Panel, SelectField, TextAreaField, TextField, WebAppRoot, appJson, renderWebApp, replaceWebAppRoute, useCallback, useEffect, useLiveQuery, useState, type ActionMenuItem, type SidebarNode, type SidebarNodeSnapshot, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
 import favicon from "../favicon.svg";
@@ -24,6 +24,12 @@ interface Todo {
   completed: boolean;
   priority: "low" | "normal" | "high";
   updatedAt: string;
+}
+
+interface NotesTodoSnapshot {
+  sections: Section[];
+  notes: Note[];
+  todos: Todo[];
 }
 
 function needsAuthentication(config: { passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }): boolean {
@@ -323,28 +329,23 @@ function NewTodoView({ route, sections, refresh }: { route: WebAppRoute; section
 }
 
 function NotesTodoApp() {
-  const [sections, setSections] = useState<Section[]>([]);
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [todos, setTodos] = useState<Todo[]>([]);
-  const [sidebarSnapshotReady, setSidebarSnapshotReady] = useState(false);
-
-  const refresh = useCallback(async () => {
-    setSidebarSnapshotReady(false);
-    const config = await appJson<{ passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }>("/api/config");
-    if (needsAuthentication(config)) return;
-    const [nextSections, nextNotes, nextTodos] = await Promise.all([
-      appJson<Section[]>("/api/sections"),
-      appJson<Note[]>("/api/notes"),
-      appJson<Todo[]>("/api/todos"),
-    ]);
-    setSections(nextSections);
-    setNotes(nextNotes);
-    setTodos(nextTodos);
-    setSidebarSnapshotReady(true);
-  }, []);
-
-  useEffect(() => void refresh().catch(() => undefined), [refresh]);
-  useRealtimeRefresh({ resources: ["sections", "notes", "todos"], refresh: () => refresh(), onOpen: () => refresh() });
+  const { data, error, loading, refresh } = useLiveQuery<NotesTodoSnapshot | null>({
+    load: async () => {
+      const config = await appJson<{ passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }>("/api/config");
+      if (needsAuthentication(config)) return null;
+      const [sections, notes, todos] = await Promise.all([
+        appJson<Section[]>("/api/sections"),
+        appJson<Note[]>("/api/notes"),
+        appJson<Todo[]>("/api/todos"),
+      ]);
+      return { sections, notes, todos };
+    },
+    realtime: { resources: ["sections", "notes", "todos"] },
+  });
+  const sections = data?.sections ?? [];
+  const notes = data?.notes ?? [];
+  const todos = data?.todos ?? [];
+  const sidebarSnapshotReady = data != null && !loading && !error;
 
   const patchTodo = useCallback(async (todo: Todo, patch: Partial<Todo>) => {
     await appJson(`/api/todos/${todo.id}`, { method: "PATCH", body: JSON.stringify(patch) });
@@ -513,6 +514,9 @@ function NotesTodoApp() {
       appName="Notes TODO"
       appIcon={favicon}
       homeRoute={{ view: "home" }}
+      mainOverlay={error ? (
+        <ErrorState title="Could not load notes and tasks" description={error.message} action={<Button type="button" onClick={() => void refresh()}>Retry</Button>} />
+      ) : undefined}
       sidebar={{
         topActions: [
           { id: "new-task", title: "New task", icon: "+", route: { view: "new-todo", sectionId: sections[0]?.id } },
