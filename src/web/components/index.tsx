@@ -637,6 +637,7 @@ export interface ModalProps {
   size?: "sm" | "md" | "lg" | "xl";
   showCloseButton?: boolean;
   closeOnOverlayClick?: boolean;
+  restoreFocusFallbackRef?: RefObject<HTMLElement | null>;
   className?: string;
 }
 
@@ -650,6 +651,7 @@ export function Modal({
   size = "md",
   showCloseButton = true,
   closeOnOverlayClick = true,
+  restoreFocusFallbackRef,
   className = "",
 }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
@@ -661,6 +663,7 @@ export function Modal({
     onEscape: onClose,
     onBackdrop: onClose,
     closeOnBackdrop: closeOnOverlayClick,
+    restoreFocusFallbackRef,
   });
   const titleId = useId();
   const descriptionId = useId();

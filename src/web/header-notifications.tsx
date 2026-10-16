@@ -1,13 +1,6 @@
-import { useId, useState } from "react";
+import { useId, useState, type RefObject } from "react";
 import { Button, Modal } from "./components";
-import { useToast, type Toast, type ToastVariant } from "./toast";
-
-const VARIANT_LABELS: Record<ToastVariant, string> = {
-  success: "Success",
-  error: "Error",
-  warning: "Warning",
-  info: "Information",
-};
+import { TOAST_VARIANT_LABELS, useToast, type Toast, type ToastVariant } from "./toast";
 
 function NotificationIcon({ variant }: { variant: ToastVariant }) {
   return (
@@ -18,7 +11,7 @@ function NotificationIcon({ variant }: { variant: ToastVariant }) {
   );
 }
 
-export function HeaderNotifications() {
+export function HeaderNotifications({ focusFallbackRef }: { focusFallbackRef: RefObject<HTMLElement | null> }) {
   const { toasts, dismiss } = useToast();
   const messageId = useId();
   const [details, setDetails] = useState<readonly Toast[]>([]);
@@ -41,24 +34,18 @@ export function HeaderNotifications() {
 
   return (
     <>
-      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-        {toasts.filter((toast) => toast.variant !== "error").map((toast) => <span key={toast.id}>{VARIANT_LABELS[toast.variant]}: {toast.message}{"\n"}</span>)}
-      </span>
-      <span className="sr-only" role="alert" aria-live="assertive" aria-atomic="true">
-        {toasts.filter((toast) => toast.variant === "error").map((toast) => <span key={toast.id}>{toast.message}{"\n"}</span>)}
-      </span>
       {current ? (
         <button
           type="button"
           className={`wapp-header-notification wapp-notification-${current.variant}`}
-          aria-label="View notifications"
+          aria-label={toasts.length > 1 ? `View notifications (${toasts.length} active)` : "View notifications"}
           aria-describedby={messageId}
           aria-haspopup="dialog"
           onClick={() => openDetails(current)}
         >
           <NotificationIcon variant={current.variant} />
           <span id={messageId} className="wapp-header-notification-message">{current.message}</span>
-          {toasts.length > 1 ? <span className="wapp-header-notification-count" aria-label={`${toasts.length - 1} more notifications`}>+{toasts.length - 1}</span> : null}
+          {toasts.length > 1 ? <span className="wapp-header-notification-count" aria-hidden="true">+{toasts.length - 1}</span> : null}
           <svg className="wapp-header-notification-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
         </button>
       ) : null}
@@ -66,13 +53,14 @@ export function HeaderNotifications() {
         isOpen={detailsOpen}
         onClose={closeDetails}
         title={details.length === 1 ? "Notification" : "Notifications"}
+        restoreFocusFallbackRef={focusFallbackRef}
         size="sm"
         footer={<Button type="button" onClick={dismissDetails}>{details.length === 1 ? "Dismiss" : "Dismiss all"}</Button>}
       >
         <div className="wapp-notification-details">
           {details.map((toast) => (
             <section key={toast.id}>
-              <h3 className={`wapp-notification-${toast.variant}`}><NotificationIcon variant={toast.variant} />{VARIANT_LABELS[toast.variant]}</h3>
+              <h3 className={`wapp-notification-${toast.variant}`}><NotificationIcon variant={toast.variant} />{TOAST_VARIANT_LABELS[toast.variant]}</h3>
               <p>{toast.message}</p>
             </section>
           ))}

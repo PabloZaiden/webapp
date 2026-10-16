@@ -1,7 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 export type ToastVariant = "success" | "error" | "warning" | "info";
 export type ToastId = string;
+
+export const TOAST_VARIANT_LABELS: Record<ToastVariant, string> = {
+  success: "Success",
+  error: "Error",
+  warning: "Warning",
+  info: "Information",
+};
 
 export interface Toast {
   id: ToastId;
@@ -175,6 +183,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={service}>
       {children}
+      {createPortal(
+        <div className="sr-only" data-wapp-notification-announcer="">
+          <span role="status" aria-live="polite" aria-atomic="true">
+            {toasts.filter((toast) => toast.variant !== "error").map((toast) => <span key={toast.id}>{TOAST_VARIANT_LABELS[toast.variant]}: {toast.message}{"\n"}</span>)}
+          </span>
+          <span role="alert" aria-live="assertive" aria-atomic="true">
+            {toasts.filter((toast) => toast.variant === "error").map((toast) => <span key={toast.id}>{toast.message}{"\n"}</span>)}
+          </span>
+        </div>,
+        document.body,
+      )}
     </ToastContext.Provider>
   );
 }
