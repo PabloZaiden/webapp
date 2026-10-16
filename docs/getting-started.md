@@ -278,10 +278,20 @@ function SaveButton() {
 `useToast()` exposes `success`, `error`, `warning`, and `info` helpers. Each
 returns a stable ID that can be passed to `dismiss`; `dismissAll` removes every
 active notification. Pass an `id` to replace an existing notification and
-reset its timer. Notifications dismiss after 8 seconds by default; provide a
+reset its timer. Notifications dismiss after 5 seconds by default; provide a
 positive `duration` in milliseconds for a custom timeout or use
 `duration: 0` for a persistent notification that requires explicit dismissal.
 The framework keeps at most five active notifications.
+
+`WebAppRoot` displays notifications as colored text and a severity icon in the
+main header, whether the sidebar is open or closed. On mobile, only the colored
+severity icon is shown, leaving room for the page title and actions while
+keeping the full message accessible to screen readers. The latest error takes
+priority over other active messages; otherwise the latest message is shown.
+A `+N` indicator counts additional active messages. Click the preview to read
+the full active messages in a framework modal and optionally dismiss them.
+An open modal remains readable when a message expires, but expired or dismissed
+messages cannot be reopened: there is no notification history.
 
 Use `ErrorState`, loading states, and field validation for persistent page or
 form state. Use `ConfirmDialog` for destructive confirmation. Do not report the

@@ -1,6 +1,7 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { ActionMenu, IconButton } from "./components";
 import { useHeaderActionsSnapshot } from "./header-actions";
+import { HeaderNotifications } from "./header-notifications";
 import { useInertElement, useOverlayLifecycle } from "./overlay";
 import { SidebarTree } from "./sidebar-tree";
 import { MainContentOverlay } from "./main-content-overlay";
@@ -157,6 +158,7 @@ export function AppShell({
   const sidebarRef = useRef<HTMLElement>(null);
   const drawerLayerRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
+  const headerTitleRef = useRef<HTMLHeadingElement>(null);
   const suppressNextContentClickRef = useRef(false);
   const drawerOpen = isMobile && sidebarOpen;
   useInertElement(sidebarRef, !drawerOpen && (isMobile || sidebarCollapsed));
@@ -367,8 +369,9 @@ export function AppShell({
         <header className="wapp-main-header">
           <div className="wapp-main-header-title">
             {isMobile ? <IconButton className="wapp-sidebar-top-button" style={!drawerOpen && drawerOverlay.mounted ? { zIndex: drawerLayerZIndex } : undefined} aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton> : sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
-            <h1 key={routeKey} className="wapp-route-fade">{headerTitle}</h1>
+            <h1 ref={headerTitleRef} tabIndex={-1} key={routeKey} className="wapp-route-fade">{headerTitle}</h1>
           </div>
+          <HeaderNotifications focusFallbackRef={headerTitleRef} />
           {primaryHeaderActions || headerActions.length ? (
             <div key={routeKey} className="wapp-main-header-actions wapp-route-fade">
               {primaryHeaderActions}

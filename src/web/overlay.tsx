@@ -206,6 +206,7 @@ export function useInertElement(ref: RefObject<HTMLElement | null>, inactive: bo
 function defaultInertTargets(layer: HTMLElement): HTMLElement[] {
   return Array.from(document.body.children)
     .filter((element) => element !== layer && !element.contains(layer))
+    .filter((element) => !element.hasAttribute("data-wapp-notification-announcer"))
     .filter((element): element is HTMLElement => element instanceof HTMLElement);
 }
 
@@ -218,6 +219,7 @@ export interface OverlayLifecycleOptions {
   closeOnBackdrop?: boolean;
   initialFocusRef?: RefObject<HTMLElement | null>;
   restoreFocusRef?: RefObject<HTMLElement | null>;
+  restoreFocusFallbackRef?: RefObject<HTMLElement | null>;
   inertTargets?: readonly (HTMLElement | null)[];
   lockBodyScroll?: boolean;
   duration?: number;
@@ -240,6 +242,7 @@ export function useOverlayLifecycle({
   closeOnBackdrop = true,
   initialFocusRef,
   restoreFocusRef,
+  restoreFocusFallbackRef,
   inertTargets,
   lockBodyScroll = true,
   duration = MOTION_FAST_MS,
@@ -253,6 +256,7 @@ export function useOverlayLifecycle({
   const closeOnBackdropRef = useRef(closeOnBackdrop);
   const initialFocusRefRef = useRef(initialFocusRef);
   const restoreFocusRefRef = useRef(restoreFocusRef);
+  const restoreFocusFallbackRefRef = useRef(restoreFocusFallbackRef);
   const inertTargetsRef = useRef(inertTargets);
   const [zIndex, setZIndex] = useState<number>();
 
@@ -261,6 +265,7 @@ export function useOverlayLifecycle({
   closeOnBackdropRef.current = closeOnBackdrop;
   initialFocusRefRef.current = initialFocusRef;
   restoreFocusRefRef.current = restoreFocusRef;
+  restoreFocusFallbackRefRef.current = restoreFocusFallbackRef;
   inertTargetsRef.current = inertTargets;
 
   const mounted = open || presence.mounted;
@@ -367,7 +372,10 @@ export function useOverlayLifecycle({
         release();
       }
       releaseBodyScroll();
-      const restoreTarget = restoreFocusRefRef.current?.current ?? previousFocusRef.current;
+      const preferredRestoreTarget = restoreFocusRefRef.current?.current ?? previousFocusRef.current;
+      const restoreTarget = canRestoreFocus(preferredRestoreTarget)
+        ? preferredRestoreTarget
+        : restoreFocusFallbackRefRef.current?.current ?? null;
       if (canRestoreFocus(restoreTarget)) {
         restoreTarget.focus();
         restoreFocusPendingRef.current = { target: restoreTarget, surface };
@@ -381,13 +389,16 @@ export function useOverlayLifecycle({
       return;
     }
     restoreFocusPendingRef.current = null;
-    if (!canRestoreFocus(pending.target)) {
+    const target = canRestoreFocus(pending.target)
+      ? pending.target
+      : restoreFocusFallbackRefRef.current?.current ?? null;
+    if (!canRestoreFocus(target)) {
       return;
     }
     const activeElement = document.activeElement;
     const activeOverlay = activeElement instanceof Element ? overlayForElement(activeElement) : undefined;
     if (
-      activeElement !== pending.target
+      activeElement !== target
       && (
         activeElement === null
         || activeElement === document.body
@@ -395,7 +406,7 @@ export function useOverlayLifecycle({
         || activeOverlay !== undefined
       )
     ) {
-      pending.target.focus();
+      target.focus();
     }
   }, [open, presence.mounted]);
 

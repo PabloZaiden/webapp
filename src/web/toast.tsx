@@ -1,9 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { MOTION_FAST_MS, usePresence } from "./motion";
 
 export type ToastVariant = "success" | "error" | "warning" | "info";
 export type ToastId = string;
+
+export const TOAST_VARIANT_LABELS: Record<ToastVariant, string> = {
+  success: "Success",
+  error: "Error",
+  warning: "Warning",
+  info: "Information",
+};
 
 export interface Toast {
   id: ToastId;
@@ -32,7 +38,7 @@ export interface ToastService {
   dismissAll: () => void;
 }
 
-const DEFAULT_TOAST_DURATION_MS = 8_000;
+const DEFAULT_TOAST_DURATION_MS = 5_000;
 const MAX_TOASTS = 5;
 
 const ToastContext = createContext<ToastService | null>(null);
@@ -66,82 +72,6 @@ function normalizeDuration(duration: number | undefined): number {
     throw new RangeError("Toast duration must be a finite, non-negative number.");
   }
   return duration;
-}
-
-function ToastItem({
-  toast,
-  present,
-  onDismiss,
-  onExitComplete,
-}: {
-  toast: Toast;
-  present: boolean;
-  onDismiss: (id: ToastId) => void;
-  onExitComplete: (id: ToastId) => void;
-}) {
-  const presence = usePresence(present, { duration: MOTION_FAST_MS });
-
-  useEffect(() => {
-    if (!present && !presence.mounted) {
-      onExitComplete(toast.id);
-    }
-  }, [onExitComplete, presence.mounted, present, toast.id]);
-
-  if (!presence.mounted) {
-    return null;
-  }
-
-  const isError = toast.variant === "error";
-  return (
-    <div
-      className={`wapp-toast wapp-toast-${toast.variant} wapp-motion-${presence.state}`}
-      data-toast-variant={toast.variant}
-      role={isError ? "alert" : "status"}
-      aria-live={isError ? "assertive" : "polite"}
-      aria-atomic="true"
-      aria-hidden={present ? undefined : true}
-    >
-      <span className="wapp-toast-message">{toast.message}</span>
-      <button type="button" className="wapp-toast-dismiss" aria-label="Dismiss notification" onClick={() => onDismiss(toast.id)}>
-        ×
-      </button>
-    </div>
-  );
-}
-
-function ToastViewport({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: ToastId) => void }) {
-  const [renderedToasts, setRenderedToasts] = useState<Toast[]>(toasts);
-  const activeIds = useMemo(() => new Set(toasts.map((toast) => toast.id)), [toasts]);
-
-  useEffect(() => {
-    setRenderedToasts((current) => {
-      const exiting = current.filter((toast) => !activeIds.has(toast.id));
-      return [...toasts, ...exiting];
-    });
-  }, [activeIds, toasts]);
-
-  const removeExited = useCallback((id: ToastId) => {
-    setRenderedToasts((current) => current.filter((toast) => toast.id !== id));
-  }, []);
-
-  if (renderedToasts.length === 0) {
-    return null;
-  }
-
-  return createPortal(
-    <div className="wapp-toast-viewport" role="region" aria-label="Notifications" aria-hidden={toasts.length === 0 ? true : undefined}>
-      {renderedToasts.map((toast) => (
-        <ToastItem
-          key={toast.id}
-          toast={toast}
-          present={activeIds.has(toast.id)}
-          onDismiss={onDismiss}
-          onExitComplete={removeExited}
-        />
-      ))}
-    </div>,
-    document.body,
-  );
 }
 
 export function useToast(): ToastService {
@@ -211,13 +141,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
     clearTimer(id);
     setToasts((current) => {
-      const existingIndex = current.findIndex((item) => item.id === id);
-      if (existingIndex >= 0) {
-        const next = [...current];
-        next[existingIndex] = toast;
-        return next;
-      }
-      const next = [...current, toast];
+      const next = [...current.filter((item) => item.id !== id), toast];
       return next.length > MAX_TOASTS ? next.slice(next.length - MAX_TOASTS) : next;
     });
     scheduleDismiss(toast);
@@ -259,7 +183,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={service}>
       {children}
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
+      {createPortal(
+        <div className="sr-only" data-wapp-notification-announcer="">
+          <span role="status" aria-live="polite" aria-atomic="true">
+            {toasts.filter((toast) => toast.variant !== "error").map((toast) => <span key={toast.id}>{TOAST_VARIANT_LABELS[toast.variant]}: {toast.message}{"\n"}</span>)}
+          </span>
+          <span role="alert" aria-live="assertive" aria-atomic="true">
+            {toasts.filter((toast) => toast.variant === "error").map((toast) => <span key={toast.id}>{toast.message}{"\n"}</span>)}
+          </span>
+        </div>,
+        document.body,
+      )}
     </ToastContext.Provider>
   );
 }
