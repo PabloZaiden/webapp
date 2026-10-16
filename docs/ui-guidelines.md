@@ -21,6 +21,17 @@ styling, so applications must not add a parallel toast provider, queue, or
 notification CSS. Use the returned ID with `dismiss` when an operation needs
 to close a persistent notification, or use `dismissAll` to clear the queue.
 
+Notifications appear only in the main header, never in the sidebar or a
+floating overlay. Keep the preview to a single line with a severity icon and
+colored text on desktop. On mobile, always show only the colored severity icon
+and any additional-message count, keeping the full message accessible to
+screen readers rather than displaying truncated text.
+Clicking it opens the framework `Modal` with the full active messages.
+Additional active messages are counted beside the preview, and
+errors take priority over non-error messages. The default lifetime is five
+seconds, with no history after expiration or dismissal. A message already
+opened in the modal remains readable until the modal is closed.
+
 Use inline `ErrorState`, loading states, and field validation when the
 information belongs to persistent page or form state. Use `ConfirmDialog` for
 destructive confirmation rather than a toast, and avoid reporting one failure

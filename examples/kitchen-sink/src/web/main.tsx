@@ -38,10 +38,10 @@ function Home({ projects }: { projects: Project[] }) {
 function NotificationExamples() {
   const toast = useToast();
   return (
-    <Panel title="Framework notifications" description="Transient feedback without an app-owned provider or queue.">
+    <Panel title="Framework notifications" description="Five-second header previews. Click a message to read it in full.">
       <div className="sink-inline">
         <Button type="button" variant="primary" onClick={() => toast.success("Project saved successfully.")}>Success</Button>
-        <Button type="button" variant="danger" onClick={() => toast.error("The project could not be saved.")}>Error</Button>
+        <Button type="button" variant="danger" onClick={() => toast.error("The project could not be saved.\nCheck your connection and try again.")}>Error</Button>
         <Button type="button" onClick={() => toast.warning("This action may take a moment.")}>Warning</Button>
         <Button type="button" variant="ghost" onClick={() => toast.info("This is an informational notification.")}>Info</Button>
         <Button type="button" variant="ghost" onClick={() => toast.info("Dismiss this persistent notification.", { id: "kitchen-sink-persistent", duration: 0 })}>Persistent info</Button>
