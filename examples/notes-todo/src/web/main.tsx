@@ -344,7 +344,7 @@ function NotesTodoApp() {
   }, []);
 
   useEffect(() => void refresh().catch(() => undefined), [refresh]);
-  useRealtimeRefresh({ resources: ["sections", "notes", "todos"], refresh: () => refresh() });
+  useRealtimeRefresh({ resources: ["sections", "notes", "todos"], refresh: () => refresh(), onOpen: () => refresh() });
 
   const patchTodo = useCallback(async (todo: Todo, patch: Partial<Todo>) => {
     await appJson(`/api/todos/${todo.id}`, { method: "PATCH", body: JSON.stringify(patch) });

@@ -129,7 +129,7 @@ function KitchenSinkApp() {
       .then((response) => setPublicPing(response.ok ? "ok" : "failed"))
       .catch(() => setPublicPing("failed"));
   }, []);
-  useRealtimeRefresh({ resources: ["projects"], refresh: () => refresh() });
+  useRealtimeRefresh({ resources: ["projects"], refresh: () => refresh(), onOpen: () => refresh() });
 
   const updateProjectStatus = useCallback(async (project: Project, status: Project["status"]) => {
     await api(`/api/projects/${project.id}`, { method: "PATCH", body: JSON.stringify({ status }) });

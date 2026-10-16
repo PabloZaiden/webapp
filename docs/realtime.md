@@ -34,6 +34,7 @@ Frontend code can refresh declaratively:
 useRealtimeRefresh({
   resources: ["todos", "notes"],
   refresh: () => refreshData(),
+  onOpen: () => refreshData(),
 });
 ```
 
@@ -58,6 +59,7 @@ useRealtimeRefresh({
   resources: ["todos"],
   scopes: [workspaceId],
   refresh,
+  onOpen: () => refresh(),
 });
 ```
 
@@ -76,6 +78,36 @@ The event metadata is authoritative for `resource`, `id`, and `scope`. Repeating
 Websocket query filters are combined with the target using AND semantics. A socket must satisfy its authenticated user restriction and every defined filter field to receive the event. The `target` object is routing metadata and is not added to the event payload, so clients should select on the event's `resource`, `id`, and `scope` fields.
 
 ## Client refresh lifecycle
+
+Subscriptions do not replay missed events. Use `onOpen` to read an authoritative
+snapshot after **every** physical connection opens, including the first one.
+The initial HTTP load can predate the subscription. `onOpen` runs directly from
+the socket lifecycle, independently of React connection-status renders; its
+latest callback is used without reconnecting. Rejected recovery promises are
+logged as errors. Applications should also expose load failures through their
+normal error state.
+
+`useLiveQuery` automatically queues an authoritative load on every opening.
+`useRealtime` and `useRealtimeRefresh` require an explicit `onOpen` callback
+because their event callbacks cannot recover state that was never delivered.
+
+For the default `/api/ws` endpoint, the client sends an application-level `ping`
+immediately after
+opening and every 15 seconds after a successful pong. If a JSON
+`{ "type": "pong" }` response does not arrive within 5 seconds, it retires the
+unresponsive socket and reconnects with the normal backoff. This detects
+connections that still appear open after a network interruption. Control pongs
+alone do not prove that application messages can reach the browser.
+Custom `path` endpoints retain their existing protocol: heartbeat is disabled
+by default. They can opt in with `heartbeat: true` when they implement the same
+ping/pong contract. Use `heartbeat: false` to explicitly disable these probes.
+An opening handshake always has a 5-second deadline before the same retry path.
+
+Returning to a visible document, coming online, or restoring a page from the
+back-forward cache replaces the subscription immediately. Each opening then
+invokes `onOpen` so missed changes can be recovered without HTTP polling.
+Unmounting, disabling, or changing the subscription removes all socket
+callbacks, browser lifecycle listeners, and heartbeat/retry timers.
 
 `useRealtime` and `useRealtimeRefresh` apply resource, action, ID, scope, type,
 and predicate selectors before updating `lastEvent` or invoking event/refresh

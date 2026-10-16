@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { appWebSocketUrl } from "../api-client";
 import { createLogger } from "../logger";
+import { connectRealtime, type RealtimeStatus } from "./connection";
+
+export type { RealtimeStatus } from "./connection";
 
 const log = createLogger("webapp:realtime");
 
-export type RealtimeStatus = "connecting" | "open" | "closed";
 export type RealtimeAction = "created" | "updated" | "changed" | "deleted";
 
 export interface ResourceRealtimeEvent<TPayload = unknown> {
@@ -47,53 +49,51 @@ export function realtimeEventMatches<TEvent>(event: TEvent, selector?: RealtimeE
 export interface UseRealtimeOptions<TEvent> extends RealtimeEventSelector<TEvent> {
   enabled?: boolean;
   path?: string;
+  heartbeat?: boolean;
   filters?: Record<string, string | undefined>;
   onEvent?: (event: TEvent) => void;
+  onOpen?: () => void | Promise<void>;
   trackLastEvent?: boolean;
 }
 
 export function useRealtime<TEvent>({
   enabled = true,
   path = "/api/ws",
+  heartbeat = path === "/api/ws",
   filters,
   onEvent,
+  onOpen,
   trackLastEvent = true,
   ...selector
 }: UseRealtimeOptions<TEvent>) {
   const [status, setStatus] = useState<RealtimeStatus>("connecting");
   const [lastEvent, setLastEvent] = useState<TEvent>();
-  const retryRef = useRef(0);
-  const eventOptionsRef = useRef({ onEvent, selector, trackLastEvent });
-  eventOptionsRef.current = { onEvent, selector, trackLastEvent };
+  const eventOptionsRef = useRef({ onEvent, onOpen, selector, trackLastEvent });
+  eventOptionsRef.current = { onEvent, onOpen, selector, trackLastEvent };
 
   useEffect(() => {
     if (!enabled) {
       setStatus("closed");
       return;
     }
-    let closed = false;
-    let socket: WebSocket | undefined;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-
-    function connect() {
-      const params = new URLSearchParams();
-      for (const [key, value] of Object.entries(filters ?? {})) {
-        if (value) params.set(key, value);
-      }
-      socket = new WebSocket(appWebSocketUrl(`${path}${params.size ? `?${params.toString()}` : ""}`));
-      setStatus("connecting");
-      socket.onopen = () => {
-        retryRef.current = 0;
-        setStatus("open");
-      };
-      socket.onmessage = (message) => {
-        let data: unknown;
-        try {
-          data = JSON.parse(String(message.data));
-        } catch (error) {
-          log.warn("Ignoring malformed realtime JSON", { error: String(error) });
-          return;
-        }
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters ?? {})) {
+      if (value) params.set(key, value);
+    }
+    return connectRealtime({
+      url: appWebSocketUrl(`${path}${params.size ? `?${params.toString()}` : ""}`),
+      heartbeat,
+      onStatus: setStatus,
+      onOpen: () => {
+        void (async () => {
+          try {
+            await eventOptionsRef.current.onOpen?.();
+          } catch (error) {
+            log.error("Realtime subscription recovery failed", { error: String(error) });
+          }
+        })();
+      },
+      onMessage: (data) => {
         if (
           typeof data !== "object" || data === null
           || !("type" in data) || data.type !== "event"
@@ -110,24 +110,9 @@ export function useRealtime<TEvent>({
           setLastEvent(event);
         }
         options.onEvent?.(event);
-      };
-      socket.onclose = () => {
-        setStatus("closed");
-        if (!closed) {
-          const delay = Math.min(1000 * 2 ** retryRef.current, 10000);
-          retryRef.current += 1;
-          timeout = setTimeout(connect, delay);
-        }
-      };
-    }
-
-    connect();
-    return () => {
-      closed = true;
-      if (timeout) clearTimeout(timeout);
-      socket?.close();
-    };
-  }, [enabled, JSON.stringify(filters), path]);
+      },
+    });
+  }, [enabled, JSON.stringify(filters), path, heartbeat]);
 
   return { status, lastEvent };
 }
@@ -136,6 +121,7 @@ export function useRealtimeRefresh<TEvent = ResourceRealtimeEvent>({
   refresh,
   enabled = true,
   path,
+  heartbeat,
   filters,
   resources,
   actions,
@@ -144,6 +130,7 @@ export function useRealtimeRefresh<TEvent = ResourceRealtimeEvent>({
   types,
   predicate,
   onEvent,
+  onOpen,
   trackLastEvent,
 }: {
   refresh: (event: TEvent) => void | Promise<void>;
@@ -154,6 +141,7 @@ export function useRealtimeRefresh<TEvent = ResourceRealtimeEvent>({
   return useRealtime<TEvent>({
     enabled,
     path,
+    heartbeat,
     filters,
     resources,
     actions,
@@ -162,6 +150,7 @@ export function useRealtimeRefresh<TEvent = ResourceRealtimeEvent>({
     types,
     predicate,
     trackLastEvent,
+    onOpen,
     onEvent: (event) => {
       onEvent?.(event);
       void refreshRef.current(event);
@@ -265,6 +254,10 @@ export function useLiveQuery<TData, TEvent = ResourceRealtimeEvent>({
     ...(realtime === false ? {} : realtime),
     enabled: realtime !== false,
     refresh: requestRealtimeRefresh,
+    onOpen: () => {
+      requestRealtimeRefresh();
+      return realtime === false ? undefined : realtime?.onOpen?.();
+    },
   });
 
   return { data, error, loading, refresh, realtimeStatus: realtimeState.status, lastEvent: realtimeState.lastEvent };
