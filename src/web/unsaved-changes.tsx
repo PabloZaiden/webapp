@@ -35,10 +35,13 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   function discard() {
-    for (const reset of guards.current.values()) reset();
+    for (const [id, reset] of guards.current) {
+      reset();
+      guards.current.delete(id);
+    }
     const hash = pendingHash;
     setPendingHash(undefined);
-    if (!hash) return;
+    if (hash === undefined) return;
     allowing.current = true;
     try {
       replaceHashRoute(hash);
@@ -55,13 +58,20 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   </GuardContext.Provider>;
 }
 
-export function useUnsavedChanges(dirty: boolean, onDiscard: () => void): void {
+export function useUnsavedChanges(dirty: boolean, onDiscard: () => void): () => void {
   const register = useContext(GuardContext);
   const reset = useRef(onDiscard);
+  const unregister = useRef<(() => void) | undefined>(undefined);
+  const release = useCallback(() => {
+    unregister.current?.();
+    unregister.current = undefined;
+  }, []);
   reset.current = onDiscard;
   if (!register) throw new Error("useUnsavedChanges requires WebAppRoot");
   useLayoutEffect(() => {
     if (!dirty) return;
-    return register(() => reset.current());
-  }, [dirty, register]);
+    unregister.current = register(() => reset.current());
+    return release;
+  }, [dirty, register, release]);
+  return release;
 }

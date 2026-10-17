@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_THEME_PREFERENCE, type ThemePreference } from "../contracts";
 import { appJson } from "./api-client";
 import { useAsyncOperation } from "./async-operation";
@@ -13,6 +13,7 @@ export interface WebAppThemeState {
   preference: ThemePreference;
   resolvedTheme: ResolvedTheme;
   setPreference: (preference: ThemePreference) => void;
+  savePreference: (preference: ThemePreference) => Promise<void>;
   loading: boolean;
   error?: Error;
   retry: () => Promise<void>;
@@ -86,6 +87,7 @@ export function useTheme(): WebAppThemeState {
 
 export function ThemeProvider({ userId, children }: { userId?: string; children: ReactNode }) {
   const [preference, setPreferenceState] = useState<ThemePreference>(readStoredPreference);
+  const preferenceRef = useRef(preference);
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(readSystemTheme);
   const [error, setError] = useState<Error>();
   const {
@@ -95,6 +97,21 @@ export function ThemeProvider({ userId, children }: { userId?: string; children:
     finish: finishLoad,
     invalidate: invalidateLoad,
   } = useAsyncOperation();
+  const {
+    start: startSave,
+    isCurrent: isSaveCurrent,
+    finish: finishSave,
+    invalidate: invalidateSave,
+  } = useAsyncOperation({ abortOnUnmount: false });
+  const commitPreference = useCallback((nextPreference: ThemePreference) => {
+    preferenceRef.current = nextPreference;
+    setPreferenceState(nextPreference);
+  }, []);
+
+  useLayoutEffect(() => {
+    invalidateSave();
+    return invalidateSave;
+  }, [invalidateSave, userId]);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -113,8 +130,25 @@ export function ThemeProvider({ userId, children }: { userId?: string; children:
       throw new TypeError(`Unknown theme preference: ${String(nextPreference)}.`);
     }
     invalidateLoad();
-    setPreferenceState(nextPreference);
-  }, [invalidateLoad]);
+    invalidateSave();
+    commitPreference(nextPreference);
+  }, [commitPreference, invalidateLoad, invalidateSave]);
+
+  const savePreference = useCallback(async (nextPreference: ThemePreference) => {
+    const previous = preferenceRef.current;
+    setPreference(nextPreference);
+    if (!userId) return;
+    const token = startSave({ replace: true });
+    if (!token) throw new Error("Theme preferences are no longer available.");
+    try {
+      await appJson("/api/preferences/theme", { method: "PUT", body: JSON.stringify({ theme: nextPreference }) });
+    } catch (value) {
+      if (isSaveCurrent(token)) commitPreference(previous);
+      throw value;
+    } finally {
+      finishSave(token);
+    }
+  }, [commitPreference, finishSave, isSaveCurrent, setPreference, startSave, userId]);
 
   const resolvedTheme = preference === "system" ? systemTheme : preference;
 
@@ -148,7 +182,7 @@ export function ThemeProvider({ userId, children }: { userId?: string; children:
       if (!isLoadCurrent(token)) {
         return;
       }
-      setPreferenceState(parseThemeResponse(response));
+      commitPreference(parseThemeResponse(response));
     } catch (value) {
       if (isLoadCurrent(token)) {
         setError(toError(value));
@@ -156,7 +190,7 @@ export function ThemeProvider({ userId, children }: { userId?: string; children:
     } finally {
       finishLoad(token);
     }
-  }, [finishLoad, invalidateLoad, isLoadCurrent, startLoad, userId]);
+  }, [commitPreference, finishLoad, invalidateLoad, isLoadCurrent, startLoad, userId]);
 
   useEffect(() => {
     void retry();
@@ -166,10 +200,11 @@ export function ThemeProvider({ userId, children }: { userId?: string; children:
     preference,
     resolvedTheme,
     setPreference,
+    savePreference,
     loading,
     error,
     retry,
-  }), [error, loading, preference, resolvedTheme, retry, setPreference]);
+  }), [error, loading, preference, resolvedTheme, retry, savePreference, setPreference]);
 
   return <ThemeContext.Provider value={state}>{children}</ThemeContext.Provider>;
 }

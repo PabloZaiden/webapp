@@ -14,7 +14,10 @@ function Action({ action, onError }: { action: SettingsAction; onError: (error?:
       await action.onAction();
       if (isCurrent(token)) setConfirming(false);
     } catch (error) {
-      if (isCurrent(token)) onError(error instanceof Error ? error.message : String(error));
+      if (isCurrent(token)) {
+        setConfirming(false);
+        onError(error instanceof Error ? error.message : String(error));
+      }
     } finally {
       finish(token);
     }
@@ -41,20 +44,21 @@ function Action({ action, onError }: { action: SettingsAction; onError: (error?:
 
 export function SettingsFieldRow({ title, description, content, contentPlacement, actions, feedback, danger, labelFor }: Omit<SettingsRow, "id" | "scope">) {
   const [error, setError] = useState<string>();
-  const inline = contentPlacement === "inline";
+  const inline = contentPlacement !== "below";
   return (
     <div className={`wapp-settings-field${inline ? " wapp-settings-field-inline" : ""}${danger ? " wapp-settings-field-danger" : ""}`}>
       <div className="wapp-settings-field-label">
         {labelFor ? <label htmlFor={labelFor}>{title}</label> : <strong>{title}</strong>}
         {description ? <p>{description}</p> : null}
       </div>
-      {content || actions || feedback ? <div className="wapp-settings-field-control">
-        {content}
+      {(inline && content) || actions || feedback ? <div className="wapp-settings-field-control">
+        {inline ? content : null}
         {feedback ? <div className="wapp-settings-feedback">{feedback}</div> : null}
         {actions ? <div className="wapp-row-actions">
           {Array.isArray(actions) ? actions.map((action: SettingsAction) => <Action key={action.id} action={action} onError={setError} />) : actions}
         </div> : null}
       </div> : null}
+      {!inline && content ? <div className="wapp-settings-field-content">{content}</div> : null}
       {error ? <div className="wapp-settings-feedback"><p className="wapp-error" role="alert">{error}</p></div> : null}
     </div>
   );

@@ -1218,6 +1218,7 @@ function ActionMenuItems({ items, onItemClick }: { items: ActionMenuItem[]; onIt
           type={item.form !== undefined ? "submit" : "button"}
           form={item.form}
           role="menuitem"
+          data-action-id={item.id}
           key={item.id ?? `${item.label}:${index}`}
           disabled={item.disabled}
           className={`wapp-action-menu-item ${isDestructiveActionMenuItem(item) ? "danger" : ""}`}
@@ -1256,6 +1257,7 @@ export function ActionMenu({
   buttonRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const [open, setOpen] = useState(false);
+  const menuId = useId();
   const presence = usePresence(open);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -1272,11 +1274,16 @@ export function ActionMenu({
         close();
       }
     }
+    function handleFocusIn(event: FocusEvent) {
+      if (!menuRef.current?.contains(event.target as Node) && !triggerRef.current?.contains(event.target as Node)) close();
+    }
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("focusin", handleFocusIn);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("focusin", handleFocusIn);
     };
   }, [close, open]);
 
@@ -1313,13 +1320,14 @@ export function ActionMenu({
         aria-label={ariaLabel}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-controls={presence.mounted ? menuId : undefined}
         disabled={disabled || items.length === 0}
         onClick={() => setOpen((current) => !current)}
       >
         {trigger ?? <OverflowIcon />}
       </button>
       {presence.mounted ? createPortal(
-        <div ref={menuRef} className={`wapp-action-menu wapp-motion-${presence.state}`} role="menu" aria-label={ariaLabel} aria-hidden={open ? undefined : true} style={style}>
+        <div ref={menuRef} id={menuId} className={`wapp-action-menu wapp-motion-${presence.state}`} role="menu" aria-label={ariaLabel} aria-hidden={open ? undefined : true} style={style}>
           <ActionMenuItems items={items} onItemClick={handleItemClick} />
         </div>,
         document.body,

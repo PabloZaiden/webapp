@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { VALID_LOG_LEVELS, type LogLevelName, type WebAppConfigResponse } from "../../contracts";
 import { appJson } from "../api-client";
+import { useAsyncOperation } from "../async-operation";
 import { Badge, Button, CheckboxField, ErrorState, FormSection, LoadingState, Select } from "../components";
 import { useLogLevel } from "../log-level";
 import { isThemePreference, useTheme } from "../theme";
@@ -20,11 +21,11 @@ export interface AccountSectionProps {
 export function AccountSection({ config, refresh, setError, category }: AccountSectionProps) {
   const themeId = useId();
   const logLevelId = useId();
-  const { preference, setPreference, loading, error, retry } = useTheme();
+  const { preference, savePreference, loading, error, retry } = useTheme();
   const logLevel = useLogLevel();
   const [logLevelSaving, setLogLevelSaving] = useState(false);
   const [serverLogsSaving, setServerLogsSaving] = useState(false);
-  const [themeSaving, setThemeSaving] = useState(false);
+  const { pending: themeSaving, start: startThemeSave, finish: finishThemeSave, isCurrent: isThemeSaveCurrent } = useAsyncOperation({ abortOnUnmount: false });
   const [themeSaved, setThemeSaved] = useState(false);
 
   async function updateTheme(value: string) {
@@ -32,19 +33,17 @@ export function AccountSection({ config, refresh, setError, category }: AccountS
       setError("Invalid theme");
       return;
     }
-    const previous = preference;
-    setPreference(value);
-    setThemeSaving(true);
+    const token = startThemeSave();
+    if (!token) return;
     setThemeSaved(false);
     setError(undefined);
     try {
-      await appJson("/api/preferences/theme", { method: "PUT", body: JSON.stringify({ theme: value }) });
-      setThemeSaved(true);
+      await savePreference(value);
+      if (isThemeSaveCurrent(token)) setThemeSaved(true);
     } catch (error) {
-      setPreference(previous);
-      setError(error instanceof Error ? error.message : String(error));
+      if (isThemeSaveCurrent(token)) setError(error instanceof Error ? error.message : String(error));
     } finally {
-      setThemeSaving(false);
+      finishThemeSave(token);
     }
   }
 

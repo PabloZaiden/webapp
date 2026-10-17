@@ -1525,8 +1525,11 @@ textarea::placeholder {
 }
 
 .wapp-button:hover:not(:disabled) {
-  color: var(--wapp-text);
   background: color-mix(in srgb, var(--wapp-muted), transparent 92%);
+}
+
+.wapp-button:not(.wapp-button-danger):not(.wapp-button-tone-danger):hover:not(:disabled) {
+  color: var(--wapp-text);
 }
 
 .wapp-button:disabled {
@@ -2046,6 +2049,7 @@ textarea::placeholder {
   min-width: 0;
 }
 
+.wapp-settings-field-content,
 .wapp-settings-feedback {
   grid-column: 1 / -1;
   min-width: 0;
@@ -3280,7 +3284,7 @@ select.wapp-input,
     margin-left: auto;
   }
 
-  :root[data-wapp-mobile] .wapp-settings-field > .wapp-settings-feedback {
+  :root[data-wapp-mobile] .wapp-settings-field > :is(.wapp-settings-field-content, .wapp-settings-feedback) {
     flex-basis: 100%;
   }
 

@@ -115,6 +115,11 @@ browser reload/close with the native unload boundary. Supply a visible Cancel
 alongside Save; preserve failed drafts and disable duplicate submissions.
 Navigation continues through framework route helpers, with no app-owned hash
 listener or parser.
+Native hash navigation is guarded at the same route-commit boundary without
+adding history entries for framework navigation. The hook returns an
+idempotent release callback: after a successful save or explicit cancel that
+navigates immediately, call it before navigating so that form does not prompt
+again while React commits its clean state. Other dirty forms remain protected.
 
 `DataListRow` places `meta` beside the content by default. Use
 `metaPlacement="inline"` for secondary dates beside the title, wrapping below
