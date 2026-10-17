@@ -46,13 +46,15 @@ export interface SidebarTab {
   icon?: ReactNode;
 }
 
-export interface ActionMenuItem {
+export type ActionMenuItem = {
   id?: string;
   label: string;
   disabled?: boolean;
   destructive?: boolean;
-  onAction: () => void;
-}
+} & (
+  | { onAction: () => void; form?: never }
+  | { form: string; onAction?: never }
+);
 
 export type SidebarItemRenderContext = {
   node: SidebarNode;

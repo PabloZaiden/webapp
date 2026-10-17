@@ -4,6 +4,7 @@ import type { DeviceVerificationDetails, PasskeyAuthStatusResponse, UserSetupDet
 import { appJson, appPagePath } from "./api-client";
 import { useAsyncOperation } from "./async-operation";
 import { Badge, Button, Dialog, Panel, TextField } from "./components";
+import { DateTimeValue } from "./date-time";
 
 export function PasskeyAuthScreen({ status, apiKeysEnabled, refresh }: { status: PasskeyAuthStatusResponse; apiKeysEnabled: boolean; refresh: () => Promise<void> }) {
   const [error, setError] = useState<string>();
@@ -23,11 +24,6 @@ export function PasskeyAuthScreen({ status, apiKeysEnabled, refresh }: { status:
       setError(undefined);
     }
   }, [canAuthenticateWithApiKey]);
-  const description = status.bootstrapRequired
-    ? "Choose the username for the owner"
-    : status.ownerPasskeySetupRequired
-      ? "The owner passkey was removed. Set it up again to continue."
-      : "Authenticate to continue.";
 
   async function register(endpoint: "bootstrap" | "owner-setup") {
     setBusy(true);
@@ -99,27 +95,25 @@ export function PasskeyAuthScreen({ status, apiKeysEnabled, refresh }: { status:
         className="wapp-auth-dialog"
         title={status.bootstrapRequired ? "Create owner user" : status.ownerPasskeySetupRequired ? "Set up owner passkey" : "Passkey required"}
         actions={status.bootstrapRequired ? (
-          <Button type="button" variant="primary" disabled={busy || !username.trim()} onClick={() => void register("bootstrap")}>Create owner</Button>
+          <Button type="button" variant="primary" loading={busy} disabled={!username.trim()} onClick={() => void register("bootstrap")}>Create owner</Button>
         ) : status.ownerPasskeySetupRequired ? (
-          <Button type="button" variant="primary" disabled={busy} onClick={() => void register("owner-setup")}>Set up owner passkey</Button>
+          <Button type="button" variant="primary" loading={busy} onClick={() => void register("owner-setup")}>Set up owner passkey</Button>
         ) : canAuthenticateWithApiKey && apiKeyMode ? (
           <>
             <Button type="button" variant="ghost" disabled={busy} onClick={choosePasskeyMode}>Use Passkey instead</Button>
-            <Button type="submit" form="wapp-api-key-auth-form" variant="primary" disabled={busy || !apiKey.trim()}>Authenticate with API key</Button>
+            <Button type="submit" form="wapp-api-key-auth-form" variant="primary" loading={busy} disabled={!apiKey.trim()}>Authenticate with API key</Button>
           </>
         ) : (
           <>
             {canAuthenticateWithApiKey ? <Button type="button" variant="ghost" disabled={busy} onClick={chooseApiKeyMode}>Use API Key instead</Button> : null}
-            <Button type="button" variant="primary" disabled={busy} onClick={() => void login()}>Authenticate</Button>
+            <Button type="button" variant="primary" loading={busy} onClick={() => void login()}>Authenticate</Button>
           </>
         )}
       >
-        <p>{description}</p>
         {error ? <p className="wapp-error">{error}</p> : null}
-        {status.bootstrapRequired ? <><br /><TextField label="Username" value={username} onChange={(event) => setUsername(event.currentTarget.value)} placeholder="owner" /></> : null}
+        {status.bootstrapRequired ? <TextField label="Username" value={username} onChange={(event) => setUsername(event.currentTarget.value)} placeholder="owner" /> : null}
         {canAuthenticateWithApiKey && apiKeyMode ? (
           <>
-            <br />
             <form id="wapp-api-key-auth-form" onSubmit={(event) => void loginWithApiKey(event)}>
               <TextField
                 label="API key"
@@ -176,10 +170,10 @@ export function UserSetupScreen({ refresh }: { refresh: () => Promise<void> }) {
       <Dialog
         className="wapp-auth-dialog"
         title={details?.kind === "reset" ? "Reset passkey" : "Finish user setup"}
-        actions={<Button type="button" variant="primary" disabled={busy || !details} onClick={() => void setup()}>Set up passkey</Button>}
+        actions={<Button type="button" variant="primary" loading={busy} disabled={!details} onClick={() => void setup()}>Set up passkey</Button>}
       >
         <p>{details ? `Username: ${details.username}` : "Loading setup link..."}</p>
-        {details ? <p className="wapp-muted">Role: {details.role}. This link expires at {details.expiresAt}.</p> : null}
+        {details ? <p className="wapp-muted">Role: {details.role} · Expires <DateTimeValue value={details.expiresAt} /></p> : null}
         {error ? <p className="wapp-error">{error}</p> : null}
       </Dialog>
     </main>
@@ -281,7 +275,7 @@ export function DeviceVerificationScreen() {
 
   return (
     <main className="wapp-device-screen">
-      <Panel title="Authorize device" description="Enter the code shown by the CLI or external device.">
+      <Panel title="Authorize device">
         <div className="wapp-device-stack">
           <TextField
             label="User code"
@@ -307,7 +301,7 @@ export function DeviceVerificationScreen() {
               <div><strong>Client</strong><span>{details.clientId}</span></div>
               <div><strong>Scope</strong><span>{details.scope}</span></div>
               <div><strong>Status</strong><Badge variant={details.status === "approved" ? "success" : details.status === "denied" ? "error" : details.status === "consumed" ? "disabled" : "warning"}>{details.status}</Badge></div>
-              <div><strong>Expires</strong><span>{details.expiresAt}</span></div>
+              <div><strong>Expires</strong><span><DateTimeValue value={details.expiresAt} /></span></div>
             </div>
           ) : null}
           <div className="wapp-row-actions">

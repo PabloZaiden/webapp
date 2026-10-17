@@ -3,7 +3,7 @@ import type { WebAppConfigResponse } from "../contracts";
 import { AppShell } from "./app-shell";
 import { DeviceVerificationScreen, PasskeyAuthScreen, UserSetupScreen } from "./auth-screens";
 import { appPagePath } from "./api-client";
-import { EmptyState, Panel } from "./components";
+import { Button, EmptyState, Panel } from "./components";
 import { useMobileBreakpoint, useMobileSidebarSwipe, useMobileViewportHeight } from "./mobile-hooks";
 import { routeToHash, supportsElementViewTransitions, useRoute } from "./routing";
 import { flattenSidebarItems, useSidebarCollapsedState, useSidebarDesktopCollapsedState, useSidebarPins, useSidebarTab } from "./sidebar-state";
@@ -12,6 +12,7 @@ import type { HeaderContext, WebAppRootController, WebAppRootProps } from "./roo
 import type { ActionMenuItem, SidebarNode, SidebarNodeSnapshot, SidebarTab, WebAppRoute } from "./sidebar/types";
 import { HeaderActionsProvider } from "./header-actions";
 import { ThemeProvider } from "./theme";
+import { UnsavedChangesProvider } from "./unsaved-changes";
 import { WebAppConfigProvider, useWebAppConfig } from "./webapp-config";
 import { setLogLevel } from "./logger";
 import { useReducedMotion } from "./motion";
@@ -316,7 +317,7 @@ function WebAppRootContent({
   }), [focusSidebarSearch, openSidebar, selectTab]);
 
   if (error && !config) {
-    return <main className="wapp-auth-screen"><Panel title="Unable to load app" description={error.message} /></main>;
+    return <main className="wapp-auth-screen"><Panel title="Unable to load app" description={error.message} actions={<Button onClick={() => void refresh()}>Retry</Button>} /></main>;
   }
   if (!config) {
     return <main className="wapp-auth-screen">Loading...</main>;
@@ -335,7 +336,7 @@ function WebAppRootContent({
   const effectiveVersion = version ?? config.version;
   let view: ReactNode;
   if (route.view === "settings") {
-    view = <SettingsView config={config} refresh={refresh} customSections={settings?.sections ?? []} />;
+    view = <SettingsView config={config} refresh={refresh} customSections={settings?.sections ?? []} route={route} navigate={navigate} />;
   } else {
     const registeredView = routes[route.view];
     view = typeof registeredView === "function"
@@ -349,7 +350,7 @@ function WebAppRootContent({
   const activeSidebarActions = activeSidebarNode?.actions ?? [];
   const configuredHeaderActions = header?.getHeaderActions?.(headerContext) ?? {};
   const headerActions = {
-    primary: configuredHeaderActions.primary ?? header?.renderActions?.(headerContext),
+    primary: configuredHeaderActions.primary,
     overflow: [
       ...(configuredHeaderActions.overflow ?? []),
       ...(header?.getActions?.(headerContext) ?? []),
@@ -422,8 +423,8 @@ function WebAppRootWithConfig({
 
 export const WebAppRoot = forwardRef<WebAppRootController, WebAppRootProps>(function WebAppRoot(props, controllerRef) {
   return (
-    <WebAppConfigProvider>
+    <UnsavedChangesProvider><WebAppConfigProvider>
       <WebAppRootWithConfig {...props} controllerRef={controllerRef} />
-    </WebAppConfigProvider>
+    </WebAppConfigProvider></UnsavedChangesProvider>
   );
 });

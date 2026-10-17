@@ -25,6 +25,7 @@ export const LOG_LEVEL_NAMES: Record<number, LogLevelName> = {
 export const DEFAULT_LOG_LEVEL: LogLevelName = "info";
 
 export type ThemePreference = "system" | "light" | "dark";
+export const DEFAULT_THEME_PREFERENCE: ThemePreference = "dark";
 
 export type WebAppUserRole = "owner" | "admin" | "user";
 

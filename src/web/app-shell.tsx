@@ -1,7 +1,8 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
-import { ActionMenu, IconButton } from "./components";
+import { IconButton } from "./components";
 import { useHeaderActionsSnapshot } from "./header-actions";
 import { HeaderNotifications } from "./header-notifications";
+import { HeaderActionBar } from "./header-action-bar";
 import { useInertElement, useOverlayLifecycle } from "./overlay";
 import { SidebarTree } from "./sidebar-tree";
 import { MainContentOverlay } from "./main-content-overlay";
@@ -126,6 +127,7 @@ export function AppShell({
   view,
 }: AppShellProps) {
   const { primary: primaryHeaderActions, overflow: headerActions = [] } = useHeaderActionsSnapshot();
+  const mainHeaderRef = useRef<HTMLElement>(null);
   useEffect(() => {
     function handleSidebarShortcut(event: KeyboardEvent) {
       if (
@@ -366,18 +368,13 @@ export function AppShell({
         </aside>
       </div>
       <section ref={mainRef} className="wapp-main">
-        <header className="wapp-main-header">
+        <header ref={mainHeaderRef} className="wapp-main-header">
           <div className="wapp-main-header-title">
             {isMobile ? <IconButton className="wapp-sidebar-top-button" style={!drawerOpen && drawerOverlay.mounted ? { zIndex: drawerLayerZIndex } : undefined} aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton> : sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
             <h1 ref={headerTitleRef} tabIndex={-1} key={routeKey} className="wapp-route-fade">{headerTitle}</h1>
           </div>
           <HeaderNotifications focusFallbackRef={headerTitleRef} />
-          {primaryHeaderActions || headerActions.length ? (
-            <div key={routeKey} className="wapp-main-header-actions wapp-route-fade">
-              {primaryHeaderActions}
-              {headerActions.length ? <ActionMenu items={headerActions} ariaLabel={`Actions for ${headerActionLabel}`} /> : null}
-            </div>
-          ) : null}
+          <HeaderActionBar key={routeKey} primary={primaryHeaderActions} overflow={headerActions} headerRef={mainHeaderRef} ariaLabel={`Actions for ${headerActionLabel}`} />
         </header>
         <div ref={routeTransitionScopeRef} className="wapp-main-content">
           <div key={routeKey} className="wapp-route-view">

@@ -1,10 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { WebAppRoute } from "./sidebar/types";
 
 type ViewTransitionUpdate = () => void;
 type ViewTransitionStarter = (updateCallback: ViewTransitionUpdate) => unknown;
 type ViewTransitionScopeRef = { readonly current: HTMLElement | null };
+export const ROUTE_CHANGE_REQUEST = "wapp:route-change-request";
+let approvedHash: string | undefined;
+
+function requestRouteChange(hash: string): boolean {
+  return window.dispatchEvent(new CustomEvent<string>(ROUTE_CHANGE_REQUEST, { detail: hash, cancelable: true }));
+}
 
 type ViewTransitionElement = HTMLElement & {
   startViewTransition?: ViewTransitionStarter;
@@ -26,6 +32,9 @@ export function replaceHashRoute(hash: string): boolean {
   if (window.location.hash === normalizedHash) {
     return false;
   }
+  if (!requestRouteChange(normalizedHash)) {
+    return false;
+  }
 
   const previousUrl = window.location.href;
   let hashChangeEmitted = false;
@@ -33,10 +42,17 @@ export function replaceHashRoute(hash: string): boolean {
     hashChangeEmitted = true;
   };
   window.addEventListener("hashchange", markHashChangeEmitted, { once: true });
-  window.history.replaceState(window.history.state, "", normalizedHash);
-  window.removeEventListener("hashchange", markHashChangeEmitted);
-  if (!hashChangeEmitted) {
-    window.dispatchEvent(new HashChangeEvent("hashchange", { oldURL: previousUrl, newURL: window.location.href }));
+  const previousApprovedHash = approvedHash;
+  approvedHash = normalizedHash;
+  try {
+    window.history.replaceState(window.history.state, "", normalizedHash);
+    window.removeEventListener("hashchange", markHashChangeEmitted);
+    if (!hashChangeEmitted) {
+      window.dispatchEvent(new HashChangeEvent("hashchange", { oldURL: previousUrl, newURL: window.location.href }));
+    }
+  } finally {
+    approvedHash = previousApprovedHash;
+    window.removeEventListener("hashchange", markHashChangeEmitted);
   }
   return true;
 }
@@ -96,12 +112,24 @@ function parseRoute(defaultRoute: WebAppRoute): WebAppRoute {
 
 export function useRoute(defaultRoute: WebAppRoute, transitionScopeRef?: ViewTransitionScopeRef) {
   const [route, setRoute] = useState(() => parseRoute(defaultRoute));
+  const committedHash = useRef(window.location.hash);
   const commitRoute = useCallback((nextRoute: WebAppRoute) => {
     updateRoute(setRoute, nextRoute, transitionScopeRef);
   }, [transitionScopeRef]);
 
   useEffect(() => {
-    const listener = () => commitRoute(parseRoute(defaultRoute));
+    const listener = () => {
+      const hash = window.location.hash;
+      if (hash === committedHash.current) return;
+      if (hash !== approvedHash && !requestRouteChange(hash)) {
+        const url = new URL(window.location.href);
+        url.hash = committedHash.current;
+        window.history.replaceState(window.history.state, "", url);
+        return;
+      }
+      committedHash.current = hash;
+      commitRoute(parseRoute(defaultRoute));
+    };
     window.addEventListener("hashchange", listener);
     return () => window.removeEventListener("hashchange", listener);
   }, [commitRoute, defaultRoute]);

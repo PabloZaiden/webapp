@@ -1,5 +1,6 @@
 import type { Server } from "bun";
 import type { CurrentUser, LogLevelName, WebAppConfigResponse } from "../contracts";
+import { DEFAULT_THEME_PREFERENCE } from "../contracts";
 import {
   authenticateApiKey,
   createApiKey,
@@ -452,7 +453,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         if (auth instanceof Response) return auth;
         const user = authentication.requireUser(auth);
         if (req.method === "GET") {
-          return jsonResponse({ theme: store.getThemePreference(user.id) ?? "system" });
+          return jsonResponse({ theme: store.getThemePreference(user.id) ?? DEFAULT_THEME_PREFERENCE });
         }
         if (req.method === "PUT") {
           const originFailure = checkSameOrigin(req, config, auth, "mutations");

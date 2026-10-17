@@ -21,6 +21,9 @@
   --wapp-toast-warning: #92400e;
   --wapp-toast-info: #1e40af;
   --wapp-primary: #111827;
+  --wapp-action-bg: #e5e7eb;
+  --wapp-action-text: #111827;
+  --wapp-action-border: #9ca3af;
   --wapp-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --wapp-overlay-bg: rgb(0 0 0 / 0.5);
   --wapp-overlay-blur: blur(4px);
@@ -75,6 +78,9 @@
   --wapp-toast-warning: #fde68a;
   --wapp-toast-info: #bfdbfe;
   --wapp-primary: #fafafa;
+  --wapp-action-bg: #303030;
+  --wapp-action-text: #fafafa;
+  --wapp-action-border: #525252;
   --wapp-shadow: 0 1px 2px rgb(0 0 0 / 0.22);
   --wapp-overlay-bg: rgb(0 0 0 / 0.68);
   --wapp-overlay-blur: blur(6px);
@@ -115,7 +121,7 @@ textarea::placeholder {
 
 :root.dark input::placeholder,
 :root.dark textarea::placeholder {
-  color: #525252;
+  color: #a3a3a3;
 }
 
 .sr-only {
@@ -201,6 +207,7 @@ textarea::placeholder {
 }
 
 .wapp-main-header-actions {
+  position: relative;
   display: flex;
   flex: 0 0 auto;
   min-width: max-content;
@@ -986,6 +993,11 @@ textarea::placeholder {
   padding: 0;
 }
 
+.wapp-page-form {
+  max-width: 52rem;
+  margin-inline: auto;
+}
+
 .wapp-page,
 .wapp-panel,
 .wapp-modal-body {
@@ -1065,7 +1077,7 @@ textarea::placeholder {
 
 .wapp-panel-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 0.75rem;
@@ -1076,7 +1088,13 @@ textarea::placeholder {
 }
 
 .wapp-panel-actions {
+  display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  max-width: 100%;
 }
 
 .wapp-panel-header h2 {
@@ -1088,7 +1106,7 @@ textarea::placeholder {
 
 .wapp-panel-header p,
 .wapp-empty-state span,
-.wapp-form-section p {
+.wapp-form-section-heading > p {
   color: var(--wapp-muted);
   font-size: 0.875rem;
   margin: 0.25rem 0 0;
@@ -1197,8 +1215,7 @@ textarea::placeholder {
   max-width: 100%;
   box-sizing: border-box;
   overflow: hidden;
-  border: 1px solid var(--wapp-border-soft);
-  border-radius: 0.625rem;
+  border: 0;
 }
 
 .wapp-data-list-cards {
@@ -1216,8 +1233,24 @@ textarea::placeholder {
   border: 0;
   background: transparent;
   color: var(--wapp-text);
-  padding: 0.75rem 0.875rem;
+  padding: 0.75rem 0;
   text-align: left;
+}
+
+.wapp-data-list-row-trigger {
+  display: flex;
+  align-items: inherit;
+  gap: inherit;
+  min-width: 0;
+  flex: 1;
+  align-self: stretch;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
 }
 
 .wapp-data-list-row-card,
@@ -1313,6 +1346,13 @@ textarea::placeholder {
   flex: 1;
 }
 
+.wapp-data-list-row-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.75rem;
+}
+
 .wapp-data-list-row-main strong,
 .wapp-data-list-row-main small {
   display: block;
@@ -1329,6 +1369,10 @@ textarea::placeholder {
 .wapp-data-list-row-meta {
   color: var(--wapp-muted);
   font-size: 0.8125rem;
+}
+
+.wapp-data-list-row-heading > small {
+  white-space: nowrap;
 }
 
 .wapp-data-list-row-meta,
@@ -1405,21 +1449,37 @@ textarea::placeholder {
 }
 
 .wapp-button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
   min-height: 2.25rem;
-  border: 1px solid var(--wapp-border);
+  border: 1px solid transparent;
   border-radius: 0.4375rem;
-  background: var(--wapp-surface);
-  color: var(--wapp-text);
+  background: transparent;
+  color: var(--wapp-muted);
   cursor: pointer;
   font-size: 0.875rem;
   font-weight: 600;
   padding: 0.4375rem 0.75rem;
   white-space: nowrap;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
+  width: fit-content;
+  max-width: 100%;
+  flex: 0 0 auto;
+  justify-self: start;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.wapp-button-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+}
+
+.wapp-button-loading .wapp-button-content {
+  opacity: 0;
 }
 
 .wapp-button-xs {
@@ -1447,6 +1507,9 @@ textarea::placeholder {
 }
 
 .wapp-button-spinner {
+  position: absolute;
+  inset: 0;
+  margin: auto;
   width: 1rem;
   height: 1rem;
   border: 2px solid currentColor;
@@ -1462,8 +1525,11 @@ textarea::placeholder {
 }
 
 .wapp-button:hover:not(:disabled) {
-  border-color: var(--wapp-muted);
-  background: color-mix(in srgb, var(--wapp-surface), var(--wapp-muted) 12%);
+  background: color-mix(in srgb, var(--wapp-muted), transparent 92%);
+}
+
+.wapp-button:not(.wapp-button-danger):not(.wapp-button-tone-danger):hover:not(:disabled) {
+  color: var(--wapp-text);
 }
 
 .wapp-button:disabled {
@@ -1472,13 +1538,26 @@ textarea::placeholder {
 }
 
 .wapp-button-primary {
-  border-color: var(--wapp-primary);
-  background: var(--wapp-primary);
-  color: var(--wapp-bg);
+  color: var(--wapp-text);
+}
+
+.wapp-header-primary {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.5rem;
+  width: max-content;
+}
+
+.wapp-header-primary-collapsed {
+  position: absolute;
+  right: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .wapp-button-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--wapp-primary), var(--wapp-bg) 12%);
+  background: color-mix(in srgb, var(--wapp-muted), transparent 88%);
 }
 
 .wapp-button-danger {
@@ -1493,6 +1572,24 @@ textarea::placeholder {
 
 .wapp-button-ghost:hover:not(:disabled) {
   background: color-mix(in srgb, var(--wapp-muted), transparent 88%);
+  border-color: transparent;
+}
+
+.wapp-button-link {
+  background: transparent;
+  border-color: transparent;
+  padding-inline: 0.25rem;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.wapp-button-link:hover:not(:disabled) {
+  background: transparent;
+  border-color: transparent;
+}
+
+.wapp-button-tone-danger:not(.wapp-button-danger) {
+  color: var(--wapp-danger);
 }
 
 .wapp-action-menu-trigger {
@@ -1671,6 +1768,7 @@ textarea::placeholder {
 
 .wapp-button-ghost {
   background: transparent;
+  border-color: transparent;
 }
 
 .wapp-badge {
@@ -1859,10 +1957,134 @@ textarea::placeholder {
 .wapp-settings {
   height: 100%;
   overflow: auto;
-  max-width: none;
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 54rem);
+  align-content: start;
+  align-items: start;
+  gap: 2rem;
   background: var(--wapp-shell-bg);
   padding: 1.25rem 1.5rem 1.5rem;
   font-size: 0.875rem;
+}
+
+.wapp-settings-nav {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.wapp-settings-nav button {
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--wapp-muted);
+  text-align: left;
+  padding: 0.625rem 0.75rem;
+  min-height: 2.75rem;
+  cursor: pointer;
+}
+
+.wapp-settings-nav button:hover,
+.wapp-settings-nav button[aria-current="page"] {
+  color: var(--wapp-text);
+  background: var(--wapp-surface-pill);
+}
+
+.wapp-settings-category-select {
+  display: none;
+}
+
+.wapp-settings-content {
+  min-width: 0;
+}
+
+.wapp-settings-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  padding-block: 0.5rem;
+}
+
+.wapp-settings-field + .wapp-settings-field {
+  border-top: 1px solid var(--wapp-border-soft);
+}
+
+.wapp-settings-field-label > strong,
+.wapp-settings-field-label > label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.wapp-settings-field-label > label {
+  display: block;
+  cursor: pointer;
+}
+
+.wapp-settings-field-label > p {
+  margin: 0;
+  color: var(--wapp-muted);
+  font-size: 0.8125rem;
+}
+
+.wapp-settings-field-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  min-width: 0;
+  max-width: 36rem;
+}
+
+.wapp-settings-field-control > .wapp-row-actions {
+  margin-left: auto;
+}
+
+.wapp-settings-field-control > .wapp-input:not([type="checkbox"]) {
+  flex: 1 1 8rem;
+  width: auto;
+  min-width: 0;
+}
+
+.wapp-settings-field-content,
+.wapp-settings-feedback {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.wapp-settings-feedback:empty {
+  display: none;
+}
+
+.wapp-settings-field-danger .wapp-settings-field-label {
+  color: var(--wapp-danger);
+}
+
+.wapp-settings-action {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.wapp-settings-action > small {
+  color: var(--wapp-muted);
+}
+
+.wapp-settings-disclosure {
+  margin-bottom: 1.75rem;
+}
+
+.wapp-settings-disclosure > summary {
+  cursor: pointer;
+  min-height: 2.75rem;
+  font-weight: 600;
+  padding-block: 0.75rem;
+}
+
+.wapp-settings-disclosure-content {
+  padding-top: 0.75rem;
 }
 
 .wapp-form-section {
@@ -1879,10 +2101,10 @@ textarea::placeholder {
   border-top: 0;
 }
 
-.wapp-form-section h3 {
+.wapp-form-section-heading > h3 {
   margin: 0 0 0.75rem;
-  font-size: 0.8125rem;
-  font-weight: 500;
+  font-size: 1rem;
+  font-weight: 600;
 }
 
 .wapp-form-section-heading-with-description {
@@ -1890,17 +2112,18 @@ textarea::placeholder {
 }
 
 .wapp-form-section-body {
+  display: grid;
+  gap: 0.875rem;
   min-width: 0;
   border: 1px solid var(--wapp-border-muted);
   border-radius: 0.625rem;
-  background: var(--wapp-surface-muted);
-  padding: 0.875rem;
+  background: var(--wapp-surface);
+  padding: 1rem;
 }
 
 .wapp-form-group {
-  border: 1px solid var(--wapp-border-soft);
-  border-radius: 0.5rem;
-  padding: 0.75rem;
+  min-width: 0;
+  padding: 0;
 }
 
 .wapp-form-group + .wapp-form-group {
@@ -1931,11 +2154,24 @@ textarea::placeholder {
   align-items: center;
   justify-content: flex-end;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .wapp-form-group-body {
   display: grid;
   gap: 0.75rem;
+}
+
+.wapp-form-group-inline > .wapp-form-group-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+}
+
+.wapp-form-group-inline > .wapp-form-group-body > .wapp-row-actions,
+.wapp-form-group-inline > .wapp-form-group-body > .wapp-form-actions {
+  margin-left: auto;
 }
 
 .wapp-settings-row {
@@ -1955,12 +2191,12 @@ textarea::placeholder {
   align-items: center;
 }
 
-.wapp-settings-row strong {
+.wapp-settings-row > div > strong {
   font-size: 0.875rem;
   font-weight: 600;
 }
 
-.wapp-settings-row p {
+.wapp-settings-row-main > p {
   color: var(--wapp-muted);
   font-size: 0.8125rem;
   line-height: 1.35;
@@ -2028,9 +2264,27 @@ textarea::placeholder {
 
 .wapp-field {
   display: block;
+  width: 100%;
+  max-width: 36rem;
 }
 
-.wapp-field span {
+.wapp-field-normal {
+  max-width: 20rem;
+}
+
+.wapp-field-short {
+  max-width: 12rem;
+}
+
+.wapp-field-full {
+  max-width: 100%;
+}
+
+.wapp-field-select:not(.wapp-field-full) {
+  width: fit-content;
+}
+
+.wapp-field > span {
   display: block;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -2044,11 +2298,32 @@ textarea::placeholder {
   min-height: 2.5rem;
   border: 1px solid var(--wapp-border);
   border-radius: 0.4375rem;
-  background: var(--wapp-surface);
+  background: var(--wapp-surface-inset);
   color: var(--wapp-text);
-  box-shadow: var(--wapp-shadow);
+  box-shadow: none;
   padding: 0.5rem 0.75rem;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
+}
+
+.wapp-input {
+  display: block;
+  width: 100%;
+  max-width: 36rem;
+  min-height: 2.5rem;
+  border: 1px solid var(--wapp-border);
+  border-radius: 0.4375rem;
+  background: var(--wapp-surface-inset);
+  color: var(--wapp-text);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.wapp-input:disabled {
+  opacity: 0.6;
+}
+
+.wapp-input[aria-invalid="true"] {
+  border-color: var(--wapp-danger);
 }
 
 .wapp-inline-select {
@@ -2062,6 +2337,17 @@ textarea::placeholder {
   font-size: 0.8125rem;
 }
 
+select.wapp-input,
+.wapp-field select,
+.wapp-inline-select {
+  appearance: none;
+  padding-right: 2.5rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1rem;
+}
+
 .wapp-field textarea {
   min-height: 8rem;
   resize: vertical;
@@ -2073,6 +2359,9 @@ textarea::placeholder {
   justify-content: space-between;
   width: 100%;
   gap: 0.5rem;
+  min-height: 2.75rem;
+  align-items: center;
+  cursor: pointer;
 }
 
 .wapp-checkbox-field input {
@@ -2083,7 +2372,7 @@ textarea::placeholder {
   flex: 0 0 auto;
 }
 
-.wapp-checkbox-field span {
+.wapp-checkbox-field > span {
   font-size: 0.8125rem;
   font-weight: 500;
 }
@@ -2213,12 +2502,8 @@ textarea::placeholder {
 }
 
 .wapp-shutdown-message {
-  color: #dc2626;
+  color: var(--wapp-muted);
   font-size: 0.875rem;
-}
-
-:root.dark .wapp-shutdown-message {
-  color: #f87171;
 }
 
 .wapp-shutdown-progress {
@@ -2226,22 +2511,14 @@ textarea::placeholder {
   height: 0.375rem;
   overflow: hidden;
   border-radius: 999px;
-  background: #fecaca;
-}
-
-:root.dark .wapp-shutdown-progress {
-  background: #7f1d1d;
+  background: var(--wapp-border);
 }
 
 .wapp-shutdown-progress-bar {
   height: 100%;
   border-radius: inherit;
-  background: #ef4444;
+  background: var(--wapp-muted);
   transition: width 1s linear;
-}
-
-:root.dark .wapp-shutdown-progress-bar {
-  background: #f87171;
 }
 
 .wapp-segmented {
@@ -2576,6 +2853,8 @@ textarea::placeholder {
   display: flex;
   flex-shrink: 0;
   justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.75rem 1rem max(0.75rem, var(--wapp-mobile-bottom-clearance));
 }
@@ -2687,8 +2966,9 @@ textarea::placeholder {
 .wapp-modal-footer {
   display: flex;
   flex-shrink: 0;
-  flex-direction: column-reverse;
-  align-items: stretch;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.5rem;
   border-top: 1px solid var(--wapp-border-soft);
@@ -2739,6 +3019,20 @@ textarea::placeholder {
   justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 1rem;
+}
+
+.wapp-toolbar-identity {
+  min-width: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wapp-toolbar-primary,
+.wapp-toolbar-secondary {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.5rem;
 }
 
 .wapp-mobile-only {
@@ -2839,8 +3133,9 @@ textarea::placeholder {
 
 :root[data-wapp-mobile] .wapp-panel-actions,
 :root[data-wapp-mobile] .wapp-entity-header-actions {
-  width: 100%;
-  justify-content: flex-start;
+  max-width: 100%;
+  margin-left: auto;
+  justify-content: flex-end;
 }
 
 :root[data-wapp-mobile] .wapp-data-list-row {
@@ -2875,8 +3170,7 @@ textarea::placeholder {
 }
 
 :root[data-wapp-mobile] .wapp-row-actions {
-  justify-content: flex-start;
-  margin-top: 0.75rem;
+  justify-content: flex-end;
 }
 
 :root[data-wapp-mobile] .wapp-header-notification {
@@ -2925,23 +3219,97 @@ textarea::placeholder {
 
 :root[data-wapp-mobile] .wapp-settings {
   padding: 0.875rem 0.875rem max(1rem, var(--wapp-mobile-bottom-clearance));
+  display: block;
 }
 
-:where(button, input, textarea, [role="button"]):focus-visible {
+:root[data-wapp-mobile] .wapp-settings-nav {
+  display: none;
+}
+
+:root[data-wapp-mobile] .wapp-settings-category-select {
+  display: block;
+  margin-bottom: 1.25rem;
+}
+
+:root[data-wapp-mobile] :is(.wapp-input, .wapp-field input, .wapp-field select, .wapp-field textarea, .wapp-inline-select) {
+  font-size: 1rem;
+  min-height: 2.75rem;
+}
+
+:where(button, input, select, textarea, [role="button"]):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--wapp-primary), transparent 18%);
   outline-offset: 2px;
 }
 
 @media (max-width: 640px) {
   .wapp-settings .wapp-list-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    align-items: start;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 0.75rem;
   }
 
+  .wapp-settings .wapp-list-row > span:first-child {
+    flex: 1 1 10rem;
+    min-width: 0;
+  }
+
+  .wapp-settings .wapp-list-row > .wapp-row-actions {
+    max-width: 100%;
+    margin-left: auto;
+  }
+
+  :root[data-wapp-mobile] .wapp-settings-nav {
+    display: none;
+  }
+
+  :root[data-wapp-mobile] .wapp-settings-category-select {
+    display: block;
+    margin-bottom: 1.25rem;
+  }
+
+  :root[data-wapp-mobile] .wapp-settings-field {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  :root[data-wapp-mobile] .wapp-settings-field-label {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  :root[data-wapp-mobile] .wapp-settings-field-control {
+    max-width: 100%;
+    margin-left: auto;
+  }
+
+  :root[data-wapp-mobile] .wapp-settings-field > :is(.wapp-settings-field-content, .wapp-settings-feedback) {
+    flex-basis: 100%;
+  }
+
+  :root[data-wapp-mobile] :is(.wapp-input, .wapp-field input, .wapp-field select, .wapp-field textarea, .wapp-inline-select) {
+    font-size: 1rem;
+    min-height: 2.75rem;
+  }
+
+  .wapp-toolbar-identity {
+    min-width: 0;
+    flex: 1 1 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .wapp-toolbar-primary,
+  .wapp-toolbar-secondary {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
   .wapp-settings .wapp-list-row .wapp-row-actions {
-    justify-content: flex-start;
+    justify-content: flex-end;
     margin-top: 0;
   }
 

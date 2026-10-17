@@ -16,6 +16,28 @@
 
 ## Framework UI conventions
 
+- Make the correct presentation the default: ordinary actions are subtle,
+  primary emphasis is explicit, and irreversible danger is reserved for the
+  final confirmation. Use public form/list/tool layouts rather than consumer
+  CSS recipes. Framework-owned screens and examples use the same primitives.
+- Ordinary primary actions are unboxed too. Show direct actions when they fit;
+  reserve ellipsis for constrained space or meaningful secondary groups.
+- Settings use two zones: identity at left, controls/actions aligned right and
+  vertically centered. Size short fields to their content; group related short
+  fields instead of stretching every input. Keep normal status feedback inline.
+- Use semantic `HeaderPrimaryAction` descriptors so the framework moves primary
+  actions first into overflow when the header narrows. Preserve native form
+  validation and submission; never click hidden app buttons as a workaround.
+- Dialog footers stay right-aligned, on one line when they fit, wrapping right
+  when required. Never switch mobile actions to a left-aligned/reversed column.
+- Design dark-first, preserving Light/System choices; Dark is the default
+  without an existing preference. Validate light mode as well.
+- Keep UI concise: labels, values, actions, statuses and actionable errors,
+  not explanations of functionality. Retain necessary input constraints and
+  irreversible-consequence warnings.
+- Do not display internal IDs or operational technical identifiers unless
+  needed to perform an action. Never use UUIDs as fallback display names or
+  merely relocate them to default detail panels. Preserve API/storage IDs.
 - All destructive delete actions must use the framework `ConfirmDialog` before calling the delete endpoint. Do not wire delete buttons directly to mutations.
 - Route components rendered by `WebAppRoot.routes` must use `Page` as the top-level wrapper; do not render content directly into `.wapp-main-content` or duplicate the fixed framework title with an app-local heading. Use `<Page layout="full">` for viewport-sized child content instead of overriding framework page CSS.
 - Use the framework `useToast` notification service for transient user feedback. Do not add application-owned toast providers, queues, or notification styling; use inline `ErrorState`, loading primitives, or validation messages for persistent page/form state.

@@ -15,17 +15,16 @@ Settings is framework-owned so apps stay consistent. It includes:
 - Admin server kill
 - Version/about
 
-Application-defined settings sections are rendered after the framework-owned
-account, security, and user-management sections and before **Server
-operations**. When the admin-only server operations section is visible, it is
-immediately followed by **About**. Section and row scope rules still determine
-which application-defined settings are shown.
+Settings groups controls into **General**, **Account & access**,
+**Administration**, and **About**. Apps can add named categories through
+`section.category`; sections without a category join **General**. Section and
+row scope rules determine which application-defined settings are shown.
 
-The local-storage or system theme is applied immediately while the signed-in
+The cached theme, or Dark when no preference exists, is applied immediately while the signed-in
 user preference loads in the background. Browser storage is best-effort:
 unavailable or corrupt storage falls back to a valid in-memory preference, and
 a failed write does not undo the active theme. If the server preference
-request fails, the current theme remains active and Display Settings shows a
+request fails, the current theme remains active and General Settings shows a
 non-blocking error with a retry action; this server error is separate from
 browser persistence and the rest of Settings remains usable.
 
@@ -35,6 +34,12 @@ the selected `preference` and concrete `resolvedTheme`; the latter updates
 when the operating-system color scheme changes in `system` mode. Prefer CSS
 dark-mode styling when no JavaScript theme value is required, and do not infer
 theme state by observing framework-owned DOM classes or attributes.
+`setPreference` updates the local preference; await `savePreference` to persist
+it for the signed-in user. Without a current user, saving remains local and
+does not call the authenticated preference API. Failed saves reject for caller
+feedback and only restore their previous preference if no newer choice or
+user change has superseded them. Settings owns its feedback separately from
+the provider so leaving and reopening a category cannot revive stale errors.
 
 Application code can use `useLogLevel()` from `@pablozaiden/webapp/web` to
 adapt an application-owned logger to the framework's effective client setting.
@@ -46,7 +51,7 @@ the shared hook state after a successful save, and `fromEnv` is true when
 `{PREFIX}_LOG_LEVEL` locks the value. Applications should not add a separate
 configuration fetch or initializer component.
 
-Developer Settings also includes **Store server logs in a temporary file**. It
+Administration also includes **Preserve logs**. It
 is an admin-only, process-local setting and is disabled when the server starts
 unless `{PREFIX}_IN_MEMORY_LOGS` is set to `true`, `1`, or `yes` (the
 environment variable keeps its historical name). When enabled, the shared
@@ -108,9 +113,11 @@ Apps can append structured custom sections:
 
 `render` remains available as an escape hatch for custom controls inside a section. Prefer structured `rows` for simple settings because the framework keeps spacing, typography and danger-zone styling consistent.
 
-Row content is placed below the title and description by default. Use
-`contentPlacement: "inline"` for compact controls such as a checkbox or toggle
-that should remain on the right side of the row. Keep selects and larger
-controls at the default `"below"` placement.
+Row content is inline by default, with compact controls and actions aligned
+right of the label. Use `Select` or `SelectField` with an appropriate field
+width rather than stretching short values. Set `contentPlacement: "below"`
+explicitly for editors and other wide content; this spans the full row below
+the label while actions stay right-aligned. Failed confirmed actions close the
+confirmation before showing the row's accessible inline error.
 
 `scope` can be `user`, `admin` or `owner` on both sections and rows. Omitted scope behaves like `user`. Use `admin` for global app/server settings and `user` for preferences or data that belong to the signed-in user.

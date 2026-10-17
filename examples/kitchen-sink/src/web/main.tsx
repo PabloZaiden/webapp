@@ -1,4 +1,4 @@
-import { Badge, Button, EmptyState, ErrorState, Page, Panel, TextField, WebAppRoot, appFetch, appPath, appRequest, appWebSocketUrl, renderWebApp, replaceHashRoute, useCallback, useEffect, useHeaderActions, useLiveQuery, useMemo, useState, useToast, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
+import { Badge, Button, DateTimeValue, EmptyState, ErrorState, Page, Panel, TextField, WebAppRoot, appFetch, appPath, appRequest, appWebSocketUrl, renderWebApp, replaceHashRoute, useCallback, useEffect, useHeaderActions, useLiveQuery, useMemo, useState, useToast, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
 import favicon from "../favicon.svg";
@@ -22,10 +22,10 @@ function needsAuthentication(config: { passkeyAuth: { enabled: boolean; bootstra
 function Home({ projects }: { projects: Project[] }) {
   return (
     <Page className="sink-stack">
-      <Panel title="Projects" description="Protected CRUD + realtime updates.">
+      <Panel title="Projects">
         {projects.length ? projects.map((project) => (
           <div className="sink-row" key={project.id}>
-            <span><strong>{project.name}</strong><small>{project.updatedAt}</small></span>
+            <span><strong>{project.name}</strong><small><DateTimeValue value={project.updatedAt} /></small></span>
             <Badge variant={project.status === "failed" ? "error" : project.status === "running" ? "info" : "default"}>{project.status}</Badge>
           </div>
         )) : <EmptyState title="No projects" />}
@@ -38,10 +38,10 @@ function Home({ projects }: { projects: Project[] }) {
 function NotificationExamples() {
   const toast = useToast();
   return (
-    <Panel title="Framework notifications" description="Five-second header previews. Click a message to read it in full.">
-      <div className="sink-inline">
-        <Button type="button" variant="primary" onClick={() => toast.success("Project saved successfully.")}>Success</Button>
-        <Button type="button" variant="danger" onClick={() => toast.error("The project could not be saved.\nCheck your connection and try again.")}>Error</Button>
+    <Panel title="Notifications">
+      <div className="wapp-row-actions">
+        <Button type="button" onClick={() => toast.success("Project saved successfully.")}>Success</Button>
+        <Button type="button" onClick={() => toast.error("The project could not be saved.\nCheck your connection and try again.")}>Error</Button>
         <Button type="button" onClick={() => toast.warning("This action may take a moment.")}>Warning</Button>
         <Button type="button" variant="ghost" onClick={() => toast.info("This is an informational notification.")}>Info</Button>
         <Button type="button" variant="ghost" onClick={() => toast.info("Dismiss this persistent notification.", { id: "kitchen-sink-persistent", duration: 0 })}>Persistent info</Button>
@@ -60,14 +60,14 @@ function NewProjectView({ refresh }: { refresh: () => Promise<void> }) {
     await refresh();
   }
   useHeaderActions({
-    primary: <Button type="button" variant="primary" disabled={!name.trim()} onClick={() => void createProject()}>Create</Button>,
+    primary: [{ id: "create-project", label: "Create", disabled: !name.trim(), onAction: () => void createProject() }],
     overflow: [
       { id: "clear-project-name", label: "Clear", disabled: !name, onAction: () => setName("") },
     ],
   });
   return (
-    <Page className="sink-stack">
-      <Panel title="Create project" description="Framework coverage example.">
+    <Page layout="form" className="sink-stack">
+      <Panel title="Create project">
         <div className="sink-inline">
           <TextField label="Project name" value={name} onChange={(event) => setName(event.currentTarget.value)} />
         </div>
@@ -81,9 +81,9 @@ function ProjectView({ route, projects }: { route: WebAppRoute; projects: Projec
   if (!project) return <Page><EmptyState title="Project not found" /></Page>;
   return (
     <Page>
-      <Panel title={project.name} description="Project detail view with common panel styling.">
+      <Panel title={project.name}>
         <p>Status: <Badge variant={project.status === "running" ? "info" : "default"}>{project.status}</Badge></p>
-        <p className="sink-muted">Updated {project.updatedAt}</p>
+        <p className="sink-muted">Updated <DateTimeValue value={project.updatedAt} /></p>
       </Panel>
     </Page>
   );
@@ -150,7 +150,7 @@ function KitchenSinkApp() {
         type: "item",
         id: project.id,
         title: project.name,
-        subtitle: project.updatedAt,
+        subtitle: new Date(project.updatedAt).toLocaleString(),
         route: { view: "project", projectId: project.id },
         pinnable: true,
         badge: project.status,

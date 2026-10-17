@@ -4,22 +4,24 @@ import type { ActionMenuItem, BadgeAppearance, BadgeVariant } from "../sidebar/t
 import { AnimatedList, MOTION_FAST_MS, usePresence } from "../motion";
 import { isTopmostOverlayElement, useOverlayLifecycle } from "../overlay";
 
-export type ButtonVariant = "default" | "primary" | "danger" | "ghost";
+export type ButtonVariant = "default" | "primary" | "danger" | "ghost" | "link";
 export type ButtonSize = "xs" | "sm" | "md" | "lg";
+export type FieldWidth = "short" | "normal" | "full";
 
 export function Button({
-  variant = "primary",
+  variant = "ghost",
+  tone = "neutral",
   size = "md",
   loading = false,
   className = "",
   disabled,
   children,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: ButtonSize; loading?: boolean }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; tone?: "neutral" | "danger"; size?: ButtonSize; loading?: boolean }) {
   return (
-    <button {...props} disabled={disabled || loading} className={`wapp-button wapp-button-${variant} wapp-button-${size} ${className}`}>
+    <button type="button" {...props} aria-busy={loading || undefined} disabled={disabled || loading} className={`wapp-button wapp-button-${variant} wapp-button-${size} wapp-button-tone-${tone}${loading ? " wapp-button-loading" : ""} ${className}`}>
       {loading ? <span className="wapp-button-spinner" aria-hidden="true" /> : null}
-      {children}
+      <span className="wapp-button-content">{children}</span>
     </button>
   );
 }
@@ -29,7 +31,7 @@ export function IconButton({
   className = "",
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
-  return <button {...props} className={`wapp-icon-button ${active ? "active" : ""} ${className}`} />;
+  return <button type="button" {...props} className={`wapp-icon-button ${active ? "active" : ""} ${className}`} />;
 }
 
 export type BadgeSize = "sm" | "md";
@@ -82,7 +84,7 @@ export function StatusBadge({
   );
 }
 
-export type PageLayout = "padded" | "full";
+export type PageLayout = "padded" | "full" | "form";
 
 export function Page({
   layout = "padded",
@@ -90,7 +92,7 @@ export function Page({
   children,
   ...props
 }: HTMLAttributes<HTMLDivElement> & { children: ReactNode; layout?: PageLayout }) {
-  return <div {...props} className={`wapp-page ${layout === "full" ? "wapp-page-full" : ""} ${className}`.trim()}>{children}</div>;
+  return <div {...props} className={`wapp-page ${layout === "padded" ? "" : `wapp-page-${layout}`} ${className}`.trim()}>{children}</div>;
 }
 
 export type PanelVariant = "surface" | "muted" | "plain";
@@ -190,7 +192,7 @@ export type DataListVariant = "divided" | "cards";
 export function DataList({
   children,
   empty,
-  variant = "cards",
+  variant = "divided",
 }: {
   children?: ReactNode;
   empty?: ReactNode;
@@ -209,14 +211,14 @@ export function DataListRow({
   actions,
   onClick,
   disabled = false,
-  variant = "card",
+  variant = "default",
   className = "",
 }: {
   title: ReactNode;
   description?: ReactNode;
   descriptionClassName?: string;
   meta?: ReactNode;
-  metaPlacement?: "side" | "below" | "footer";
+  metaPlacement?: "side" | "below" | "footer" | "inline";
   badge?: ReactNode;
   actions?: ReactNode;
   onClick?: () => void;
@@ -235,61 +237,78 @@ export function DataListRow({
   const content = (
     <>
       <span className="wapp-data-list-row-main">
-        <strong>{title}</strong>
+        {meta && metaPlacement === "inline" ? <span className="wapp-data-list-row-heading"><strong>{title}</strong><small>{meta}</small></span> : <strong>{title}</strong>}
         {description ? <small className={descriptionClassName}>{description}</small> : null}
         {meta && metaPlacement === "below" ? <small className="wapp-data-list-row-meta-below">{meta}</small> : null}
       </span>
       {meta && metaPlacement === "side" ? <span className="wapp-data-list-row-meta">{meta}</span> : null}
       {badge ? <span className="wapp-data-list-row-badge">{badge}</span> : null}
-      {actions ? <span className="wapp-data-list-row-actions">{actions}</span> : null}
-      {meta && metaPlacement === "footer" ? <small className="wapp-data-list-row-footer">{meta}</small> : null}
     </>
   );
-  return onClick && !disabled ? (
-    <button type="button" className={rowClassName} onClick={onClick}>{content}</button>
-  ) : (
-    <div className={rowClassName}>{content}</div>
-  );
+  return <div className={rowClassName}>
+    {onClick && !disabled ? <button type="button" className="wapp-data-list-row-trigger" onClick={onClick}>{content}</button> : content}
+    {actions ? <span className="wapp-data-list-row-actions">{actions}</span> : null}
+    {meta && metaPlacement === "footer" ? <small className="wapp-data-list-row-footer">{meta}</small> : null}
+  </div>;
 }
 
-export function TextField({ label, hint, error, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string; error?: string }) {
+export function Input({ className = "", ...props }: InputHTMLAttributes<HTMLInputElement>) {
+  return <input {...props} className={`wapp-input ${className}`.trim()} />;
+}
+
+export function Select({ className = "", children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return <select {...props} className={`wapp-input ${className}`.trim()}>{children}</select>;
+}
+
+export function TextField({ label, hint, error, id, fieldWidth = "normal", ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string; error?: string; fieldWidth?: FieldWidth }) {
+  const generatedId = useId();
+  const inputId = id ?? generatedId;
   return (
-    <label className="wapp-field">
+    <label className={`wapp-field wapp-field-${fieldWidth}`} htmlFor={inputId}>
       <span>{label}</span>
-      <input {...props} />
-      {hint ? <small>{hint}</small> : null}
-      {error ? <small className="error">{error}</small> : null}
+      <Input {...props} id={inputId} aria-invalid={Boolean(error) || undefined} aria-describedby={[props["aria-describedby"], hint ? `${inputId}-hint` : "", error ? `${inputId}-error` : ""].filter(Boolean).join(" ") || undefined} />
+      {hint ? <small id={`${inputId}-hint`}>{hint}</small> : null}
+      {error ? <small id={`${inputId}-error`} className="error" role="alert">{error}</small> : null}
     </label>
   );
 }
 
-export function TextAreaField({ label, hint, error, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; hint?: string; error?: string }) {
+export function TextAreaField({ label, hint, error, id, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; hint?: string; error?: string }) {
+  const generatedId = useId();
+  const inputId = id ?? generatedId;
   return (
-    <label className="wapp-field">
+    <label className="wapp-field" htmlFor={inputId}>
       <span>{label}</span>
-      <textarea {...props} />
-      {hint ? <small>{hint}</small> : null}
-      {error ? <small className="error">{error}</small> : null}
+      <textarea {...props} id={inputId} aria-invalid={Boolean(error) || undefined} aria-describedby={[props["aria-describedby"], hint ? `${inputId}-hint` : "", error ? `${inputId}-error` : ""].filter(Boolean).join(" ") || undefined} />
+      {hint ? <small id={`${inputId}-hint`}>{hint}</small> : null}
+      {error ? <small id={`${inputId}-error`} className="error" role="alert">{error}</small> : null}
     </label>
   );
 }
 
-export function SelectField({ label, children, ...props }: SelectHTMLAttributes<HTMLSelectElement> & { label: string; children: ReactNode }) {
+export function SelectField({ label, children, hint, error, id, fieldWidth = "normal", ...props }: SelectHTMLAttributes<HTMLSelectElement> & { label: string; children: ReactNode; hint?: string; error?: string; fieldWidth?: FieldWidth }) {
+  const generatedId = useId();
+  const inputId = id ?? generatedId;
   return (
-    <label className="wapp-field">
+    <label className={`wapp-field wapp-field-select wapp-field-${fieldWidth}`} htmlFor={inputId}>
       <span>{label}</span>
-      <select {...props}>{children}</select>
+      <Select {...props} id={inputId} aria-invalid={Boolean(error) || undefined} aria-describedby={[props["aria-describedby"], hint ? `${inputId}-hint` : "", error ? `${inputId}-error` : ""].filter(Boolean).join(" ") || undefined}>{children}</Select>
+      {hint ? <small id={`${inputId}-hint`}>{hint}</small> : null}
+      {error ? <small className="error" role="alert" id={`${inputId}-error`}>{error}</small> : null}
     </label>
   );
 }
 
-export function CheckboxField({ label, hint, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & { label: string; hint?: string }) {
+export function CheckboxField({ label, hint, error, id, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & { label: string; hint?: string; error?: string }) {
+  const generatedId = useId();
+  const inputId = id ?? generatedId;
   return (
-    <label className="wapp-checkbox-field">
-      <input {...props} type="checkbox" />
+    <label className="wapp-checkbox-field" htmlFor={inputId}>
+      <input {...props} id={inputId} type="checkbox" aria-invalid={Boolean(error) || undefined} aria-describedby={[props["aria-describedby"], hint ? `${inputId}-hint` : "", error ? `${inputId}-error` : ""].filter(Boolean).join(" ") || undefined} />
       <span>
         {label}
-        {hint ? <small>{hint}</small> : null}
+        {hint ? <small id={`${inputId}-hint`}>{hint}</small> : null}
+        {error ? <small className="wapp-error" id={`${inputId}-error`} role="alert">{error}</small> : null}
       </span>
     </label>
   );
@@ -461,9 +480,9 @@ export function FormSection({ title, description, children }: { title: string; d
   );
 }
 
-export function FormGroup({ title, description, children, actions }: { title?: string; description?: string; children: ReactNode; actions?: ReactNode }) {
+export function FormGroup({ title, description, children, actions, layout = "stack" }: { title?: string; description?: string; children: ReactNode; actions?: ReactNode; layout?: "stack" | "inline" }) {
   return (
-    <div className="wapp-form-group">
+    <div className={`wapp-form-group wapp-form-group-${layout}`}>
       {title || description || actions ? (
         <div className="wapp-form-group-header">
           <div>
@@ -496,16 +515,26 @@ export function DangerZone({ title, description, actions }: { title: string; des
 
 export function CodeValue({ value, label, copyLabel = "Copy" }: { value: string; label?: string; copyLabel?: string }) {
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string>();
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
   async function copy() {
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
+    setError(undefined);
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 1400);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
   }
   return (
     <div className="wapp-code-value">
       {label ? <span>{label}</span> : null}
       <code>{value}</code>
       <Button type="button" onClick={() => void copy()}>{copied ? "Copied" : copyLabel}</Button>
+      {error ? <span role="alert" className="wapp-error">{error}</span> : null}
     </div>
   );
 }
@@ -747,7 +776,7 @@ export function ConfirmModal({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   loading = false,
-  variant = "danger",
+  variant = "primary",
 }: ConfirmModalProps) {
   return (
     <Modal
@@ -819,6 +848,7 @@ export function ConfirmDialog({
   message,
   confirmLabel = "Confirm",
   danger = false,
+  loading = false,
   onCancel,
   onConfirm,
 }: {
@@ -827,6 +857,7 @@ export function ConfirmDialog({
   message: string;
   confirmLabel?: string;
   danger?: boolean;
+  loading?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -837,12 +868,12 @@ export function ConfirmDialog({
     open,
     surfaceRef: dialogRef,
     layerRef,
-    onEscape: onCancel,
-    onBackdrop: onCancel,
+    onEscape: loading ? undefined : onCancel,
+    onBackdrop: loading ? undefined : onCancel,
   });
   useDialogKeyboardShortcuts({
     dialogRef,
-    enabled: open && overlay.mounted,
+    enabled: open && overlay.mounted && !loading,
     onAccept: onConfirm,
   });
 
@@ -873,15 +904,15 @@ export function ConfirmDialog({
           <div>
             <h2 id={titleId}>{title}</h2>
           </div>
-          <button type="button" className="wapp-dialog-close" aria-label="Close dialog" onClick={onCancel}>×</button>
+          <button type="button" className="wapp-dialog-close" aria-label="Close dialog" onClick={onCancel} disabled={loading}>×</button>
         </div>
         <div className="wapp-dialog-body">
           <p>{message}</p>
         </div>
         <div className="wapp-dialog-actions" data-dialog-actions>
           <>
-          <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
-          <Button type="button" variant={danger ? "danger" : "primary"} onClick={onConfirm}>{confirmLabel}</Button>
+          <Button type="button" variant="ghost" disabled={loading} onClick={onCancel}>Cancel</Button>
+          <Button type="button" variant={danger ? "danger" : "primary"} loading={loading} onClick={onConfirm}>{confirmLabel}</Button>
           </>
         </div>
       </div>
@@ -890,8 +921,15 @@ export function ConfirmDialog({
   );
 }
 
-export function Toolbar({ children }: { children: ReactNode }) {
-  return <div className="wapp-toolbar">{children}</div>;
+export function Toolbar({ children, identity, primary, secondary }: { children?: ReactNode; identity?: ReactNode; primary?: ReactNode; secondary?: ReactNode }) {
+  return (
+    <div className="wapp-toolbar">
+      {identity ? <div className="wapp-toolbar-identity">{identity}</div> : null}
+      {children}
+      {primary ? <div className="wapp-toolbar-primary">{primary}</div> : null}
+      {secondary ? <div className="wapp-toolbar-secondary">{secondary}</div> : null}
+    </div>
+  );
 }
 
 export interface ContextMenuPosition {
@@ -1177,12 +1215,22 @@ function ActionMenuItems({ items, onItemClick }: { items: ActionMenuItem[]; onIt
     <div className="wapp-action-menu-items">
       {orderedItems.map((item, index) => (
         <button
-          type="button"
+          type={item.form !== undefined ? "submit" : "button"}
+          form={item.form}
           role="menuitem"
+          data-action-id={item.id}
           key={item.id ?? `${item.label}:${index}`}
           disabled={item.disabled}
           className={`wapp-action-menu-item ${isDestructiveActionMenuItem(item) ? "danger" : ""}`}
-          onClick={() => onItemClick(item)}
+          onClick={(event) => {
+            if (item.form !== undefined) {
+              event.preventDefault();
+              const form = event.currentTarget.form;
+              if (!form) throw new Error(`Action form is not mounted: ${item.form}`);
+              form.requestSubmit(event.currentTarget);
+            }
+            onItemClick(item);
+          }}
         >
           {item.label}
         </button>
@@ -1198,6 +1246,7 @@ export function ActionMenu({
   trigger,
   triggerVariant = "default",
   triggerSize = "default",
+  buttonRef,
 }: {
   items: ActionMenuItem[];
   ariaLabel?: string;
@@ -1205,8 +1254,10 @@ export function ActionMenu({
   trigger?: ReactNode;
   triggerVariant?: "default" | "ghost";
   triggerSize?: "default" | "compact";
+  buttonRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const [open, setOpen] = useState(false);
+  const menuId = useId();
   const presence = usePresence(open);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -1223,11 +1274,16 @@ export function ActionMenu({
         close();
       }
     }
+    function handleFocusIn(event: FocusEvent) {
+      if (!menuRef.current?.contains(event.target as Node) && !triggerRef.current?.contains(event.target as Node)) close();
+    }
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("focusin", handleFocusIn);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("focusin", handleFocusIn);
     };
   }, [close, open]);
 
@@ -1245,14 +1301,17 @@ export function ActionMenu({
   function handleItemClick(item: ActionMenuItem) {
     if (item.disabled) return;
     close();
-    item.onAction();
+    item.onAction?.();
   }
 
   return (
     <>
       <button
         type="button"
-        ref={triggerRef}
+        ref={(element) => {
+          triggerRef.current = element;
+          if (buttonRef) buttonRef.current = element;
+        }}
         className={[
           "wapp-action-menu-trigger",
           triggerVariant === "ghost" ? "wapp-action-menu-trigger-ghost" : "",
@@ -1261,13 +1320,14 @@ export function ActionMenu({
         aria-label={ariaLabel}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-controls={presence.mounted ? menuId : undefined}
         disabled={disabled || items.length === 0}
         onClick={() => setOpen((current) => !current)}
       >
         {trigger ?? <OverflowIcon />}
       </button>
       {presence.mounted ? createPortal(
-        <div ref={menuRef} className={`wapp-action-menu wapp-motion-${presence.state}`} role="menu" aria-label={ariaLabel} aria-hidden={open ? undefined : true} style={style}>
+        <div ref={menuRef} id={menuId} className={`wapp-action-menu wapp-motion-${presence.state}`} role="menu" aria-label={ariaLabel} aria-hidden={open ? undefined : true} style={style}>
           <ActionMenuItems items={items} onItemClick={handleItemClick} />
         </div>,
         document.body,
@@ -1354,7 +1414,7 @@ export function ContextMenu({
   function handleItemClick(item: ActionMenuItem) {
     if (item.disabled) return;
     onClose();
-    item.onAction();
+    item.onAction?.();
   }
 
   return createPortal(

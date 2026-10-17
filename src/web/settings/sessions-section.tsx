@@ -1,7 +1,9 @@
 import { useCallback, useState } from "react";
 import type { AuthSessionSummary, WebAppConfigResponse } from "../../contracts";
 import { appJson } from "../api-client";
-import { Button, ConfirmDialog, EmptyState } from "../components";
+import { ActionMenu, ConfirmDialog, EmptyState } from "../components";
+import { DateTimeValue } from "../date-time";
+import { SettingsFieldRow } from "./settings-section";
 import { useLiveQuery } from "../realtime/useRealtime";
 import { ResourceState } from "./resource-state";
 
@@ -10,7 +12,8 @@ export interface SessionsSectionProps {
   setError: (error: string | undefined) => void;
 }
 
-export function SessionsSection({ config, setError }: SessionsSectionProps) {
+export function SessionsSection({ config }: SessionsSectionProps) {
+  const [error, setError] = useState<string>();
   const [authSessionToRevoke, setAuthSessionToRevoke] = useState<AuthSessionSummary>();
 
   const loadAuthSessions = useCallback(
@@ -37,28 +40,21 @@ export function SessionsSection({ config, setError }: SessionsSectionProps) {
   }
   return (
     <>
-      <div className="wapp-settings-row stacked">
-        <div>
-          <strong>Device auth sessions</strong>
-          <p>Refresh-token sessions created through the device flow.</p>
-        </div>
-        <br />
+      <SettingsFieldRow title="Device sessions" />
         <ResourceState loading={authSessionsLoading} error={authSessionsLoadError} hasData={authSessions !== undefined} refresh={refreshAuthSessions} />
         <div className="wapp-list">
           {authSessions?.length ? authSessions.map((session) => (
             <div className="wapp-list-row" key={session.id}>
-              <span><strong>{session.clientId}</strong><small>{session.scope} · {session.updatedAt}</small></span>
-              <Button type="button" variant="danger" onClick={() => setAuthSessionToRevoke(session)}>Revoke</Button>
+              <span><strong>Device session</strong><small>{session.scope} · <DateTimeValue value={session.updatedAt} /></small></span>
+              <ActionMenu ariaLabel="Device session actions" items={[{ label: "Revoke session", destructive: true, onAction: () => setAuthSessionToRevoke(session) }]} />
             </div>
           )) : authSessions !== undefined && !authSessionsLoadError ? <EmptyState title="No device sessions" /> : null}
         </div>
-      </div>
-      <br />
-      <br />
+      {error ? <p className="wapp-error" role="alert">{error}</p> : null}
       <ConfirmDialog
         open={Boolean(authSessionToRevoke)}
         title="Revoke device session?"
-        message={authSessionToRevoke ? `This revokes the active "${authSessionToRevoke.clientId}" refresh-token session.` : ""}
+        message="This device will lose access."
         confirmLabel="Revoke session"
         danger
         onCancel={() => setAuthSessionToRevoke(undefined)}
