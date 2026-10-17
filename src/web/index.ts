@@ -1,6 +1,7 @@
 export * from "./WebAppRoot";
 export * from "./components";
 export { DateTimeValue } from "./date-time";
+export { useUnsavedChanges } from "./unsaved-changes";
 export { SettingsFieldRow, SettingsSectionContent } from "./settings/settings-section";
 export type { SettingsAction, SettingsRow, SettingsSection } from "./root-types";
 export { useHeaderActions } from "./header-actions";

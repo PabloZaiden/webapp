@@ -100,6 +100,14 @@ pending, disabled reason, optional confirmation and asynchronous callbacks.
 `SettingsSectionContent` also supports accessible collapsible sections with
 actions outside the disclosure trigger. Do not recreate row layouts locally.
 
+Composed drafts call `useUnsavedChanges(dirty, resetDraft)` under `WebAppRoot`.
+The framework keeps the current route/draft until the user cancels or explicitly
+discards, combines multiple dirty forms into one confirmation, and protects
+browser reload/close with the native unload boundary. Supply a visible Cancel
+alongside Save; preserve failed drafts and disable duplicate submissions.
+Navigation continues through framework route helpers, with no app-owned hash
+listener or parser.
+
 `DataListRow` places `meta` beside the content by default. Use
 `metaPlacement="below"` for metadata below the description within the main
 content column, or `metaPlacement="footer"` for a full-width footer below

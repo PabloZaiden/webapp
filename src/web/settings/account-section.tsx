@@ -87,13 +87,12 @@ export function AccountSection({ config, refresh, setError, category }: AccountS
         </FormSection>
       ) : null}
       {category === "general" ? <FormSection title="Appearance">
-        <SelectField label="Theme" value={preference} disabled={themeSaving} onChange={(event) => void updateTheme(event.currentTarget.value)}>
+        <SelectField label="Theme" value={preference} disabled={loading || themeSaving} onChange={(event) => void updateTheme(event.currentTarget.value)}>
           <option value="system">System</option>
           <option value="light">Light</option>
           <option value="dark">Dark</option>
         </SelectField>
-        {themeSaving || themeSaved ? <small role="status">{themeSaving ? "Saving…" : "Saved"}</small> : null}
-        {loading ? <LoadingState title="Loading saved theme" /> : null}
+        <small role="status" className="wapp-save-status">{loading ? "Loading…" : themeSaving ? "Saving…" : themeSaved ? "Saved" : "\u00a0"}</small>
         {error ? (
           <ErrorState
             description={error.message}

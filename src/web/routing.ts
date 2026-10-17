@@ -5,6 +5,7 @@ import type { WebAppRoute } from "./sidebar/types";
 type ViewTransitionUpdate = () => void;
 type ViewTransitionStarter = (updateCallback: ViewTransitionUpdate) => unknown;
 type ViewTransitionScopeRef = { readonly current: HTMLElement | null };
+export const ROUTE_CHANGE_REQUEST = "wapp:route-change-request";
 
 type ViewTransitionElement = HTMLElement & {
   startViewTransition?: ViewTransitionStarter;
@@ -24,6 +25,9 @@ export function routeToHash(route: WebAppRoute): string {
 export function replaceHashRoute(hash: string): boolean {
   const normalizedHash = hash.startsWith("#") ? hash : `#${hash}`;
   if (window.location.hash === normalizedHash) {
+    return false;
+  }
+  if (!window.dispatchEvent(new CustomEvent<string>(ROUTE_CHANGE_REQUEST, { detail: normalizedHash, cancelable: true }))) {
     return false;
   }
 

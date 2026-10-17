@@ -12,6 +12,7 @@ import type { HeaderContext, WebAppRootController, WebAppRootProps } from "./roo
 import type { ActionMenuItem, SidebarNode, SidebarNodeSnapshot, SidebarTab, WebAppRoute } from "./sidebar/types";
 import { HeaderActionsProvider } from "./header-actions";
 import { ThemeProvider } from "./theme";
+import { UnsavedChangesProvider } from "./unsaved-changes";
 import { WebAppConfigProvider, useWebAppConfig } from "./webapp-config";
 import { setLogLevel } from "./logger";
 import { useReducedMotion } from "./motion";
@@ -422,8 +423,8 @@ function WebAppRootWithConfig({
 
 export const WebAppRoot = forwardRef<WebAppRootController, WebAppRootProps>(function WebAppRoot(props, controllerRef) {
   return (
-    <WebAppConfigProvider>
+    <UnsavedChangesProvider><WebAppConfigProvider>
       <WebAppRootWithConfig {...props} controllerRef={controllerRef} />
-    </WebAppConfigProvider>
+    </WebAppConfigProvider></UnsavedChangesProvider>
   );
 });

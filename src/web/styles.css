@@ -1955,7 +1955,7 @@ textarea::placeholder {
   grid-template-columns: minmax(9rem, 0.7fr) minmax(0, 1.3fr);
   align-items: start;
   gap: 0.75rem 1.5rem;
-  padding-block: 0.875rem;
+  padding-block: 0.5rem;
 }
 
 .wapp-settings-field + .wapp-settings-field {
@@ -1989,9 +1989,21 @@ textarea::placeholder {
   justify-content: flex-start;
 }
 
+.wapp-settings-field:has(> .wapp-settings-field-control):has(> .wapp-row-actions) {
+  grid-template-columns: minmax(7rem, 0.6fr) minmax(0, 1.4fr) auto;
+}
+
+.wapp-settings-field:has(> .wapp-settings-field-control) > .wapp-row-actions {
+  grid-column: 3;
+}
+
 .wapp-settings-feedback {
   grid-column: 1 / -1;
   min-width: 0;
+}
+
+.wapp-settings-feedback:empty {
+  display: none;
 }
 
 .wapp-settings-field-danger .wapp-settings-field-label {
@@ -3166,6 +3178,20 @@ textarea::placeholder {
   :root[data-wapp-mobile] .wapp-settings-field {
     grid-template-columns: minmax(0, 1fr);
     gap: 0.5rem;
+  }
+
+  :root[data-wapp-mobile] .wapp-settings-field:has(> .wapp-settings-field-control):has(> .wapp-row-actions) {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  :root[data-wapp-mobile] .wapp-settings-field:has(> .wapp-row-actions) > .wapp-settings-field-control {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  :root[data-wapp-mobile] .wapp-settings-field:has(> .wapp-settings-field-control) > .wapp-row-actions {
+    grid-column: 2;
+    grid-row: 1;
   }
 
   :root[data-wapp-mobile] .wapp-settings-field-inline {
