@@ -30,7 +30,7 @@ export function IconButton({
   className = "",
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
-  return <button {...props} className={`wapp-icon-button ${active ? "active" : ""} ${className}`} />;
+  return <button type="button" {...props} className={`wapp-icon-button ${active ? "active" : ""} ${className}`} />;
 }
 
 export type BadgeSize = "sm" | "md";
@@ -242,15 +242,13 @@ export function DataListRow({
       </span>
       {meta && metaPlacement === "side" ? <span className="wapp-data-list-row-meta">{meta}</span> : null}
       {badge ? <span className="wapp-data-list-row-badge">{badge}</span> : null}
-      {actions ? <span className="wapp-data-list-row-actions">{actions}</span> : null}
-      {meta && metaPlacement === "footer" ? <small className="wapp-data-list-row-footer">{meta}</small> : null}
     </>
   );
-  return onClick && !disabled ? (
-    <button type="button" className={rowClassName} onClick={onClick}>{content}</button>
-  ) : (
-    <div className={rowClassName}>{content}</div>
-  );
+  return <div className={rowClassName}>
+    {onClick && !disabled ? <button type="button" className="wapp-data-list-row-trigger" onClick={onClick}>{content}</button> : content}
+    {actions ? <span className="wapp-data-list-row-actions">{actions}</span> : null}
+    {meta && metaPlacement === "footer" ? <small className="wapp-data-list-row-footer">{meta}</small> : null}
+  </div>;
 }
 
 export function Input({ className = "", ...props }: InputHTMLAttributes<HTMLInputElement>) {

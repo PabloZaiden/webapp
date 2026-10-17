@@ -1208,8 +1208,7 @@ textarea::placeholder {
   max-width: 100%;
   box-sizing: border-box;
   overflow: hidden;
-  border: 1px solid var(--wapp-border-soft);
-  border-radius: 0.625rem;
+  border: 0;
 }
 
 .wapp-data-list-cards {
@@ -1229,6 +1228,22 @@ textarea::placeholder {
   color: var(--wapp-text);
   padding: 0.75rem 0.875rem;
   text-align: left;
+}
+
+.wapp-data-list-row-trigger {
+  display: flex;
+  align-items: inherit;
+  gap: inherit;
+  min-width: 0;
+  flex: 1;
+  align-self: stretch;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
 }
 
 .wapp-data-list-row-card,
@@ -2410,12 +2425,8 @@ textarea::placeholder {
 }
 
 .wapp-shutdown-message {
-  color: #dc2626;
+  color: var(--wapp-muted);
   font-size: 0.875rem;
-}
-
-:root.dark .wapp-shutdown-message {
-  color: #f87171;
 }
 
 .wapp-shutdown-progress {
@@ -2423,22 +2434,14 @@ textarea::placeholder {
   height: 0.375rem;
   overflow: hidden;
   border-radius: 999px;
-  background: #fecaca;
-}
-
-:root.dark .wapp-shutdown-progress {
-  background: #7f1d1d;
+  background: var(--wapp-border);
 }
 
 .wapp-shutdown-progress-bar {
   height: 100%;
   border-radius: inherit;
-  background: #ef4444;
+  background: var(--wapp-muted);
   transition: width 1s linear;
-}
-
-:root.dark .wapp-shutdown-progress-bar {
-  background: #f87171;
 }
 
 .wapp-segmented {
