@@ -3232,10 +3232,20 @@ select.wapp-input,
 
 @media (max-width: 640px) {
   .wapp-settings .wapp-list-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: start;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 0.75rem;
+  }
+
+  .wapp-settings .wapp-list-row > span:first-child {
+    flex: 1 1 10rem;
+    min-width: 0;
+  }
+
+  .wapp-settings .wapp-list-row > .wapp-row-actions {
+    max-width: 100%;
+    margin-left: auto;
   }
 
   :root[data-wapp-mobile] .wapp-settings-nav {
