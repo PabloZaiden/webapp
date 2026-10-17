@@ -86,7 +86,12 @@ Show direct actions when they fit; use overflow for genuinely constrained
 space or secondary groups, not to hide a single ordinary action.
 Short fields use intrinsic or bounded widths. `TextField` and `SelectField`
 support `fieldWidth="short" | "normal" | "full"`; use full width for URLs or
-other long values. `FormGroup layout="inline"` groups related short fields
+other long values. Full-width fields fill their container, including the
+input/select itself; short and normal controls retain their compact limits.
+Settings panels and lists fill the remaining width beside category navigation;
+do not constrain an entire Settings section to a form-reading width.
+Keep `Page layout="form"` for explicitly bounded forms, not general lists.
+`FormGroup layout="inline"` groups related short fields
 and actions, wrapping at available width.
 Panel and entity-header actions stay right-aligned and inline when they fit,
 including on mobile; action groups wrap to the right only when needed.
