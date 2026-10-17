@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { WebAppConfigResponse } from "../../contracts";
 import { appFetch } from "../api-client";
 import { Button, ConfirmDialog, FormSection } from "../components";
+import { SettingsFieldRow } from "./settings-section";
 
 const KILL_SERVER_COUNTDOWN_SECONDS = 15;
 
@@ -63,22 +64,20 @@ export function ShutdownSection({ config, setError }: { config: WebAppConfigResp
   return (
     <>
       <FormSection title="Server operations">
-        <div className="wapp-settings-row">
-          <div>
-            <strong>Server</strong>
-            {killRequested ? (
-              <div className="wapp-shutdown-countdown" aria-live="polite">
-                <div className="wapp-shutdown-message">Server is shutting down... Reloading in {countdown}s</div>
-                <div className="wapp-shutdown-progress" aria-hidden="true">
-                  <div className="wapp-shutdown-progress-bar" style={{ width: `${progressPercent}%` }} />
-                </div>
-              </div>
-            ) : null}
-          </div>
-          <div className="wapp-row-actions">
+        <SettingsFieldRow
+          title="Server"
+          actions={
             <Button type="button" tone="danger" disabled={killRequested} onClick={() => setConfirmKillServer(true)}>Stop server</Button>
+          }
+        />
+        {killRequested ? (
+          <div className="wapp-shutdown-countdown" aria-live="polite">
+            <div className="wapp-shutdown-message">Server is shutting down... Reloading in {countdown}s</div>
+            <div className="wapp-shutdown-progress" aria-hidden="true">
+              <div className="wapp-shutdown-progress-bar" style={{ width: `${progressPercent}%` }} />
+            </div>
           </div>
-        </div>
+        ) : null}
       </FormSection>
       <ConfirmDialog
         open={confirmKillServer}

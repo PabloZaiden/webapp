@@ -3248,22 +3248,23 @@ select.wapp-input,
   }
 
   :root[data-wapp-mobile] .wapp-settings-field {
-    grid-template-columns: minmax(0, 1fr);
+    display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
+  }
+
+  :root[data-wapp-mobile] .wapp-settings-field-label {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   :root[data-wapp-mobile] .wapp-settings-field-control {
     max-width: 100%;
-    justify-self: stretch;
+    margin-left: auto;
   }
 
-  :root[data-wapp-mobile] .wapp-settings-field-inline {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-  }
-
-  :root[data-wapp-mobile] .wapp-settings-field-inline .wapp-settings-field-control {
-    justify-self: end;
+  :root[data-wapp-mobile] .wapp-settings-field > .wapp-settings-feedback {
+    flex-basis: 100%;
   }
 
   :root[data-wapp-mobile] :is(.wapp-input, .wapp-field input, .wapp-field select, .wapp-field textarea, .wapp-inline-select) {

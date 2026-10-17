@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { VALID_LOG_LEVELS, type LogLevelName, type WebAppConfigResponse } from "../../contracts";
 import { appJson } from "../api-client";
-import { Badge, Button, CheckboxField, ErrorState, FormSection, LoadingState, SelectField } from "../components";
+import { Badge, Button, CheckboxField, ErrorState, FormSection, LoadingState, Select } from "../components";
 import { useLogLevel } from "../log-level";
 import { isThemePreference, useTheme } from "../theme";
+import { SettingsFieldRow } from "./settings-section";
 
 function isLogLevelName(value: string): value is LogLevelName {
   return VALID_LOG_LEVELS.some((level) => level === value);
@@ -17,6 +18,8 @@ export interface AccountSectionProps {
 }
 
 export function AccountSection({ config, refresh, setError, category }: AccountSectionProps) {
+  const themeId = useId();
+  const logLevelId = useId();
   const { preference, setPreference, loading, error, retry } = useTheme();
   const logLevel = useLogLevel();
   const [logLevelSaving, setLogLevelSaving] = useState(false);
@@ -86,12 +89,16 @@ export function AccountSection({ config, refresh, setError, category }: AccountS
         </FormSection>
       ) : null}
       {category === "general" ? <FormSection title="Appearance">
-        <SelectField label="Theme" value={preference} disabled={loading || themeSaving} onChange={(event) => void updateTheme(event.currentTarget.value)}>
-          <option value="system">System</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </SelectField>
-        <small role="status" className="wapp-save-status">{loading ? "Loading…" : themeSaving ? "Saving…" : themeSaved ? "Saved" : "\u00a0"}</small>
+        <SettingsFieldRow
+          title="Theme"
+          labelFor={themeId}
+          content={<Select id={themeId} value={preference} disabled={loading || themeSaving} onChange={(event) => void updateTheme(event.currentTarget.value)}>
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </Select>}
+          feedback={loading || themeSaving || themeSaved ? <small role="status" className="wapp-save-status">{loading ? "Loading…" : themeSaving ? "Saving…" : "Saved"}</small> : undefined}
+        />
         {error ? (
           <ErrorState
             description={error.message}
@@ -110,14 +117,19 @@ export function AccountSection({ config, refresh, setError, category }: AccountS
           ) : null}
           {logLevel.loading && logLevel.level === undefined ? <LoadingState title="Loading log level" /> : null}
           {logLevel.level !== undefined ? (
-            <SelectField
-              label={logLevel.fromEnv ? `Log level (${logLevel.level}, controlled by env)` : "Log level"}
-              value={logLevel.level}
-              disabled={logLevel.fromEnv === true || logLevel.loading || logLevelSaving}
-              onChange={(event) => void updateLogLevel(event.currentTarget.value)}
-            >
-              {VALID_LOG_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}
-            </SelectField>
+            <SettingsFieldRow
+              title="Log level"
+              description={logLevel.fromEnv ? "Controlled by environment." : undefined}
+              labelFor={logLevelId}
+              content={<Select
+                id={logLevelId}
+                value={logLevel.level}
+                disabled={logLevel.fromEnv === true || logLevel.loading || logLevelSaving}
+                onChange={(event) => void updateLogLevel(event.currentTarget.value)}
+              >
+                {VALID_LOG_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}
+              </Select>}
+            />
           ) : null}
           <CheckboxField
             label="Preserve logs"
