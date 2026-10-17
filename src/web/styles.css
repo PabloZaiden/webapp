@@ -1719,6 +1719,7 @@ textarea::placeholder {
 
 .wapp-button-ghost {
   background: transparent;
+  border-color: transparent;
 }
 
 .wapp-badge {
@@ -2925,6 +2926,20 @@ textarea::placeholder {
   margin-bottom: 1rem;
 }
 
+.wapp-toolbar-identity {
+  min-width: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wapp-toolbar-primary,
+.wapp-toolbar-secondary {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.5rem;
+}
+
 .wapp-mobile-only {
   display: none;
 }
@@ -3110,6 +3125,20 @@ textarea::placeholder {
 :root[data-wapp-mobile] .wapp-settings {
   padding: 0.875rem 0.875rem max(1rem, var(--wapp-mobile-bottom-clearance));
   display: block;
+}
+
+:root[data-wapp-mobile] .wapp-settings-nav {
+  display: none;
+}
+
+:root[data-wapp-mobile] .wapp-settings-category-select {
+  display: block;
+  margin-bottom: 1.25rem;
+}
+
+:root[data-wapp-mobile] :is(.wapp-input, .wapp-field input, .wapp-field select, .wapp-field textarea, .wapp-inline-select) {
+  font-size: 1rem;
+  min-height: 2.75rem;
 }
 
 :where(button, input, select, textarea, [role="button"]):focus-visible {
