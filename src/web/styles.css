@@ -1958,7 +1958,7 @@ textarea::placeholder {
   height: 100%;
   overflow: auto;
   display: grid;
-  grid-template-columns: 11rem minmax(0, 54rem);
+  grid-template-columns: 11rem minmax(0, 1fr);
   align-content: start;
   align-items: start;
   gap: 2rem;
@@ -2277,6 +2277,10 @@ textarea::placeholder {
 }
 
 .wapp-field-full {
+  max-width: 100%;
+}
+
+.wapp-field-full > .wapp-input {
   max-width: 100%;
 }
 
