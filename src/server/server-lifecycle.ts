@@ -44,7 +44,6 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
   } = dependencies;
   let activeServer: Server<WebAppWebSocketData> | undefined;
   let startPromise: Promise<Server<WebAppWebSocketData>> | undefined;
-  let stopPromise: Promise<void> | undefined;
   let unregisterProcessShutdown: (() => void) | undefined;
 
   function customHandler(socket: ServerWebSocket<WebAppWebSocketData>): Partial<WebSocketHandler<WebAppWebSocketData>> | undefined {
@@ -155,52 +154,8 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
       },
       development: config.development,
     });
-    const originalStop = server.stop.bind(server);
     activeServer = server;
-    server.stop = ((closeActiveConnections?: boolean) => {
-      if (stopPromise) return stopPromise;
-      stopPromise = (async () => {
-        const errors: unknown[] = [];
-        try {
-          if (hooks?.beforeStop) {
-            try {
-              await hooks.beforeStop(server);
-            } catch (error) {
-              errors.push(error);
-            }
-          }
-          try {
-            await originalStop(closeActiveConnections);
-          } catch (error) {
-            errors.push(error);
-          }
-          if (documentProvider && webDocument) {
-            try {
-              documentProvider.dispose(webDocument);
-            } catch (error) {
-              errors.push(error);
-            }
-          }
-          if (hooks?.afterStop) {
-            try {
-              await hooks.afterStop(server);
-            } catch (error) {
-              errors.push(error);
-            }
-          }
-        } finally {
-          activeServer = undefined;
-          stopPromise = undefined;
-          unregisterProcessShutdown?.();
-          unregisterProcessShutdown = undefined;
-        }
-        if (errors.length === 1) throw errors[0];
-        if (errors.length > 1) {
-          throw new AggregateError(errors, "Web app server cleanup failed");
-        }
-      })();
-      return stopPromise;
-    }) as typeof server.stop;
+    attachServerStop(server, webDocument);
     log.info(`${config.appName} server running`, { url: String(server.url) });
     try {
       await hooks?.afterStart?.(server);
@@ -216,6 +171,62 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
       }
       throw error;
     }
+  }
+
+  function attachServerStop(server: Server<WebAppWebSocketData>, webDocument?: WebDocument): void {
+    const originalStop = server.stop.bind(server);
+    const releaseProcessOwnership = unregisterProcessShutdown;
+    const errors: unknown[] = [];
+    let stopPromise: Promise<void> | undefined;
+    let closeActiveRequested = false;
+    let listenerDraining = false;
+    let forcedStop: Promise<void> | undefined;
+    let finishForcedStop!: () => void;
+    const forcedStopDone = new Promise<void>((resolve) => { finishForcedStop = resolve; });
+    const attempt = async (operation: () => void | Promise<void>): Promise<void> => {
+      try {
+        await operation();
+      } catch (error) {
+        errors.push(error);
+      }
+    };
+
+    server.stop = ((closeActiveConnections?: boolean) => {
+      if (closeActiveConnections) closeActiveRequested = true;
+      if (stopPromise) {
+        if (closeActiveConnections && listenerDraining && !forcedStop) {
+          forcedStop = attempt(() => originalStop(true)).finally(finishForcedStop);
+        }
+        return stopPromise;
+      }
+      stopPromise = Promise.resolve().then(async () => {
+        try {
+          await attempt(() => hooks?.beforeStop?.(server));
+          listenerDraining = !closeActiveRequested;
+          await attempt(async () => {
+            try {
+              await Promise.race([originalStop(closeActiveRequested), forcedStopDone]);
+            } finally {
+              listenerDraining = false;
+            }
+          });
+          await forcedStop;
+          if (documentProvider && webDocument) {
+            await attempt(() => documentProvider.dispose(webDocument));
+          }
+          await attempt(() => hooks?.afterStop?.(server));
+        } finally {
+          if (activeServer === server) activeServer = undefined;
+          releaseProcessOwnership?.();
+          if (unregisterProcessShutdown === releaseProcessOwnership) unregisterProcessShutdown = undefined;
+        }
+        if (errors.length === 1) throw errors[0];
+        if (errors.length > 1) {
+          throw new AggregateError(errors, "Web app server cleanup failed");
+        }
+      });
+      return stopPromise;
+    }) as typeof server.stop;
   }
 
   async function stop(closeActiveConnections?: boolean): Promise<void> {

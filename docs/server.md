@@ -412,6 +412,8 @@ started in the process before exiting. The authenticated `/api/server/kill`
 action uses the same shutdown path on all platforms, preserving its short HTTP
 acknowledgement window. Pending startup finishes before teardown, and concurrent
 shutdown requests share one operation.
+If a normal `app.stop()` is already draining long-lived connections, process
+shutdown upgrades that stop to close the connections without rerunning hooks.
 
 Process shutdown awaits asynchronous hooks, closes active HTTP/WebSocket
 connections and generated document resources, and still attempts every server
