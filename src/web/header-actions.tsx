@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
-import type { HeaderActionSet } from "./root-types";
+import type { HeaderActionSet, HeaderPrimaryAction } from "./root-types";
 import type { ActionMenuItem } from "./sidebar/types";
 
 interface HeaderActionEntry {
-  primary: ReactNode;
+  primary: HeaderPrimaryStore;
   hasPrimary: boolean;
   overflow: ActionMenuItem[];
 }
@@ -19,10 +19,10 @@ interface HeaderActionRegistry {
   unregister: (owner: symbol) => void;
 }
 
-interface HeaderPrimaryStore {
-  value: ReactNode;
+export interface HeaderPrimaryStore {
+  value: HeaderPrimaryAction[];
   listeners: Set<() => void>;
-  getSnapshot: () => ReactNode;
+  getSnapshot: () => HeaderPrimaryAction[];
   subscribe: (listener: () => void) => () => void;
 }
 
@@ -33,10 +33,15 @@ interface HeaderActionsContextValue {
 }
 
 const HeaderActionsContext = createContext<HeaderActionsContextValue | null>(null);
-const HeaderActionsSnapshotContext = createContext<HeaderActionSet | null>(null);
+interface HeaderActionsSnapshot {
+  primary: HeaderPrimaryStore;
+  overflow: ActionMenuItem[];
+}
+const HeaderActionsSnapshotContext = createContext<HeaderActionsSnapshot | null>(null);
 const EMPTY_OVERFLOW: ActionMenuItem[] = [];
+const EMPTY_PRIMARY: HeaderPrimaryAction[] = [];
 
-function createHeaderPrimaryStore(initialValue: ReactNode): HeaderPrimaryStore {
+function createHeaderPrimaryStore(initialValue: HeaderPrimaryAction[]): HeaderPrimaryStore {
   const store: HeaderPrimaryStore = {
     value: initialValue,
     listeners: new Set(),
@@ -47,11 +52,6 @@ function createHeaderPrimaryStore(initialValue: ReactNode): HeaderPrimaryStore {
     },
   };
   return store;
-}
-
-function HeaderPrimarySlot({ store }: { store: HeaderPrimaryStore }) {
-  const primary = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-  return <>{primary}</>;
 }
 
 function sameActionMenuShape(first: ActionMenuItem[], second: ActionMenuItem[]): boolean {
@@ -65,6 +65,7 @@ function sameActionMenuShape(first: ActionMenuItem[], second: ActionMenuItem[]):
     }
     return item.id === other.id
       && item.label === other.label
+      && item.form === other.form
       && item.disabled === other.disabled
       && item.destructive === other.destructive;
   });
@@ -74,19 +75,22 @@ function createStableOverflow(
   overflow: ActionMenuItem[],
   latestOverflowRef: { current: ActionMenuItem[] },
 ): ActionMenuItem[] {
-  return overflow.map((item, index) => ({
-    ...item,
-    onAction: () => {
-      const latestItem = item.id
-        ? latestOverflowRef.current.find((candidate) => candidate.id === item.id)
-        : latestOverflowRef.current[index];
-      latestItem?.onAction();
-    },
-  }));
+  return overflow.map((item, index) => {
+    if (item.form !== undefined) return item;
+    return {
+      ...item,
+      onAction: () => {
+        const latestItem = item.id
+          ? latestOverflowRef.current.find((candidate) => candidate.id === item.id)
+          : latestOverflowRef.current[index];
+        latestItem?.onAction?.();
+      },
+    };
+  });
 }
 
-function hasPrimaryAction(primary: ReactNode): boolean {
-  return primary !== null && primary !== undefined && primary !== false;
+function hasPrimaryAction(primary: HeaderPrimaryAction[] | undefined): boolean {
+  return primary !== undefined;
 }
 
 function notify(listeners: Set<() => void>): void {
@@ -135,8 +139,9 @@ function createHeaderActionRegistry(): HeaderActionRegistry {
 function mergeHeaderActions(
   base: HeaderActionSet,
   entries: HeaderActionEntry[],
-): HeaderActionSet {
-  let primary = base.primary;
+  basePrimary: HeaderPrimaryStore,
+): HeaderActionsSnapshot {
+  let primary = basePrimary;
   for (const entry of entries) {
     if (entry.hasPrimary) {
       primary = entry.primary;
@@ -164,14 +169,21 @@ export function HeaderActionsProvider({
   }
   const registry = registryRef.current;
   const entries = useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
+  const basePrimaryRef = useRef<HeaderPrimaryStore | null>(null);
+  if (!basePrimaryRef.current) basePrimaryRef.current = createHeaderPrimaryStore(base.primary ?? EMPTY_PRIMARY);
+  const basePrimary = basePrimaryRef.current;
+  useLayoutEffect(() => {
+    basePrimary.value = base.primary ?? EMPTY_PRIMARY;
+    notify(basePrimary.listeners);
+  }, [base.primary, basePrimary]);
   const contextValue = useMemo<HeaderActionsContextValue>(() => ({
     register: registry.register,
     update: registry.update,
     unregister: registry.unregister,
   }), [registry]);
   const snapshot = useMemo(
-    () => mergeHeaderActions(base, entries),
-    [base, entries],
+    () => mergeHeaderActions(base, entries, basePrimary),
+    [base, entries, basePrimary],
   );
 
   return (
@@ -204,7 +216,7 @@ export function useHeaderActions(actions: HeaderActionSet = {}): void {
     ownerRef.current = Symbol("webapp-header-actions");
   }
   if (!primaryStoreRef.current) {
-    primaryStoreRef.current = createHeaderPrimaryStore(actions.primary);
+    primaryStoreRef.current = createHeaderPrimaryStore(actions.primary ?? EMPTY_PRIMARY);
   }
 
   useEffect(() => {
@@ -218,7 +230,7 @@ export function useHeaderActions(actions: HeaderActionSet = {}): void {
     registeredOverflowRef.current = stableOverflow;
     registeredHasPrimaryRef.current = hasPrimary;
     context.register(owner, {
-      primary: <HeaderPrimarySlot store={primaryStore} />,
+      primary: primaryStore,
       hasPrimary,
       overflow: stableOverflow,
     });
@@ -230,7 +242,7 @@ export function useHeaderActions(actions: HeaderActionSet = {}): void {
     if (!primaryStore) {
       return;
     }
-    primaryStore.value = actions.primary;
+    primaryStore.value = actions.primary ?? EMPTY_PRIMARY;
     notify(primaryStore.listeners);
   }, [actions.primary]);
 
@@ -251,14 +263,14 @@ export function useHeaderActions(actions: HeaderActionSet = {}): void {
     registeredOverflowRef.current = stableOverflow;
     registeredHasPrimaryRef.current = hasPrimary;
     context.update(owner, {
-      primary: <HeaderPrimarySlot store={primaryStore} />,
+      primary: primaryStore,
       hasPrimary,
       overflow: stableOverflow,
     });
   }, [actions.primary, context, overflow]);
 }
 
-export function useHeaderActionsSnapshot(): HeaderActionSet {
+export function useHeaderActionsSnapshot(): HeaderActionsSnapshot {
   const snapshot = useContext(HeaderActionsSnapshotContext);
   if (!snapshot) {
     throw new Error("useHeaderActionsSnapshot must be used within HeaderActionsProvider.");

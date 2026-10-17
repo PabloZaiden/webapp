@@ -4,7 +4,6 @@ import { appJson } from "../api-client";
 import { Badge, Button, CheckboxField, ErrorState, FormSection, LoadingState, SelectField } from "../components";
 import { useLogLevel } from "../log-level";
 import { isThemePreference, useTheme } from "../theme";
-import { SettingsFieldRow } from "./settings-section";
 
 function isLogLevelName(value: string): value is LogLevelName {
   return VALID_LOG_LEVELS.some((level) => level === value);
@@ -120,13 +119,13 @@ export function AccountSection({ config, refresh, setError, category }: AccountS
               {VALID_LOG_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}
             </SelectField>
           ) : null}
-          <SettingsFieldRow title="Server logs" content={<CheckboxField
-            label="Capture logs"
-            hint="Unbounded temporary file; may fill disk. Avoid secrets."
+          <CheckboxField
+            label="Preserve logs"
+            hint="Stored in a temporary file."
             checked={config.inMemoryLogs.enabled}
             disabled={serverLogsSaving}
             onChange={(event) => void updateServerLogs(event.currentTarget.checked)}
-          />} />
+          />
         </FormSection>
       ) : null}
     </>

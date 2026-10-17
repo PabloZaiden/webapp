@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import type { ApiKeySummary, CreatedApiKeyResponse, WebAppConfigResponse } from "../../contracts";
 import { appJson } from "../api-client";
 import { useAsyncOperation } from "../async-operation";
-import { ActionMenu, Button, CodeValue, ConfirmDialog, EmptyState } from "../components";
+import { Button, CodeValue, ConfirmDialog, EmptyState } from "../components";
 import { DateTimeValue } from "../date-time";
 import { SettingsFieldRow } from "./settings-section";
 import { log } from "../logger";
@@ -118,7 +118,7 @@ export function SecuritySection({ config, refresh }: SecuritySectionProps) {
           {config.passkeyAuth.passkeyConfigured ? (
             <>
               <Button type="button" onClick={() => void logout()}>Logout</Button>
-              <ActionMenu ariaLabel="Passkey actions" items={[{ label: "Delete passkey", destructive: true, onAction: () => setConfirmDeletePasskey(true) }]} />
+              <Button type="button" tone="danger" onClick={() => setConfirmDeletePasskey(true)}>Delete passkey</Button>
             </>
           ) : (
             config.currentUser?.isOwner ? <Button type="button" variant="primary" onClick={() => void setupPasskey()}>Set up passkey</Button> : null
@@ -135,7 +135,7 @@ export function SecuritySection({ config, refresh }: SecuritySectionProps) {
                 {apiKeys.map((key) => (
                   <div className="wapp-list-row" key={key.id}>
                     <span><strong>{key.name}</strong><small>{key.scopes.join(", ")} · <DateTimeValue value={key.createdAt} /></small></span>
-                    <ActionMenu ariaLabel={`Actions for ${key.name}`} items={[{ label: "Delete key", destructive: true, onAction: () => setApiKeyToDelete(key) }]} />
+                    <Button type="button" tone="danger" onClick={() => setApiKeyToDelete(key)}>Delete key</Button>
                   </div>
                 ))}
               </div>

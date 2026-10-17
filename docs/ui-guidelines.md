@@ -77,11 +77,17 @@ Use these first:
 | `ConfirmDialog` | Destructive confirmation |
 
 The default `Panel` is muted, `DataList` uses divided rows, and `Button` is a
-subtle, intrinsic-width action. Use `variant="primary"` explicitly for the
-principal action, `variant="link"` for a textual action and `tone="danger"` for
+subtle, intrinsic-width, unboxed action, including primary actions. Use
+`variant="primary"` explicitly for the principal action, `variant="link"` for a textual action and `tone="danger"` for
 discreet danger. Reserve solid `variant="danger"` for irreversible confirmation.
 `ConfirmModal` defaults to primary, not danger; delete callers must explicitly
 declare danger. Loading preserves button geometry and accessible name.
+Show direct actions when they fit; use overflow for genuinely constrained
+space or secondary groups, not to hide a single ordinary action.
+Short fields use intrinsic or bounded widths. `TextField` and `SelectField`
+support `fieldWidth="short" | "normal" | "full"`; use full width for URLs or
+other long values. `FormGroup layout="inline"` groups related short fields
+and actions, wrapping at available width.
 
 Design dark-first. Without a saved preference the document boot script, theme
 hook and server preference default to Dark; existing Light/System choices are
@@ -109,6 +115,8 @@ Navigation continues through framework route helpers, with no app-owned hash
 listener or parser.
 
 `DataListRow` places `meta` beside the content by default. Use
+`metaPlacement="inline"` for secondary dates beside the title, wrapping below
+only when needed. Do not repeat a badge status in the description. Use
 `metaPlacement="below"` for metadata below the description within the main
 content column, or `metaPlacement="footer"` for a full-width footer below
 the content, badge, and actions. A footer's width does not depend on the
@@ -122,6 +130,8 @@ Their header and footer remain fixed while the body scrolls internally when the
 viewport is short, so actions remain reachable on small screens. Do not add a
 second modal portal, focus trap, scroll lock, or arbitrary transition timer in
 application code.
+Footer actions are right-aligned in one row, wrapping to the right only when
+needed; do not reverse or stretch them into a mobile column.
 
 Use `Modal.restoreFocusFallbackRef` for a stable, programmatically focusable
 target when the invoking control may disappear while the modal is open.
@@ -134,20 +144,32 @@ unavailable; use `ConfirmDialog` or `Modal` for normal overlays.
 
 For entity actions, prefer the framework title bar: define one `ActionMenuItem[]` builder and attach it to `SidebarNode.actions` for the route-backed node. The framework reuses those actions for both sidebar right-click and the active route title-bar menu. Use `WebAppRoot.header.getActions` only for additional actions not owned by a sidebar node.
 
-Route views can contribute screen-owned title-bar actions from a child component with `useHeaderActions({ primary, overflow })`. `primary` is an optional visible React node; `overflow` is an `ActionMenuItem[]` rendered in the framework `…` menu. The framework keeps the primary action slot live as the child rerenders while preserving overflow callbacks when only their function identities change. Overflow actions from child views are appended to the configured header and active sidebar actions. A route should normally provide at most one primary action; if nested views provide more than one, the most recently registered primary replaces the previous one.
+Route views contribute title-bar actions with `useHeaderActions({ primary, overflow })`.
+`primary` is a `HeaderPrimaryAction[]`: label, optional icon, disabled/loading
+state and either `onAction` or a native `form` ID. The framework displays these
+as subtle buttons while they fit within half the header; otherwise they appear
+first in the existing menu, without duplicates. Fit responds to actual header
+and action widths, not a separate mobile breakpoint. Native form actions retain
+validation, submitter semantics and Enter submission from the menu.
+`overflow` is an `ActionMenuItem[]`, appended to configured and sidebar actions.
+Callbacks and loading state remain live without re-registering the screen.
+A route normally has one primary action; the latest nested primary set wins.
 
 ```tsx
 function ComposeView() {
   const [name, setName] = useState("");
   useHeaderActions({
-    primary: <Button variant="primary" disabled={!name.trim()} onClick={() => void save(name)}>Save</Button>,
+    primary: [{ id: "save", label: "Save", disabled: !name.trim(), onAction: () => void save(name) }],
     overflow: [{ id: "clear", label: "Clear", onAction: () => setName("") }],
   });
   return <Page layout="form"><TextField label="Name" value={name} onChange={(event) => setName(event.currentTarget.value)} /></Page>;
 }
 ```
 
-For new applications that own their header configuration at `WebAppRoot`, `header.getHeaderActions` can return the same `{ primary, overflow }` shape. Existing `renderActions` and `getActions` remain supported and are merged as legacy primary and overflow sources.
+`WebAppRoot.header.getHeaderActions` returns the same semantic shape.
+Use `header.getActions` for extra overflow actions. Arbitrary header action
+React nodes are not supported: the framework needs the action contract to
+provide responsive overflow without extracting callbacks from rendered DOM.
 
 Every route component rendered by `WebAppRoot.routes` should return `Page` at the top level, including loading/error/empty states. Do not render a `Panel`, `DataList`, `EmptyState` or custom div directly into `WebAppRoot`; that skips the standard content margins and recreates the visual bug where cards touch the main content edge. For a route whose child owns viewport-sized layout and scrolling, use `<Page layout="full">` rather than overriding `.wapp-page` from the application. Use `EntityHeader` only when the page needs a content-specific heading distinct from the fixed framework title bar; do not duplicate the active route title immediately below the header.
 

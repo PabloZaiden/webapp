@@ -5,7 +5,7 @@ export { useUnsavedChanges } from "./unsaved-changes";
 export { SettingsFieldRow, SettingsSectionContent } from "./settings/settings-section";
 export type { SettingsAction, SettingsRow, SettingsSection } from "./root-types";
 export { useHeaderActions } from "./header-actions";
-export type { HeaderActionSet } from "./root-types";
+export type { HeaderActionSet, HeaderPrimaryAction } from "./root-types";
 export * from "./render";
 export * from "./motion";
 export { supportsViewTransitions } from "./routing";

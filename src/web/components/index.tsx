@@ -6,6 +6,7 @@ import { isTopmostOverlayElement, useOverlayLifecycle } from "../overlay";
 
 export type ButtonVariant = "default" | "primary" | "danger" | "ghost" | "link";
 export type ButtonSize = "xs" | "sm" | "md" | "lg";
+export type FieldWidth = "short" | "normal" | "full";
 
 export function Button({
   variant = "ghost",
@@ -217,7 +218,7 @@ export function DataListRow({
   description?: ReactNode;
   descriptionClassName?: string;
   meta?: ReactNode;
-  metaPlacement?: "side" | "below" | "footer";
+  metaPlacement?: "side" | "below" | "footer" | "inline";
   badge?: ReactNode;
   actions?: ReactNode;
   onClick?: () => void;
@@ -236,7 +237,7 @@ export function DataListRow({
   const content = (
     <>
       <span className="wapp-data-list-row-main">
-        <strong>{title}</strong>
+        {meta && metaPlacement === "inline" ? <span className="wapp-data-list-row-heading"><strong>{title}</strong><small>{meta}</small></span> : <strong>{title}</strong>}
         {description ? <small className={descriptionClassName}>{description}</small> : null}
         {meta && metaPlacement === "below" ? <small className="wapp-data-list-row-meta-below">{meta}</small> : null}
       </span>
@@ -259,11 +260,11 @@ export function Select({ className = "", children, ...props }: SelectHTMLAttribu
   return <select {...props} className={`wapp-input ${className}`.trim()}>{children}</select>;
 }
 
-export function TextField({ label, hint, error, id, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string; error?: string }) {
+export function TextField({ label, hint, error, id, fieldWidth = "normal", ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string; error?: string; fieldWidth?: FieldWidth }) {
   const generatedId = useId();
   const inputId = id ?? generatedId;
   return (
-    <label className="wapp-field" htmlFor={inputId}>
+    <label className={`wapp-field wapp-field-${fieldWidth}`} htmlFor={inputId}>
       <span>{label}</span>
       <Input {...props} id={inputId} aria-invalid={Boolean(error) || undefined} aria-describedby={[props["aria-describedby"], hint ? `${inputId}-hint` : "", error ? `${inputId}-error` : ""].filter(Boolean).join(" ") || undefined} />
       {hint ? <small id={`${inputId}-hint`}>{hint}</small> : null}
@@ -285,11 +286,11 @@ export function TextAreaField({ label, hint, error, id, ...props }: TextareaHTML
   );
 }
 
-export function SelectField({ label, children, hint, error, id, ...props }: SelectHTMLAttributes<HTMLSelectElement> & { label: string; children: ReactNode; hint?: string; error?: string }) {
+export function SelectField({ label, children, hint, error, id, fieldWidth = "normal", ...props }: SelectHTMLAttributes<HTMLSelectElement> & { label: string; children: ReactNode; hint?: string; error?: string; fieldWidth?: FieldWidth }) {
   const generatedId = useId();
   const inputId = id ?? generatedId;
   return (
-    <label className="wapp-field" htmlFor={inputId}>
+    <label className={`wapp-field wapp-field-select wapp-field-${fieldWidth}`} htmlFor={inputId}>
       <span>{label}</span>
       <Select {...props} id={inputId} aria-invalid={Boolean(error) || undefined} aria-describedby={[props["aria-describedby"], hint ? `${inputId}-hint` : "", error ? `${inputId}-error` : ""].filter(Boolean).join(" ") || undefined}>{children}</Select>
       {hint ? <small id={`${inputId}-hint`}>{hint}</small> : null}
@@ -479,9 +480,9 @@ export function FormSection({ title, description, children }: { title: string; d
   );
 }
 
-export function FormGroup({ title, description, children, actions }: { title?: string; description?: string; children: ReactNode; actions?: ReactNode }) {
+export function FormGroup({ title, description, children, actions, layout = "stack" }: { title?: string; description?: string; children: ReactNode; actions?: ReactNode; layout?: "stack" | "inline" }) {
   return (
-    <div className="wapp-form-group">
+    <div className={`wapp-form-group wapp-form-group-${layout}`}>
       {title || description || actions ? (
         <div className="wapp-form-group-header">
           <div>
@@ -1214,12 +1215,21 @@ function ActionMenuItems({ items, onItemClick }: { items: ActionMenuItem[]; onIt
     <div className="wapp-action-menu-items">
       {orderedItems.map((item, index) => (
         <button
-          type="button"
+          type={item.form !== undefined ? "submit" : "button"}
+          form={item.form}
           role="menuitem"
           key={item.id ?? `${item.label}:${index}`}
           disabled={item.disabled}
           className={`wapp-action-menu-item ${isDestructiveActionMenuItem(item) ? "danger" : ""}`}
-          onClick={() => onItemClick(item)}
+          onClick={(event) => {
+            if (item.form !== undefined) {
+              event.preventDefault();
+              const form = event.currentTarget.form;
+              if (!form) throw new Error(`Action form is not mounted: ${item.form}`);
+              form.requestSubmit(event.currentTarget);
+            }
+            onItemClick(item);
+          }}
         >
           {item.label}
         </button>
@@ -1235,6 +1245,7 @@ export function ActionMenu({
   trigger,
   triggerVariant = "default",
   triggerSize = "default",
+  buttonRef,
 }: {
   items: ActionMenuItem[];
   ariaLabel?: string;
@@ -1242,6 +1253,7 @@ export function ActionMenu({
   trigger?: ReactNode;
   triggerVariant?: "default" | "ghost";
   triggerSize?: "default" | "compact";
+  buttonRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const [open, setOpen] = useState(false);
   const presence = usePresence(open);
@@ -1282,14 +1294,17 @@ export function ActionMenu({
   function handleItemClick(item: ActionMenuItem) {
     if (item.disabled) return;
     close();
-    item.onAction();
+    item.onAction?.();
   }
 
   return (
     <>
       <button
         type="button"
-        ref={triggerRef}
+        ref={(element) => {
+          triggerRef.current = element;
+          if (buttonRef) buttonRef.current = element;
+        }}
         className={[
           "wapp-action-menu-trigger",
           triggerVariant === "ghost" ? "wapp-action-menu-trigger-ghost" : "",
@@ -1391,7 +1406,7 @@ export function ContextMenu({
   function handleItemClick(item: ActionMenuItem) {
     if (item.disabled) return;
     onClose();
-    item.onAction();
+    item.onAction?.();
   }
 
   return createPortal(

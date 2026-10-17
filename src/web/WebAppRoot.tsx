@@ -350,7 +350,7 @@ function WebAppRootContent({
   const activeSidebarActions = activeSidebarNode?.actions ?? [];
   const configuredHeaderActions = header?.getHeaderActions?.(headerContext) ?? {};
   const headerActions = {
-    primary: configuredHeaderActions.primary ?? header?.renderActions?.(headerContext),
+    primary: configuredHeaderActions.primary,
     overflow: [
       ...(configuredHeaderActions.overflow ?? []),
       ...(header?.getActions?.(headerContext) ?? []),

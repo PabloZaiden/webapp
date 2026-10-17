@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import type { CreatedUserResponse, WebAppConfigResponse, WebAppUserRole, WebAppUserSummary } from "../../contracts";
 import { appJson } from "../api-client";
 import { useAsyncOperation } from "../async-operation";
-import { ActionMenu, Badge, Button, CodeValue, ConfirmDialog, EmptyState, FormGroup, FormSection, SelectField, TextField } from "../components";
+import { Badge, Button, CodeValue, ConfirmDialog, EmptyState, FormGroup, FormSection, SelectField, TextField } from "../components";
 import { DateTimeValue } from "../date-time";
 import { useLiveQuery } from "../realtime/useRealtime";
 import { ResourceState } from "./resource-state";
@@ -109,7 +109,7 @@ export function UserManagement({ config }: { config: WebAppConfigResponse }) {
   return (
     <FormSection title="Users">
       {error ? <p className="wapp-error">{error}</p> : null}
-      <FormGroup title="Add user">
+      <FormGroup title="Add user" layout="inline">
           <TextField label="Username" value={username} disabled={setupLinkPending} onChange={(event) => setUsername(event.currentTarget.value)} placeholder="new-user" />
           <SelectField label="Role" value={role} disabled={setupLinkPending} onChange={(event) => setRole(event.currentTarget.value as WebAppUserRole)}>
             <option value="user">User</option>
@@ -134,10 +134,10 @@ export function UserManagement({ config }: { config: WebAppConfigResponse }) {
                     <option value="admin">Admin</option>
                   </select>
                 ) : <Badge variant="success">Owner</Badge>}
-                {user.role !== "owner" ? <ActionMenu ariaLabel={`Actions for ${user.username}`} disabled={setupLinkPending} items={[
-                  { label: "Reset passkey", onAction: () => void resetUser(user) },
-                  { label: "Delete user", destructive: true, onAction: () => setUserToDelete(user) },
-                ]} /> : null}
+                {user.role !== "owner" ? <>
+                  <Button disabled={setupLinkPending} onClick={() => void resetUser(user)}>Reset passkey</Button>
+                  <Button disabled={setupLinkPending} tone="danger" onClick={() => setUserToDelete(user)}>Delete user</Button>
+                </> : null}
               </div>
             </div>
           ))}

@@ -207,6 +207,7 @@ textarea::placeholder {
 }
 
 .wapp-main-header-actions {
+  position: relative;
   display: flex;
   flex: 0 0 auto;
   min-width: max-content;
@@ -1226,7 +1227,7 @@ textarea::placeholder {
   border: 0;
   background: transparent;
   color: var(--wapp-text);
-  padding: 0.75rem 0.875rem;
+  padding: 0.75rem 0;
   text-align: left;
 }
 
@@ -1339,6 +1340,13 @@ textarea::placeholder {
   flex: 1;
 }
 
+.wapp-data-list-row-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.75rem;
+}
+
 .wapp-data-list-row-main strong,
 .wapp-data-list-row-main small {
   display: block;
@@ -1355,6 +1363,10 @@ textarea::placeholder {
 .wapp-data-list-row-meta {
   color: var(--wapp-muted);
   font-size: 0.8125rem;
+}
+
+.wapp-data-list-row-heading > small {
+  white-space: nowrap;
 }
 
 .wapp-data-list-row-meta,
@@ -1437,10 +1449,10 @@ textarea::placeholder {
   justify-content: center;
   gap: 0.5rem;
   min-height: 2.25rem;
-  border: 1px solid var(--wapp-border);
+  border: 1px solid transparent;
   border-radius: 0.4375rem;
-  background: var(--wapp-surface);
-  color: var(--wapp-text);
+  background: transparent;
+  color: var(--wapp-muted);
   cursor: pointer;
   font-size: 0.875rem;
   font-weight: 600;
@@ -1507,8 +1519,8 @@ textarea::placeholder {
 }
 
 .wapp-button:hover:not(:disabled) {
-  border-color: var(--wapp-muted);
-  background: color-mix(in srgb, var(--wapp-surface), var(--wapp-muted) 12%);
+  color: var(--wapp-text);
+  background: color-mix(in srgb, var(--wapp-muted), transparent 92%);
 }
 
 .wapp-button:disabled {
@@ -1517,13 +1529,26 @@ textarea::placeholder {
 }
 
 .wapp-button-primary {
-  border-color: var(--wapp-action-border);
-  background: var(--wapp-action-bg);
-  color: var(--wapp-action-text);
+  color: var(--wapp-text);
+}
+
+.wapp-header-primary {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.5rem;
+  width: max-content;
+}
+
+.wapp-header-primary-collapsed {
+  position: absolute;
+  right: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .wapp-button-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--wapp-action-bg), var(--wapp-action-text) 8%);
+  background: color-mix(in srgb, var(--wapp-muted), transparent 88%);
 }
 
 .wapp-button-danger {
@@ -1554,7 +1579,7 @@ textarea::placeholder {
   border-color: transparent;
 }
 
-.wapp-button-tone-danger:not(.wapp-button-primary, .wapp-button-danger) {
+.wapp-button-tone-danger:not(.wapp-button-danger) {
   color: var(--wapp-danger);
 }
 
@@ -1967,8 +1992,8 @@ textarea::placeholder {
 
 .wapp-settings-field {
   display: grid;
-  grid-template-columns: minmax(9rem, 0.7fr) minmax(0, 1.3fr);
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+  align-items: center;
   gap: 0.75rem 1.5rem;
   padding-block: 0.5rem;
 }
@@ -1981,7 +2006,7 @@ textarea::placeholder {
 .wapp-settings-field-label > label {
   font-size: 0.875rem;
   font-weight: 500;
-  line-height: 2.5rem;
+  line-height: 1.4;
 }
 
 .wapp-settings-field-label > label {
@@ -1996,20 +2021,17 @@ textarea::placeholder {
 }
 
 .wapp-settings-field-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
   min-width: 0;
+  max-width: 36rem;
 }
 
-.wapp-settings-field > .wapp-row-actions {
-  grid-column: 2;
-  justify-content: flex-start;
-}
-
-.wapp-settings-field:has(> .wapp-settings-field-control):has(> .wapp-row-actions) {
-  grid-template-columns: minmax(7rem, 0.6fr) minmax(0, 1.4fr) auto;
-}
-
-.wapp-settings-field:has(> .wapp-settings-field-control) > .wapp-row-actions {
-  grid-column: 3;
+.wapp-settings-field-control > .wapp-row-actions {
+  margin-left: auto;
 }
 
 .wapp-settings-feedback {
@@ -2124,6 +2146,18 @@ textarea::placeholder {
   gap: 0.75rem;
 }
 
+.wapp-form-group-inline > .wapp-form-group-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+}
+
+.wapp-form-group-inline > .wapp-form-group-body > .wapp-row-actions,
+.wapp-form-group-inline > .wapp-form-group-body > .wapp-form-actions {
+  margin-left: auto;
+}
+
 .wapp-settings-row {
   display: flex;
   align-items: flex-start;
@@ -2218,6 +2252,22 @@ textarea::placeholder {
   max-width: 36rem;
 }
 
+.wapp-field-normal {
+  max-width: 20rem;
+}
+
+.wapp-field-short {
+  max-width: 12rem;
+}
+
+.wapp-field-full {
+  max-width: 100%;
+}
+
+.wapp-field-select:not(.wapp-field-full) {
+  width: fit-content;
+}
+
 .wapp-field > span {
   display: block;
   font-size: 0.8125rem;
@@ -2269,6 +2319,17 @@ textarea::placeholder {
   box-shadow: var(--wapp-shadow);
   padding: 0.5rem 2rem 0.5rem 0.75rem;
   font-size: 0.8125rem;
+}
+
+select.wapp-input,
+.wapp-field select,
+.wapp-inline-select {
+  appearance: none;
+  padding-right: 2.5rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1rem;
 }
 
 .wapp-field textarea {
@@ -2776,6 +2837,8 @@ textarea::placeholder {
   display: flex;
   flex-shrink: 0;
   justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.75rem 1rem max(0.75rem, var(--wapp-mobile-bottom-clearance));
 }
@@ -2887,8 +2950,9 @@ textarea::placeholder {
 .wapp-modal-footer {
   display: flex;
   flex-shrink: 0;
-  flex-direction: column-reverse;
-  align-items: stretch;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.5rem;
   border-top: 1px solid var(--wapp-border-soft);
@@ -3089,8 +3153,7 @@ textarea::placeholder {
 }
 
 :root[data-wapp-mobile] .wapp-row-actions {
-  justify-content: flex-start;
-  margin-top: 0.75rem;
+  justify-content: flex-end;
 }
 
 :root[data-wapp-mobile] .wapp-header-notification {
@@ -3183,18 +3246,9 @@ textarea::placeholder {
     gap: 0.5rem;
   }
 
-  :root[data-wapp-mobile] .wapp-settings-field:has(> .wapp-settings-field-control):has(> .wapp-row-actions) {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  :root[data-wapp-mobile] .wapp-settings-field:has(> .wapp-row-actions) > .wapp-settings-field-control {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-
-  :root[data-wapp-mobile] .wapp-settings-field:has(> .wapp-settings-field-control) > .wapp-row-actions {
-    grid-column: 2;
-    grid-row: 1;
+  :root[data-wapp-mobile] .wapp-settings-field-control {
+    max-width: 100%;
+    justify-self: stretch;
   }
 
   :root[data-wapp-mobile] .wapp-settings-field-inline {
@@ -3202,9 +3256,8 @@ textarea::placeholder {
     align-items: center;
   }
 
-  :root[data-wapp-mobile] .wapp-settings-field > .wapp-row-actions {
-    grid-column: 1 / -1;
-    margin-top: 0;
+  :root[data-wapp-mobile] .wapp-settings-field-inline .wapp-settings-field-control {
+    justify-self: end;
   }
 
   :root[data-wapp-mobile] :is(.wapp-input, .wapp-field input, .wapp-field select, .wapp-field textarea, .wapp-inline-select) {
@@ -3228,7 +3281,7 @@ textarea::placeholder {
   }
 
   .wapp-settings .wapp-list-row .wapp-row-actions {
-    justify-content: flex-start;
+    justify-content: flex-end;
     margin-top: 0;
   }
 

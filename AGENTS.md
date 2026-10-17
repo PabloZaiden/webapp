@@ -20,6 +20,16 @@
   primary emphasis is explicit, and irreversible danger is reserved for the
   final confirmation. Use public form/list/tool layouts rather than consumer
   CSS recipes. Framework-owned screens and examples use the same primitives.
+- Ordinary primary actions are unboxed too. Show direct actions when they fit;
+  reserve ellipsis for constrained space or meaningful secondary groups.
+- Settings use two zones: identity at left, controls/actions aligned right and
+  vertically centered. Size short fields to their content; group related short
+  fields instead of stretching every input. Keep normal status feedback inline.
+- Use semantic `HeaderPrimaryAction` descriptors so the framework moves primary
+  actions first into overflow when the header narrows. Preserve native form
+  validation and submission; never click hidden app buttons as a workaround.
+- Dialog footers stay right-aligned, on one line when they fit, wrapping right
+  when required. Never switch mobile actions to a left-aligned/reversed column.
 - Design dark-first, preserving Light/System choices; Dark is the default
   without an existing preference. Validate light mode as well.
 - Keep UI concise: labels, values, actions, statuses and actionable errors,

@@ -45,8 +45,13 @@ export type SettingsSection = {
   render?: () => ReactNode;
 };
 
+export type HeaderPrimaryAction = ActionMenuItem & {
+  icon?: ReactNode;
+  loading?: boolean;
+};
+
 export type HeaderActionSet = {
-  primary?: ReactNode;
+  primary?: HeaderPrimaryAction[];
   overflow?: ActionMenuItem[];
 };
 
@@ -84,7 +89,6 @@ export interface WebAppRootProps {
   mainOverlay?: ReactNode;
   header?: {
     renderTitle?: (ctx: HeaderContext) => ReactNode;
-    renderActions?: (ctx: HeaderContext) => ReactNode;
     getActions?: (ctx: HeaderContext) => ActionMenuItem[];
     getHeaderActions?: (ctx: HeaderContext) => HeaderActionSet;
   };

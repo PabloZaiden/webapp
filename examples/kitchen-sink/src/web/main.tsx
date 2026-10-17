@@ -60,7 +60,7 @@ function NewProjectView({ refresh }: { refresh: () => Promise<void> }) {
     await refresh();
   }
   useHeaderActions({
-    primary: <Button type="button" variant="primary" disabled={!name.trim()} onClick={() => void createProject()}>Create</Button>,
+    primary: [{ id: "create-project", label: "Create", disabled: !name.trim(), onAction: () => void createProject() }],
     overflow: [
       { id: "clear-project-name", label: "Clear", disabled: !name, onAction: () => setName("") },
     ],
