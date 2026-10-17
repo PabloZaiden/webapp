@@ -407,6 +407,21 @@ deterministically even when a stop hook fails, and their failures are surfaced.
 If `afterStart` fails, WebApp stops the newly started Bun server, runs the stop
 hooks, disposes generated document resources, and rethrows the hook failure.
 
+On macOS and Linux, `SIGINT` and `SIGTERM` gracefully stop every framework server
+started in the process before exiting. The authenticated `/api/server/kill`
+action uses the same shutdown path on all platforms, preserving its short HTTP
+acknowledgement window. Pending startup finishes before teardown, and concurrent
+shutdown requests share one operation.
+
+Process shutdown awaits asynchronous hooks, closes active HTTP/WebSocket
+connections and generated document resources, and still attempts every server
+when cleanup fails. Failures are logged and produce exit status 1; successful
+shutdown exits with status 0. Put application-owned worker, subprocess and
+subscription cleanup in the lifecycle hooks rather than installing competing
+process signal handlers. Normal `app.stop()` removes that server's process
+registration and does not exit the process. Forced termination such as
+`SIGKILL` or Windows `taskkill /F` cannot run graceful hooks.
+
 ## Server logging
 
 WebApp exposes one server-side `tslog` service for the framework and

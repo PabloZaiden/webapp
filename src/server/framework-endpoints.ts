@@ -77,6 +77,7 @@ import {
   successResponse,
 } from "./responses";
 import type { WebSocketData } from "./realtime/bus";
+import { scheduleProcessShutdown } from "./process-shutdown";
 
 const MAX_API_KEY_AUTH_BODY_BYTES = 4 * 1024;
 
@@ -516,7 +517,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         ensureAdmin(auth);
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
-        setTimeout(() => process.exit(0), 100);
+        scheduleProcessShutdown();
         return successResponse({ success: true, message: "Server is shutting down" });
       }
       if (

@@ -8,6 +8,7 @@ import type {
 } from "./server-types";
 import type { RuntimeConfig } from "./runtime-config";
 import type { WebDocument, WebDocumentProvider } from "./web-document";
+import { registerProcessShutdown } from "./process-shutdown";
 
 export interface ServerLifecycleDependencies<TEvent = unknown> {
   config: RuntimeConfig;
@@ -42,7 +43,9 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     handleRequest,
   } = dependencies;
   let activeServer: Server<WebAppWebSocketData> | undefined;
+  let startPromise: Promise<Server<WebAppWebSocketData>> | undefined;
   let stopPromise: Promise<void> | undefined;
+  let unregisterProcessShutdown: (() => void) | undefined;
 
   function customHandler(socket: ServerWebSocket<WebAppWebSocketData>): Partial<WebSocketHandler<WebAppWebSocketData>> | undefined {
     const handlerName = socket.data.webappSocketHandler;
@@ -50,9 +53,27 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
   }
 
   async function start(): Promise<Server<WebAppWebSocketData>> {
-    if (activeServer) {
+    if (activeServer || startPromise) {
       throw new Error("The web app server is already running");
     }
+    unregisterProcessShutdown = registerProcessShutdown(async () => {
+      if (startPromise) await startPromise;
+      await stop(true);
+    });
+    const startingServer = startServer();
+    startPromise = startingServer;
+    try {
+      return await startingServer;
+    } finally {
+      startPromise = undefined;
+      if (!activeServer) {
+        unregisterProcessShutdown?.();
+        unregisterProcessShutdown = undefined;
+      }
+    }
+  }
+
+  async function startServer(): Promise<Server<WebAppWebSocketData>> {
     await hooks?.beforeStart?.();
     const webDocument = ensureWebDocument
       ? await ensureWebDocument()
@@ -170,6 +191,8 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
         } finally {
           activeServer = undefined;
           stopPromise = undefined;
+          unregisterProcessShutdown?.();
+          unregisterProcessShutdown = undefined;
         }
         if (errors.length === 1) throw errors[0];
         if (errors.length > 1) {
