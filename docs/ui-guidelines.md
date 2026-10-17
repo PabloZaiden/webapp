@@ -47,7 +47,9 @@ The framework owns the mobile shell breakpoint. `MOBILE_BREAKPOINT_PX` and `MOBI
 
 `WebAppRoot` follows `visualViewport` resize/scroll, window resize, orientation changes, focus boundaries, and mobile media-query changes. CSS `100dvh` is the authoritative height when the browser supports dynamic viewport units, except while an editable control is focused and the visual viewport is materially shorter because the on-screen keyboard is open. In that keyboard state, the hook temporarily overrides the shell height with the measured visual viewport so the keyboard cannot cover the app. The visual-viewport pixel value remains the normal fallback for browsers without `100dvh`. Two named, bounded retries catch the post-event layout pass and the end of keyboard, browser-chrome, or rotation transitions when no further geometry event is emitted. These retries are implementation fallbacks, not general synchronization primitives, and are cancelled with the associated animation frame and listeners when the root is unmounted.
 
-The framework mobile mode is separate from the narrower `640px` settings-layout rules. Do not add global touch handlers or arbitrary sleeps to reproduce either behavior; use the framework drawer controls and the existing event-driven viewport lifecycle.
+Settings categories follow the framework mobile mode. List rows may respond to
+their available width without changing shell behavior. Do not add global touch
+handlers or arbitrary sleeps; use existing event-driven viewport lifecycle.
 
 ## Main content primitives
 
@@ -55,8 +57,8 @@ Use these first:
 
 | Component | Use |
 | --- | --- |
-| `Page` | Required top-level wrapper for route content rendered by `WebAppRoot.routes`; uses standard margins/padding and mobile spacing by default, or `layout="full"` for viewport-sized content |
-| `Toolbar` | Page title/actions inside main content |
+| `Page` | Required top-level route wrapper; standard padding, `layout="form"` for bounded forms, `layout="full"` for viewport-sized tools |
+| `Toolbar` | Content toolbar with optional `identity`, `primary`, `secondary` slots; identity flexes before actions |
 | `Panel` | Cards/sections; use `actions` for a top-right menu/action area |
 | `ActionMenu` | Quiet overflow action menu for secondary surfaces; entity-level shell menus should usually come from `SidebarNode.actions` so the framework renders them in the sidebar context menu and fixed title bar |
 | `FloatingPanel` | Anchored arbitrary popup content; use it instead of app-owned portals when the content is not a simple `ActionMenu` |
@@ -65,16 +67,38 @@ Use these first:
 | `StatusBadge` | Status labels in the shared transparent text appearance with title-cased words |
 | `EntityHeader` | Main-content entity title/description/actions |
 | `DataList` / `DataListRow` | Lists with title, description, metadata, badge and actions |
-| `TextField`, `TextAreaField`, `SelectField` | Forms |
+| `TextField`, `TextAreaField`, `SelectField`, `CheckboxField` | Associated labels, hints, errors and shared controls; raw `Input`/`Select` for composed forms |
 | `FormGroup`, `FormActions` | Grouped forms and aligned action rows |
 | `DangerZone` | Destructive settings or entity operations |
 | `LoadingState`, `ErrorState` | Loading and failure UI |
-| `CodeValue` | Tokens, IDs, URLs and copyable code values |
+| `CodeValue` | Values needed for an action, such as a new token or enrollment command; not default ID metadata |
 | `SegmentedControl` | Small enum settings |
 | `EmptyState` | Empty or missing content |
 | `ConfirmDialog` | Destructive confirmation |
 
-The default `Panel` is the muted card surface, `DataList` renders card rows, and `Button` uses the primary medium-sized action treatment. Use an explicit variant or size only when the surface is intentionally different from the application baseline.
+The default `Panel` is muted, `DataList` uses divided rows, and `Button` is a
+subtle, intrinsic-width action. Use `variant="primary"` explicitly for the
+principal action, `variant="link"` for a textual action and `tone="danger"` for
+discreet danger. Reserve solid `variant="danger"` for irreversible confirmation.
+`ConfirmModal` defaults to primary, not danger; delete callers must explicitly
+declare danger. Loading preserves button geometry and accessible name.
+
+Design dark-first. Without a saved preference the document boot script, theme
+hook and server preference default to Dark; existing Light/System choices are
+preserved. Validate both themes, keyboard, zoom and touch. Ordinary controls
+must not require consumer CSS to get accessible targets or matching styles.
+Keep operational UI to labels, values, actions, statuses and actionable errors.
+Do not display internal or operational identifiers unless needed for an action,
+and never use UUID fallback names. Required warnings remain visible.
+
+Settings extensions declare `category: { id, title }` on sections. The framework
+renders category navigation and stores selection in its route (`category`),
+using intentional replace-history navigation. Sections without a category stay
+in General. Built-ins use the same `SettingsFieldRow` composition as extensions;
+rows support `labelFor`, `feedback`, inline content, and typed actions with icon,
+pending, disabled reason, optional confirmation and asynchronous callbacks.
+`SettingsSectionContent` also supports accessible collapsible sections with
+actions outside the disclosure trigger. Do not recreate row layouts locally.
 
 `DataListRow` places `meta` beside the content by default. Use
 `metaPlacement="below"` for metadata below the description within the main
@@ -108,10 +132,10 @@ Route views can contribute screen-owned title-bar actions from a child component
 function ComposeView() {
   const [name, setName] = useState("");
   useHeaderActions({
-    primary: <Button disabled={!name.trim()} onClick={() => void save(name)}>Save</Button>,
+    primary: <Button variant="primary" disabled={!name.trim()} onClick={() => void save(name)}>Save</Button>,
     overflow: [{ id: "clear", label: "Clear", onAction: () => setName("") }],
   });
-  return <Page><TextField label="Name" value={name} onChange={(event) => setName(event.currentTarget.value)} /></Page>;
+  return <Page layout="form"><TextField label="Name" value={name} onChange={(event) => setName(event.currentTarget.value)} /></Page>;
 }
 ```
 

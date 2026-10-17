@@ -4,6 +4,7 @@ import { appJson } from "../api-client";
 import { Badge, Button, CheckboxField, ErrorState, FormSection, LoadingState, SelectField } from "../components";
 import { useLogLevel } from "../log-level";
 import { isThemePreference, useTheme } from "../theme";
+import { SettingsFieldRow } from "./settings-section";
 
 function isLogLevelName(value: string): value is LogLevelName {
   return VALID_LOG_LEVELS.some((level) => level === value);
@@ -13,13 +14,37 @@ export interface AccountSectionProps {
   config: WebAppConfigResponse;
   refresh: () => Promise<void>;
   setError: (error: string | undefined) => void;
+  category: string;
 }
 
-export function AccountSection({ config, refresh, setError }: AccountSectionProps) {
+export function AccountSection({ config, refresh, setError, category }: AccountSectionProps) {
   const { preference, setPreference, loading, error, retry } = useTheme();
   const logLevel = useLogLevel();
   const [logLevelSaving, setLogLevelSaving] = useState(false);
   const [serverLogsSaving, setServerLogsSaving] = useState(false);
+  const [themeSaving, setThemeSaving] = useState(false);
+  const [themeSaved, setThemeSaved] = useState(false);
+
+  async function updateTheme(value: string) {
+    if (!isThemePreference(value)) {
+      setError("Invalid theme");
+      return;
+    }
+    const previous = preference;
+    setPreference(value);
+    setThemeSaving(true);
+    setThemeSaved(false);
+    setError(undefined);
+    try {
+      await appJson("/api/preferences/theme", { method: "PUT", body: JSON.stringify({ theme: value }) });
+      setThemeSaved(true);
+    } catch (error) {
+      setPreference(previous);
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setThemeSaving(false);
+    }
+  }
 
   async function updateLogLevel(value: string) {
     if (!isLogLevelName(value)) {
@@ -56,25 +81,18 @@ export function AccountSection({ config, refresh, setError }: AccountSectionProp
 
   return (
     <>
-      {config.currentUser ? (
+      {category === "account" && config.currentUser ? (
         <FormSection title="Account">
           <p>Signed in as <strong>{config.currentUser.username}</strong> <Badge variant={config.currentUser.isAdmin ? "success" : "disabled"}>{config.currentUser.role}</Badge></p>
         </FormSection>
       ) : null}
-      <FormSection title="Display Settings">
-        <SelectField label="Theme" value={preference} onChange={(event) => {
-          const next = event.currentTarget.value;
-          if (!isThemePreference(next)) {
-            setError(`Unknown theme preference: ${next}`);
-            return;
-          }
-          setPreference(next);
-          void appJson("/api/preferences/theme", { method: "PUT", body: JSON.stringify({ theme: next }) }).catch((err) => setError(String(err)));
-        }}>
+      {category === "general" ? <FormSection title="Appearance">
+        <SelectField label="Theme" value={preference} disabled={themeSaving} onChange={(event) => void updateTheme(event.currentTarget.value)}>
           <option value="system">System</option>
           <option value="light">Light</option>
           <option value="dark">Dark</option>
         </SelectField>
+        {themeSaving || themeSaved ? <small role="status">{themeSaving ? "Saving…" : "Saved"}</small> : null}
         {loading ? <LoadingState title="Loading saved theme" /> : null}
         {error ? (
           <ErrorState
@@ -82,10 +100,10 @@ export function AccountSection({ config, refresh, setError }: AccountSectionProp
             action={<Button type="button" loading={loading} onClick={() => void retry()}>Retry</Button>}
           />
         ) : null}
-      </FormSection>
+      </FormSection> : null}
 
-      {config.currentUser?.isAdmin ? (
-        <FormSection title="Developer Settings">
+      {category === "administration" && config.currentUser?.isAdmin ? (
+        <FormSection title="Logging">
           {logLevel.error ? (
             <ErrorState
               description={logLevel.error.message}
@@ -103,14 +121,13 @@ export function AccountSection({ config, refresh, setError }: AccountSectionProp
               {VALID_LOG_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}
             </SelectField>
           ) : null}
-          <br />
-          <CheckboxField
-            label="Store server logs in a temporary file"
-            hint="Uses a private OS temp file; removed when disabled or on clean shutdown. No size limit; it can fill disk space. Avoid logging secrets."
+          <SettingsFieldRow title="Server logs" content={<CheckboxField
+            label="Capture logs"
+            hint="Unbounded temporary file; may fill disk. Avoid secrets."
             checked={config.inMemoryLogs.enabled}
             disabled={serverLogsSaving}
             onChange={(event) => void updateServerLogs(event.currentTarget.checked)}
-          />
+          />} />
         </FormSection>
       ) : null}
     </>

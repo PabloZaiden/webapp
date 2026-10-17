@@ -3,7 +3,9 @@ import { useCallback, useState } from "react";
 import type { ApiKeySummary, CreatedApiKeyResponse, WebAppConfigResponse } from "../../contracts";
 import { appJson } from "../api-client";
 import { useAsyncOperation } from "../async-operation";
-import { Button, ConfirmDialog, EmptyState } from "../components";
+import { ActionMenu, Button, CodeValue, ConfirmDialog, EmptyState } from "../components";
+import { DateTimeValue } from "../date-time";
+import { SettingsFieldRow } from "./settings-section";
 import { log } from "../logger";
 import { useLiveQuery } from "../realtime/useRealtime";
 import { ResourceState } from "./resource-state";
@@ -14,7 +16,8 @@ export interface SecuritySectionProps {
   setError: (error: string | undefined) => void;
 }
 
-export function SecuritySection({ config, refresh, setError }: SecuritySectionProps) {
+export function SecuritySection({ config, refresh }: SecuritySectionProps) {
+  const [error, setError] = useState<string>();
   const [createdToken, setCreatedToken] = useState<string>();
   const [apiKeyToDelete, setApiKeyToDelete] = useState<ApiKeySummary>();
   const [confirmDeletePasskey, setConfirmDeletePasskey] = useState(false);
@@ -110,54 +113,37 @@ export function SecuritySection({ config, refresh, setError }: SecuritySectionPr
 
   return (
     <>
-      <div className="wapp-settings-row">
-        <div>
-          <strong>Passkey</strong>
-          <p>{config.passkeyAuth.passkeyConfigured ? "Your passkey protects this account." : "No passkey configured yet."}</p>
-        </div>
+      <SettingsFieldRow title="Passkey" description={config.passkeyAuth.passkeyConfigured ? "Configured" : "Not configured"} actions={
         <div className="wapp-row-actions">
           {config.passkeyAuth.passkeyConfigured ? (
             <>
               <Button type="button" onClick={() => void logout()}>Logout</Button>
-              <Button type="button" variant="danger" onClick={() => setConfirmDeletePasskey(true)}>Delete passkey</Button>
+              <ActionMenu ariaLabel="Passkey actions" items={[{ label: "Delete passkey", destructive: true, onAction: () => setConfirmDeletePasskey(true) }]} />
             </>
           ) : (
             config.currentUser?.isOwner ? <Button type="button" variant="primary" onClick={() => void setupPasskey()}>Set up passkey</Button> : null
           )}
-        </div>
-      </div>
-      <br />
-      <br />
-      <br />
+        </div>} />
       {config.apiKeys.enabled ? (
         <>
-          <div className="wapp-settings-row">
-            <div className="wapp-settings-row-main">
-              <strong>API keys</strong>
-              <p>Create bearer tokens for scripts and agents.</p>
-            </div>
-            <div className="wapp-row-actions"><Button type="button" loading={createKeyPending} onClick={() => void createKey()}>Create API key</Button></div>
-          </div>
-          <br />
-          <br />
+          <SettingsFieldRow title="API keys" actions={<Button type="button" loading={createKeyPending} onClick={() => void createKey()}>Create key</Button>} />
           <div className="wapp-settings-row-content">
-            {createdToken ? <code className="wapp-token">{createdToken}</code> : null}
+            {createdToken ? <CodeValue label="New API key" value={createdToken} /> : null}
             <ResourceState loading={apiKeysLoading} error={apiKeysLoadError} hasData={apiKeys !== undefined} refresh={refreshApiKeys} />
             {apiKeys?.length ? (
               <div className="wapp-list">
                 {apiKeys.map((key) => (
                   <div className="wapp-list-row" key={key.id}>
-                    <span><strong>{key.name}</strong><small>{key.scopes.join(", ")} · {key.createdAt}</small></span>
-                    <Button type="button" variant="danger" onClick={() => setApiKeyToDelete(key)}>Delete</Button>
+                    <span><strong>{key.name}</strong><small>{key.scopes.join(", ")} · <DateTimeValue value={key.createdAt} /></small></span>
+                    <ActionMenu ariaLabel={`Actions for ${key.name}`} items={[{ label: "Delete key", destructive: true, onAction: () => setApiKeyToDelete(key) }]} />
                   </div>
                 ))}
               </div>
             ) : apiKeys !== undefined && !apiKeysLoadError ? <EmptyState title="No API keys" /> : null}
           </div>
-          <br />
-          <br />
         </>
       ) : null}
+      {error ? <p className="wapp-error" role="alert">{error}</p> : null}
       <ConfirmDialog
         open={Boolean(apiKeyToDelete)}
         title="Delete API key?"

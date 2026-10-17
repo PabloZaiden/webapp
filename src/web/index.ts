@@ -1,5 +1,8 @@
 export * from "./WebAppRoot";
 export * from "./components";
+export { DateTimeValue } from "./date-time";
+export { SettingsFieldRow, SettingsSectionContent } from "./settings/settings-section";
+export type { SettingsAction, SettingsRow, SettingsSection } from "./root-types";
 export { useHeaderActions } from "./header-actions";
 export type { HeaderActionSet } from "./root-types";
 export * from "./render";

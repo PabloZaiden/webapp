@@ -10,6 +10,7 @@ import type {
 } from "./server-types";
 import { findPackageRoot, resolveReactDomClient } from "../package-resolution";
 import { MOBILE_MEDIA_QUERY, MOBILE_STATE_ATTRIBUTE } from "../web/mobile";
+import { DEFAULT_THEME_PREFERENCE } from "../contracts";
 import { notFound, withSecurityHeaders } from "./responses";
 import type { RuntimeConfig } from "./runtime-config";
 import {
@@ -253,7 +254,7 @@ function themeBootScript(themeColor: string | undefined): string {
   } catch {
     stored = null;
   }
-  const preference = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+  const preference = stored === "light" || stored === "dark" || stored === "system" ? stored : ${JSON.stringify(DEFAULT_THEME_PREFERENCE)};
   const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
   const resolved = preference === "system" ? (systemDark ? "dark" : "light") : preference;
   root.classList.toggle("dark", resolved === "dark");
@@ -397,7 +398,7 @@ function generatedHtml(
 <html lang="${escapeAttribute(web.lang ?? "en")}">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 ${themeMetaTag}\
 ${manifestTags}    <title>${title}</title>
     <script>${mobileStateBootScript()}</script>

@@ -1,14 +1,20 @@
 import type { ReactNode } from "react";
 import type { ActionMenuItem, SidebarAction, SidebarBuildContext, SidebarNode, SidebarNodeSnapshot, SidebarTab, WebAppRoute } from "./sidebar/types";
+import type { ButtonVariant } from "./components";
 
 export type SettingsScope = "user" | "admin" | "owner";
 
 export type SettingsAction = {
   id: string;
   label: string;
-  variant?: "default" | "primary" | "danger" | "ghost";
+  variant?: ButtonVariant;
+  tone?: "neutral" | "danger";
+  icon?: ReactNode;
+  pending?: boolean;
   disabled?: boolean;
-  onAction: () => void;
+  disabledReason?: string;
+  confirmation?: { title: string; message: string; confirmLabel?: string; danger?: boolean };
+  onAction: () => void | Promise<void>;
 };
 
 export type SettingsRowContentPlacement = "below" | "inline";
@@ -20,6 +26,8 @@ export type SettingsRow = {
   scope?: SettingsScope;
   content?: ReactNode;
   contentPlacement?: SettingsRowContentPlacement;
+  labelFor?: string;
+  feedback?: ReactNode;
   actions?: ReactNode | SettingsAction[];
   danger?: boolean;
 };
@@ -29,6 +37,10 @@ export type SettingsSection = {
   title: string;
   description?: string;
   scope?: SettingsScope;
+  category?: { id: string; title: string };
+  collapsible?: boolean;
+  defaultExpanded?: boolean;
+  actions?: ReactNode;
   rows?: SettingsRow[];
   render?: () => ReactNode;
 };

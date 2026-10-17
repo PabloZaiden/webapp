@@ -4,6 +4,7 @@ import type { DeviceVerificationDetails, PasskeyAuthStatusResponse, UserSetupDet
 import { appJson, appPagePath } from "./api-client";
 import { useAsyncOperation } from "./async-operation";
 import { Badge, Button, Dialog, Panel, TextField } from "./components";
+import { DateTimeValue } from "./date-time";
 
 export function PasskeyAuthScreen({ status, apiKeysEnabled, refresh }: { status: PasskeyAuthStatusResponse; apiKeysEnabled: boolean; refresh: () => Promise<void> }) {
   const [error, setError] = useState<string>();
@@ -23,11 +24,6 @@ export function PasskeyAuthScreen({ status, apiKeysEnabled, refresh }: { status:
       setError(undefined);
     }
   }, [canAuthenticateWithApiKey]);
-  const description = status.bootstrapRequired
-    ? "Choose the username for the owner"
-    : status.ownerPasskeySetupRequired
-      ? "The owner passkey was removed. Set it up again to continue."
-      : "Authenticate to continue.";
 
   async function register(endpoint: "bootstrap" | "owner-setup") {
     setBusy(true);
@@ -114,12 +110,10 @@ export function PasskeyAuthScreen({ status, apiKeysEnabled, refresh }: { status:
           </>
         )}
       >
-        <p>{description}</p>
         {error ? <p className="wapp-error">{error}</p> : null}
-        {status.bootstrapRequired ? <><br /><TextField label="Username" value={username} onChange={(event) => setUsername(event.currentTarget.value)} placeholder="owner" /></> : null}
+        {status.bootstrapRequired ? <TextField label="Username" value={username} onChange={(event) => setUsername(event.currentTarget.value)} placeholder="owner" /> : null}
         {canAuthenticateWithApiKey && apiKeyMode ? (
           <>
-            <br />
             <form id="wapp-api-key-auth-form" onSubmit={(event) => void loginWithApiKey(event)}>
               <TextField
                 label="API key"
@@ -281,7 +275,7 @@ export function DeviceVerificationScreen() {
 
   return (
     <main className="wapp-device-screen">
-      <Panel title="Authorize device" description="Enter the code shown by the CLI or external device.">
+      <Panel title="Authorize device">
         <div className="wapp-device-stack">
           <TextField
             label="User code"
@@ -307,7 +301,7 @@ export function DeviceVerificationScreen() {
               <div><strong>Client</strong><span>{details.clientId}</span></div>
               <div><strong>Scope</strong><span>{details.scope}</span></div>
               <div><strong>Status</strong><Badge variant={details.status === "approved" ? "success" : details.status === "denied" ? "error" : details.status === "consumed" ? "disabled" : "warning"}>{details.status}</Badge></div>
-              <div><strong>Expires</strong><span>{details.expiresAt}</span></div>
+              <div><strong>Expires</strong><span><DateTimeValue value={details.expiresAt} /></span></div>
             </div>
           ) : null}
           <div className="wapp-row-actions">

@@ -2,7 +2,8 @@ import { useCallback, useState } from "react";
 import type { CreatedUserResponse, WebAppConfigResponse, WebAppUserRole, WebAppUserSummary } from "../../contracts";
 import { appJson } from "../api-client";
 import { useAsyncOperation } from "../async-operation";
-import { Badge, Button, ConfirmDialog, EmptyState, FormSection, SelectField, TextField } from "../components";
+import { ActionMenu, Badge, Button, CodeValue, ConfirmDialog, EmptyState, FormGroup, FormSection, SelectField, TextField } from "../components";
+import { DateTimeValue } from "../date-time";
 import { useLiveQuery } from "../realtime/useRealtime";
 import { ResourceState } from "./resource-state";
 
@@ -106,23 +107,17 @@ export function UserManagement({ config }: { config: WebAppConfigResponse }) {
     return null;
   }
   return (
-    <FormSection title="User management" description="Create users, reset passkeys, and manage admin access.">
+    <FormSection title="Users">
       {error ? <p className="wapp-error">{error}</p> : null}
-      <br />
-      <div className="wapp-settings-row stacked">
-        <div>
+      <FormGroup title="Add user">
           <TextField label="Username" value={username} disabled={setupLinkPending} onChange={(event) => setUsername(event.currentTarget.value)} placeholder="new-user" />
-          <br />
           <SelectField label="Role" value={role} disabled={setupLinkPending} onChange={(event) => setRole(event.currentTarget.value as WebAppUserRole)}>
             <option value="user">User</option>
             <option value="admin">Admin</option>
           </SelectField>
-        </div>
-        <br />
         <div className="wapp-row-actions"><Button type="button" variant="primary" loading={setupLinkPending} disabled={!username.trim()} onClick={() => void createUser()}>Create setup link</Button></div>
-        {setupLink ? <code className="wapp-token">{setupLink}</code> : null}
-      </div>
-      <br />
+        {setupLink ? <CodeValue label="Setup link" value={setupLink} /> : null}
+      </FormGroup>
       <ResourceState loading={usersLoading} error={usersLoadError} hasData={users !== undefined} refresh={refreshUsers} />
       {users?.length ? (
         <div className="wapp-list">
@@ -130,7 +125,7 @@ export function UserManagement({ config }: { config: WebAppConfigResponse }) {
             <div className="wapp-list-row" key={user.id}>
               <span>
                 <strong>{user.username}</strong>
-                <small>{user.role} · passkey {user.passkeyConfigured ? "configured" : "pending"} · created {user.createdAt}</small>
+                <small>{user.passkeyConfigured ? "Passkey configured" : "Setup pending"} · <DateTimeValue value={user.createdAt} /></small>
               </span>
               <div className="wapp-row-actions">
                 {user.role !== "owner" ? (
@@ -139,8 +134,10 @@ export function UserManagement({ config }: { config: WebAppConfigResponse }) {
                     <option value="admin">Admin</option>
                   </select>
                 ) : <Badge variant="success">Owner</Badge>}
-                {user.role !== "owner" ? <Button type="button" loading={setupLinkPending} onClick={() => void resetUser(user)}>Reset</Button> : null}
-                <Button type="button" variant="danger" disabled={user.role === "owner"} onClick={() => setUserToDelete(user)}>Delete</Button>
+                {user.role !== "owner" ? <ActionMenu ariaLabel={`Actions for ${user.username}`} disabled={setupLinkPending} items={[
+                  { label: "Reset passkey", onAction: () => void resetUser(user) },
+                  { label: "Delete user", destructive: true, onAction: () => setUserToDelete(user) },
+                ]} /> : null}
               </div>
             </div>
           ))}

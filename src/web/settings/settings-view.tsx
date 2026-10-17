@@ -1,93 +1,73 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import type { WebAppConfigResponse } from "../../contracts";
-import { Button, DangerZone, FormSection } from "../components";
-import type { SettingsRow, SettingsScope, SettingsSection } from "../root-types";
+import { FormSection, SelectField } from "../components";
+import type { SettingsScope, SettingsSection } from "../root-types";
+import type { WebAppRoute } from "../sidebar/types";
 import { AccountSection } from "./account-section";
 import { SecuritySection } from "./security-section";
 import { SessionsSection } from "./sessions-section";
 import { ShutdownSection } from "./shutdown-section";
 import { UserManagement } from "./user-management";
+import { SettingsSectionContent } from "./settings-section";
 
 export type { SettingsAction, SettingsRow, SettingsSection } from "../root-types";
 
-function renderSettingsActions(actions: SettingsRow["actions"]): ReactNode {
-  if (!actions) {
-    return null;
-  }
-  if (!Array.isArray(actions)) {
-    return actions;
-  }
-  return actions.map((action) => (
-    <Button key={action.id} type="button" variant={action.variant} disabled={action.disabled} onClick={action.onAction}>{action.label}</Button>
-  ));
-}
-
-function StructuredSettingsSection({ section }: { section: SettingsSection }) {
-  if (!section.rows?.length && section.render) {
-    return <section className="wapp-custom-settings-section">{section.render()}</section>;
-  }
-
-  return (
-    <FormSection title={section.title} description={section.description}>
-      {section.rows?.map((row) => {
-        const actions = renderSettingsActions(row.actions);
-        if (row.danger) {
-          return <DangerZone key={row.id} title={row.title} description={row.description} actions={actions} />;
-        }
-        const hasInlineContent = Boolean(row.content && row.contentPlacement === "inline");
-        return (
-          <div className={`wapp-settings-row${hasInlineContent ? " inline-content" : ""}`} key={row.id}>
-            <div className="wapp-settings-row-main">
-              <strong>{row.title}</strong>
-              {row.description ? <p>{row.description}</p> : null}
-              {row.content && !hasInlineContent ? <div className="wapp-settings-row-content">{row.content}</div> : null}
-            </div>
-            {hasInlineContent ? <div className="wapp-settings-row-content inline">{row.content}</div> : null}
-            {actions ? <div className="wapp-row-actions">{actions}</div> : null}
-          </div>
-        );
-      })}
-      {section.render?.()}
-    </FormSection>
-  );
-}
-
 function isScopeVisible(scope: SettingsScope | undefined, config: WebAppConfigResponse): boolean {
-  if (!scope || scope === "user") {
-    return Boolean(config.currentUser);
-  }
-  if (scope === "admin") {
-    return Boolean(config.currentUser?.isAdmin);
-  }
-  return Boolean(config.currentUser?.isOwner);
+  if (!scope || scope === "user") return Boolean(config.currentUser);
+  return scope === "admin" ? Boolean(config.currentUser?.isAdmin) : Boolean(config.currentUser?.isOwner);
 }
 
 export interface SettingsViewProps {
   config: WebAppConfigResponse;
   refresh: () => Promise<void>;
   customSections: SettingsSection[];
+  route: WebAppRoute;
+  navigate: (route: WebAppRoute) => void;
 }
 
-export function SettingsView({ config, refresh, customSections }: SettingsViewProps) {
+export function SettingsView({ config, refresh, customSections, route, navigate }: SettingsViewProps) {
   const [error, setError] = useState<string>();
-
+  const visibleSections = customSections.filter((section) => isScopeVisible(section.scope, config)).map((section) => ({
+    ...section,
+    rows: section.rows?.filter((row) => isScopeVisible(row.scope, config)),
+  }));
+  const categories = new Map<string, string>([["general", "General"], ["account", "Account & access"]]);
+  for (const section of visibleSections) {
+    if (section.category) categories.set(section.category.id, section.category.title);
+  }
+  if (config.currentUser?.isAdmin) {
+    categories.set("administration", "Administration");
+    categories.set("maintenance", "Maintenance");
+  }
+  categories.set("about", "About");
+  const requested = route["category"] ?? "general";
+  const selected = categories.has(requested) ? requested : "general";
+  function select(category: string) {
+    setError(undefined);
+    navigate({ view: "settings", category });
+  }
   return (
     <div className="wapp-settings">
-      {error ? <p className="wapp-error">{error}</p> : null}
-      <AccountSection config={config} refresh={refresh} setError={setError} />
-      <FormSection title="Security">
-        <SecuritySection config={config} refresh={refresh} setError={setError} />
-        <SessionsSection config={config} setError={setError} />
-      </FormSection>
-      <UserManagement config={config} />
-      {customSections.filter((section) => isScopeVisible(section.scope, config)).map((section) => ({
-        ...section,
-        rows: section.rows?.filter((row) => isScopeVisible(row.scope, config)),
-      })).map((section) => <StructuredSettingsSection key={section.id} section={section} />)}
-      <ShutdownSection config={config} setError={setError} />
-      <FormSection title="About">
-        <p>{config.appName} {config.version}</p>
-      </FormSection>
+      <nav className="wapp-settings-nav" aria-label="Settings categories">
+        {Array.from(categories, ([id, title]) => <button key={id} type="button" aria-current={selected === id ? "page" : undefined} onClick={() => select(id)}>{title}</button>)}
+      </nav>
+      <div className="wapp-settings-category-select">
+        <SelectField label="Category" value={selected} onChange={(event) => select(event.currentTarget.value)}>
+          {Array.from(categories, ([id, title]) => <option key={id} value={id}>{title}</option>)}
+        </SelectField>
+      </div>
+      <div className="wapp-settings-content" key={selected}>
+        {error ? <p className="wapp-error" role="alert">{error}</p> : null}
+        {["general", "account", "administration"].includes(selected) ? <AccountSection config={config} refresh={refresh} setError={setError} category={selected} /> : null}
+        {selected === "account" ? <FormSection title="Security">
+          <SecuritySection config={config} refresh={refresh} setError={setError} />
+          <SessionsSection config={config} setError={setError} />
+        </FormSection> : null}
+        {selected === "administration" ? <UserManagement config={config} /> : null}
+        {visibleSections.filter((section) => (section.category?.id ?? "general") === selected).map((section) => <SettingsSectionContent key={section.id} section={section} />)}
+        {selected === "maintenance" ? <ShutdownSection config={config} setError={setError} /> : null}
+        {selected === "about" ? <FormSection title="Version"><span>{config.appName} {config.version}</span></FormSection> : null}
+      </div>
     </div>
   );
 }

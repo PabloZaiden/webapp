@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { ThemePreference } from "../contracts";
+import { DEFAULT_THEME_PREFERENCE, type ThemePreference } from "../contracts";
 import { appJson } from "./api-client";
 import { useAsyncOperation } from "./async-operation";
 import { readStorage, warnStorageIssue, writeStorage } from "./storage";
@@ -35,21 +35,21 @@ type ThemeStorageDecode = {
 
 function decodeStoredPreference(value: string | null): ThemeStorageDecode {
   if (value === null) {
-    return { preference: "system", valid: true };
+    return { preference: DEFAULT_THEME_PREFERENCE, valid: true };
   }
   return isThemePreference(value)
     ? { preference: value, valid: true }
-    : { preference: "system", valid: false };
+    : { preference: DEFAULT_THEME_PREFERENCE, valid: false };
 }
 
 function readStoredPreference(): ThemePreference {
   if (typeof window === "undefined") {
-    return "system";
+    return DEFAULT_THEME_PREFERENCE;
   }
 
   const result = readStorage(THEME_STORAGE_KEY);
   if (!result.ok) {
-    return "system";
+    return DEFAULT_THEME_PREFERENCE;
   }
   const decoded = decodeStoredPreference(result.value);
   if (!decoded.valid) {
