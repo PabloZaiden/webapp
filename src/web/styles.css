@@ -1077,7 +1077,7 @@ textarea::placeholder {
 
 .wapp-panel-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 0.75rem;
@@ -1088,7 +1088,13 @@ textarea::placeholder {
 }
 
 .wapp-panel-actions {
+  display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  max-width: 100%;
 }
 
 .wapp-panel-header h2 {
@@ -3123,8 +3129,9 @@ select.wapp-input,
 
 :root[data-wapp-mobile] .wapp-panel-actions,
 :root[data-wapp-mobile] .wapp-entity-header-actions {
-  width: 100%;
-  justify-content: flex-start;
+  max-width: 100%;
+  margin-left: auto;
+  justify-content: flex-end;
 }
 
 :root[data-wapp-mobile] .wapp-data-list-row {

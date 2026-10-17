@@ -88,6 +88,8 @@ Short fields use intrinsic or bounded widths. `TextField` and `SelectField`
 support `fieldWidth="short" | "normal" | "full"`; use full width for URLs or
 other long values. `FormGroup layout="inline"` groups related short fields
 and actions, wrapping at available width.
+Panel and entity-header actions stay right-aligned and inline when they fit,
+including on mobile; action groups wrap to the right only when needed.
 
 Design dark-first. Without a saved preference the document boot script, theme
 hook and server preference default to Dark; existing Light/System choices are
