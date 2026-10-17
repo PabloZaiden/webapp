@@ -110,7 +110,7 @@ export function UserManagement({ config }: { config: WebAppConfigResponse }) {
     <FormSection title="Users">
       {error ? <p className="wapp-error">{error}</p> : null}
       <FormGroup title="Add user" layout="inline">
-          <TextField label="Username" value={username} disabled={setupLinkPending} onChange={(event) => setUsername(event.currentTarget.value)} placeholder="new-user" />
+          <TextField label="Username" fieldWidth="short" value={username} disabled={setupLinkPending} onChange={(event) => setUsername(event.currentTarget.value)} placeholder="new-user" />
           <SelectField label="Role" value={role} disabled={setupLinkPending} onChange={(event) => setRole(event.currentTarget.value as WebAppUserRole)}>
             <option value="user">User</option>
             <option value="admin">Admin</option>
