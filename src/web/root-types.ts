@@ -19,6 +19,8 @@ export type SettingsAction = {
 
 export type SettingsRowContentPlacement = "below" | "inline";
 
+export type SettingsCategory = { id: string; title: string };
+
 export type SettingsRow = {
   id: string;
   title: string;
@@ -37,7 +39,7 @@ export type SettingsSection = {
   title: string;
   description?: string;
   scope?: SettingsScope;
-  category?: { id: string; title: string };
+  category?: SettingsCategory;
   collapsible?: boolean;
   defaultExpanded?: boolean;
   actions?: ReactNode;

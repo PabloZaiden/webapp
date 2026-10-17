@@ -252,12 +252,12 @@ export function DataListRow({
   </div>;
 }
 
-export function Input({ className = "", ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={`wapp-input ${className}`.trim()} />;
+export function Input({ className = "", fieldWidth, ...props }: InputHTMLAttributes<HTMLInputElement> & { fieldWidth?: FieldWidth }) {
+  return <input {...props} className={`wapp-input ${fieldWidth ? `wapp-input-${fieldWidth}` : ""} ${className}`.trim()} />;
 }
 
-export function Select({ className = "", children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={`wapp-input ${className}`.trim()}>{children}</select>;
+export function Select({ className = "", fieldWidth, children, ...props }: SelectHTMLAttributes<HTMLSelectElement> & { fieldWidth?: FieldWidth }) {
+  return <select {...props} className={`wapp-input ${fieldWidth ? `wapp-input-${fieldWidth}` : ""} ${className}`.trim()}>{children}</select>;
 }
 
 export function TextField({ label, hint, error, id, fieldWidth = "normal", ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string; error?: string; fieldWidth?: FieldWidth }) {

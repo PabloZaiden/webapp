@@ -1955,6 +1955,8 @@ textarea::placeholder {
 }
 
 .wapp-settings {
+  flex: 1;
+  min-height: 0;
   height: 100%;
   overflow: auto;
   display: grid;
@@ -2268,15 +2270,18 @@ textarea::placeholder {
   max-width: 36rem;
 }
 
-.wapp-field-normal {
+.wapp-field-normal,
+.wapp-input.wapp-input-normal {
   max-width: 20rem;
 }
 
-.wapp-field-short {
+.wapp-field-short,
+.wapp-input.wapp-input-short {
   max-width: 12rem;
 }
 
-.wapp-field-full {
+.wapp-field-full,
+.wapp-input.wapp-input-full {
   max-width: 100%;
 }
 

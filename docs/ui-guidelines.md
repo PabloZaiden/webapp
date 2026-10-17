@@ -91,6 +91,13 @@ input/select itself; short and normal controls retain their compact limits.
 Settings panels and lists fill the remaining width beside category navigation;
 do not constrain an entire Settings section to a form-reading width.
 Keep `Page layout="form"` for explicitly bounded forms, not general lists.
+Use `SettingsLayout` inside `Page layout="full"` for entity settings with the
+same desktop category navigation and mobile selector as global Settings.
+Supply categories, the selected category and its change handler; the layout
+does not own routing, authentication, draft state or mounting policy. Keep
+draft-owning children mounted across category changes. Use `SettingsFieldRow`
+and `SettingsSectionContent` for contents; `Input` and `Select` accept
+`fieldWidth` when the row already supplies the label.
 `FormGroup layout="inline"` groups related short fields
 and actions, wrapping at available width.
 Panel and entity-header actions stay right-aligned and inline when they fit,

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { WebAppConfigResponse } from "../../contracts";
-import { FormSection, SelectField } from "../components";
+import { FormSection } from "../components";
 import type { SettingsScope, SettingsSection } from "../root-types";
 import type { WebAppRoute } from "../sidebar/types";
 import { AccountSection } from "./account-section";
@@ -9,6 +9,7 @@ import { SessionsSection } from "./sessions-section";
 import { ShutdownSection } from "./shutdown-section";
 import { UserManagement } from "./user-management";
 import { SettingsSectionContent } from "./settings-section";
+import { SettingsLayout } from "./settings-layout";
 
 export type { SettingsAction, SettingsRow, SettingsSection } from "../root-types";
 
@@ -47,16 +48,8 @@ export function SettingsView({ config, refresh, customSections, route, navigate 
     navigate({ view: "settings", category });
   }
   return (
-    <div className="wapp-settings">
-      <nav className="wapp-settings-nav" aria-label="Settings categories">
-        {Array.from(categories, ([id, title]) => <button key={id} type="button" aria-current={selected === id ? "page" : undefined} onClick={() => select(id)}>{title}</button>)}
-      </nav>
-      <div className="wapp-settings-category-select">
-        <SelectField label="Category" value={selected} onChange={(event) => select(event.currentTarget.value)}>
-          {Array.from(categories, ([id, title]) => <option key={id} value={id}>{title}</option>)}
-        </SelectField>
-      </div>
-      <div className="wapp-settings-content" key={selected}>
+    <SettingsLayout categories={Array.from(categories, ([id, title]) => ({ id, title }))} category={selected} onCategoryChange={select}>
+      <div key={selected}>
         {error ? <p className="wapp-error" role="alert">{error}</p> : null}
         {["general", "account", "administration"].includes(selected) ? <AccountSection config={config} refresh={refresh} setError={setError} category={selected} /> : null}
         {selected === "account" ? <FormSection title="Security">
@@ -68,6 +61,6 @@ export function SettingsView({ config, refresh, customSections, route, navigate 
         {selected === "maintenance" ? <ShutdownSection config={config} setError={setError} /> : null}
         {selected === "about" ? <FormSection title="Version"><span>{config.appName} {config.version}</span></FormSection> : null}
       </div>
-    </div>
+    </SettingsLayout>
   );
 }
