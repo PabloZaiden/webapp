@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 const fixtureSource = `
 import { createWebAppServer, memoryWebAppStore } from "@pablozaiden/webapp/server";
 import { join } from "node:path";
+import { rename } from "node:fs/promises";
 const directory = process.env["SHUTDOWN_FIXTURE_DIR"];
 if (!directory) throw new Error("Missing shutdown fixture directory");
 const urls = [];
@@ -43,7 +44,8 @@ for (const id of ["first", "second"]) {
   const server = await app.start();
   urls.push(server.url.toString());
 }
-await Bun.write(join(directory, "ready.json"), JSON.stringify(urls));
+await Bun.write(join(directory, "ready.tmp"), JSON.stringify(urls));
+await rename(join(directory, "ready.tmp"), join(directory, "ready.json"));
 `;
 
 async function waitForReady(path: string, child: ReturnType<typeof Bun.spawn>): Promise<string[]> {
