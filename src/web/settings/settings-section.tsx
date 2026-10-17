@@ -48,16 +48,14 @@ export function SettingsFieldRow({ title, description, content, contentPlacement
         {labelFor ? <label htmlFor={labelFor}>{title}</label> : <strong>{title}</strong>}
         {description ? <p>{description}</p> : null}
       </div>
-      {content || actions ? <div className="wapp-settings-field-control">
+      {content || actions || feedback ? <div className="wapp-settings-field-control">
         {content}
+        {feedback ? <div className="wapp-settings-feedback">{feedback}</div> : null}
         {actions ? <div className="wapp-row-actions">
           {Array.isArray(actions) ? actions.map((action: SettingsAction) => <Action key={action.id} action={action} onError={setError} />) : actions}
         </div> : null}
       </div> : null}
-      {error || feedback ? <div className="wapp-settings-feedback">
-        {error ? <p className="wapp-error" role="alert">{error}</p> : null}
-        {feedback}
-      </div> : null}
+      {error ? <div className="wapp-settings-feedback"><p className="wapp-error" role="alert">{error}</p></div> : null}
     </div>
   );
 }

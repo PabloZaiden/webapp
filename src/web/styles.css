@@ -2034,6 +2034,12 @@ textarea::placeholder {
   margin-left: auto;
 }
 
+.wapp-settings-field-control > .wapp-input:not([type="checkbox"]) {
+  flex: 1 1 8rem;
+  width: auto;
+  min-width: 0;
+}
+
 .wapp-settings-feedback {
   grid-column: 1 / -1;
   min-width: 0;
