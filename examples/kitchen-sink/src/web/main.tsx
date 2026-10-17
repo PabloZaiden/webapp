@@ -1,4 +1,4 @@
-import { Badge, Button, EmptyState, ErrorState, Page, Panel, TextField, WebAppRoot, appFetch, appPath, appRequest, appWebSocketUrl, renderWebApp, replaceHashRoute, useCallback, useEffect, useHeaderActions, useLiveQuery, useMemo, useState, useToast, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
+import { Badge, Button, DateTimeValue, EmptyState, ErrorState, Page, Panel, TextField, WebAppRoot, appFetch, appPath, appRequest, appWebSocketUrl, renderWebApp, replaceHashRoute, useCallback, useEffect, useHeaderActions, useLiveQuery, useMemo, useState, useToast, type ActionMenuItem, type SidebarNode, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
 import favicon from "../favicon.svg";
@@ -25,7 +25,7 @@ function Home({ projects }: { projects: Project[] }) {
       <Panel title="Projects">
         {projects.length ? projects.map((project) => (
           <div className="sink-row" key={project.id}>
-            <span><strong>{project.name}</strong><small>{project.updatedAt}</small></span>
+            <span><strong>{project.name}</strong><small><DateTimeValue value={project.updatedAt} /></small></span>
             <Badge variant={project.status === "failed" ? "error" : project.status === "running" ? "info" : "default"}>{project.status}</Badge>
           </div>
         )) : <EmptyState title="No projects" />}
@@ -83,7 +83,7 @@ function ProjectView({ route, projects }: { route: WebAppRoute; projects: Projec
     <Page>
       <Panel title={project.name}>
         <p>Status: <Badge variant={project.status === "running" ? "info" : "default"}>{project.status}</Badge></p>
-        <p className="sink-muted">Updated {project.updatedAt}</p>
+        <p className="sink-muted">Updated <DateTimeValue value={project.updatedAt} /></p>
       </Panel>
     </Page>
   );
@@ -150,7 +150,7 @@ function KitchenSinkApp() {
         type: "item",
         id: project.id,
         title: project.name,
-        subtitle: project.updatedAt,
+        subtitle: new Date(project.updatedAt).toLocaleString(),
         route: { view: "project", projectId: project.id },
         pinnable: true,
         badge: project.status,
