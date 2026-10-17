@@ -103,3 +103,4 @@ jobs:
           --isolate
           tests/serve-lifecycle.test.ts
           tests/private-state.test.ts
+          tests/process-shutdown.test.ts

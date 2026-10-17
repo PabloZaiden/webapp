@@ -71,6 +71,12 @@ returning. If the port is already occupied by an unrecognized process, the
 command fails without stopping it. `serve down` is idempotent and removes
 stale PID metadata after the managed process has stopped.
 
+Servers started with `createWebAppServer` await their lifecycle cleanup on
+`SIGINT`/`SIGTERM` on macOS and Linux, including normal `serve down` termination.
+Use the framework lifecycle hooks for owned workers and subprocesses. The
+authenticated server shutdown action also awaits cleanup; forced OS process-tree
+termination cannot do so. See [server lifecycle hooks](server.md#server-lifecycle-hooks).
+
 The detached lifecycle supports Linux, macOS, and Windows. On Windows it uses
 the built-in `powershell.exe` process APIs to identify listeners and command
 lines, then `taskkill.exe` to terminate the verified process tree. Missing
