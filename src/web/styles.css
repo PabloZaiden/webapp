@@ -559,7 +559,7 @@ textarea::placeholder {
   background: transparent;
   color: var(--wapp-text);
   cursor: pointer;
-  padding: 0.375rem 0.25rem;
+  padding: 0.375rem;
   text-align: left;
 }
 
@@ -1230,7 +1230,7 @@ textarea::placeholder {
   border-radius: 0.5rem;
   background: transparent;
   color: var(--wapp-text);
-  padding: 0.75rem 0.25rem;
+  padding: 0.75rem 0.375rem;
   text-align: left;
 }
 
