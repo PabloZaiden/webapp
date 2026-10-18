@@ -166,9 +166,10 @@ For entity actions, prefer the framework title bar: define one `ActionMenuItem[]
 Route views contribute title-bar actions with `useHeaderActions({ primary, overflow })`.
 `primary` is a `HeaderPrimaryAction[]`: label, optional icon, disabled/loading
 state and either `onAction` or a native `form` ID. The framework displays these
-as subtle buttons while they fit within half the header; otherwise they appear
-first in the existing menu, without duplicates. Fit responds to actual header
-and action widths, not a separate mobile breakpoint. Native form actions retain
+as subtle buttons while they fit within half the header after allowing room
+for notifications; otherwise they appear first in the existing menu, without
+duplicates. Fit responds to actual header, action and notification widths,
+not a separate mobile breakpoint. Native form actions retain
 validation, submitter semantics and Enter submission from the menu.
 `overflow` is an `ActionMenuItem[]`, appended to configured and sidebar actions.
 Callbacks and loading state remain live without re-registering the screen.

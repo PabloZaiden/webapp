@@ -75,7 +75,7 @@ the application being built; they are not expected to exist beside this skill.
 - Do not reimplement framework dialogs/modals. Framework dialogs handle Enter as confirm/primary action and Escape as cancel/close.
 - Mark destructive menu items with `destructive: true`; delete-labelled actions are treated defensively, rendered red, and ordered last by the framework.
 - Do not add app-local shell/header action menus for active entities. If the action belongs to a task/chat/agent/session/workspace/server sidebar entity, put it on that node's `actions`.
-- Framework header actions and icon/sidebar buttons must remain visible and non-deforming; let titles/subtitles truncate instead of clipping actions.
+- Use semantic header primary actions so the framework can move them into the existing menu when actions and notifications compete for title space; never duplicate or clip actions or deform icon/sidebar buttons.
 - For user-owned live updates, prefer `ctx.userRealtime.publishEntityChanged(resource, id)` / `publishChanged(resource)` and `useLiveQuery` for initial loading plus live refresh, or `useRealtimeRefresh({ resources, refresh })` for an existing loader. Use global `ctx.realtime` only for public/global-admin events or server-validated non-user scopes.
 - Use app-owned websocket upgrade handlers only for raw transports such as terminals, VNC or port-forward proxies; keep normal app state on framework realtime.
 - Prefer `Page`, `Panel`, `DataList`, `DataListRow`, `DangerZone`, `LoadingState`, `ErrorState`, `FormGroup`, `FormActions`, and `CodeValue` for main content before custom CSS. Use `EntityHeader` only when the content needs an entity-specific heading that is not already provided by the fixed framework title bar.
