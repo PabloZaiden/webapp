@@ -238,7 +238,7 @@ export function DataListRow({
     <>
       <span className="wapp-data-list-row-main">
         {meta && metaPlacement === "inline" ? <span className="wapp-data-list-row-heading"><strong>{title}</strong><small>{meta}</small></span> : <strong>{title}</strong>}
-        {description ? <small className={descriptionClassName}>{description}</small> : null}
+        {description ? <small className={`wapp-data-list-row-description ${descriptionClassName}`.trim()}>{description}</small> : null}
         {meta && metaPlacement === "below" ? <small className="wapp-data-list-row-meta-below">{meta}</small> : null}
       </span>
       {meta && metaPlacement === "side" ? <span className="wapp-data-list-row-meta">{meta}</span> : null}
