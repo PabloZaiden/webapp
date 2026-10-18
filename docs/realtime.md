@@ -4,6 +4,9 @@ Application hooks share **one authenticated WebSocket per JavaScript runtime**.
 Mounting or changing an interest sends dynamic subscription messages, not a
 new connection. Raw terminal/preview transports are separate application protocols.
 An open connection without subscriptions receives no application events.
+Hooks wait for `WebAppRoot` to identify the authenticated user before opening
+the shared transport; domain hooks may be declared above that root without
+creating a redundant bootstrap connection.
 
 ## State collections
 

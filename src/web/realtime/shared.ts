@@ -5,7 +5,7 @@ import { useSyncExternalStore } from "react";
 let runtime: RealtimeRuntime | undefined;
 let currentUrl: string | undefined;
 let identity: string | undefined;
-let session = { generation: 0, ready: true };
+let session = { generation: 0, ready: false };
 const listeners = new Set<() => void>();
 function notify(ready: boolean): void {
   session = { generation: session.generation + 1, ready };
