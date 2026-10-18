@@ -76,7 +76,7 @@ Use these first:
 | `EmptyState` | Empty or missing content |
 | `ConfirmDialog` | Destructive confirmation |
 
-The default `Panel` is muted, `DataList` uses divided rows, and `Button` is a
+The default `Panel` is muted, `DataList` uses compact borderless rows, and `Button` is a
 subtle, intrinsic-width, unboxed action, including primary actions. Use
 `variant="primary"` explicitly for the principal action, `variant="link"` for a textual action and `tone="danger"` for
 discreet danger. Reserve solid `variant="danger"` for irreversible confirmation.
@@ -141,6 +141,9 @@ and `0.5rem` corner radii (4 px and 8 px at the default root font size).
 These insets apply in every interaction state, including card-style rows,
 without changing each layout's vertical padding. Use the framework defaults
 rather than consumer-specific spacing or hover overrides.
+Rows have no visible border or divider at rest, on hover, or when selected;
+rounded backgrounds communicate interaction and selection. Keyboard focus
+retains its visible accessibility indicator.
 
 `DataListRow` places `meta` beside the content by default. Use
 `metaPlacement="inline"` for secondary dates beside the title, wrapping below
