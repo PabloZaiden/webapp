@@ -3293,6 +3293,10 @@ select.wapp-input,
     margin-left: auto;
   }
 
+  :root[data-wapp-mobile] .wapp-settings-field-inline:has(> .wapp-settings-field-control > :is(.wapp-checkbox-field, input[type="checkbox"])) {
+    display: grid;
+  }
+
   :root[data-wapp-mobile] .wapp-settings-field > :is(.wapp-settings-field-content, .wapp-settings-feedback) {
     flex-basis: 100%;
   }
