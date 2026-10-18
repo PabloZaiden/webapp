@@ -136,9 +136,7 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
             handler.message(socket, message);
             return;
           }
-          if (message === "ping") {
-            socket.send(JSON.stringify({ type: "pong" }));
-          }
+          realtime.message(socket, message);
         },
         close(socket, code, reason) {
           const handler = customHandler(socket);

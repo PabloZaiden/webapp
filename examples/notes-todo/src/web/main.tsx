@@ -31,6 +31,7 @@ interface NotesTodoSnapshot {
   notes: Note[];
   todos: Todo[];
 }
+type MutateNotes = ReturnType<typeof useLiveQuery<NotesTodoSnapshot | null>>["mutate"];
 
 function needsAuthentication(config: { passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }): boolean {
   return config.passkeyAuth.enabled && (config.passkeyAuth.bootstrapRequired || config.passkeyAuth.ownerPasskeySetupRequired || (config.passkeyAuth.passkeyRequired && !config.passkeyAuth.authenticated));
@@ -185,7 +186,7 @@ function NotesView({ sections, notes }: { sections: Section[]; notes: Note[] }) 
   );
 }
 
-function NoteEditor({ route, notes, sections, refresh }: { route: WebAppRoute; notes: Note[]; sections: Section[]; refresh: () => Promise<void> }) {
+function NoteEditor({ route, notes, sections, mutate }: { route: WebAppRoute; notes: Note[]; sections: Section[]; mutate: MutateNotes }) {
   const note = notes.find((item) => item.id === route["noteId"]);
   const [title, setTitle] = useState(note?.title ?? "");
   const [body, setBody] = useState(note?.body ?? "");
@@ -206,7 +207,7 @@ function NoteEditor({ route, notes, sections, refresh }: { route: WebAppRoute; n
           </SelectField>
           <TextAreaField label="Body" value={body} onChange={(event) => setBody(event.currentTarget.value)} />
           <FormActions>
-            <Button type="button" variant="primary" onClick={() => void appJson(`/api/notes/${note.id}`, { method: "PATCH", body: JSON.stringify({ title, body, sectionId }) }).then(refresh)}>Save note</Button>
+            <Button type="button" variant="primary" onClick={() => void mutate(signal => appJson(`/api/notes/${note.id}`, { method: "PATCH", signal, body: JSON.stringify({ title, body, sectionId }) }))}>Save note</Button>
           </FormActions>
         </div>
       </Panel>
@@ -214,7 +215,7 @@ function NoteEditor({ route, notes, sections, refresh }: { route: WebAppRoute; n
   );
 }
 
-function TodoEditor({ route, todos, sections, refresh }: { route: WebAppRoute; todos: Todo[]; sections: Section[]; refresh: () => Promise<void> }) {
+function TodoEditor({ route, todos, sections, mutate }: { route: WebAppRoute; todos: Todo[]; sections: Section[]; mutate: MutateNotes }) {
   const todo = todos.find((item) => item.id === route["todoId"]);
   const [title, setTitle] = useState(todo?.title ?? "");
   const [sectionId, setSectionId] = useState(todo?.sectionId ?? sections[0]?.id ?? "");
@@ -239,7 +240,7 @@ function TodoEditor({ route, todos, sections, refresh }: { route: WebAppRoute; t
             <option value="high">High</option>
           </SelectField>
           <FormActions>
-            <Button type="button" variant="primary" onClick={() => void appJson(`/api/todos/${todo.id}`, { method: "PATCH", body: JSON.stringify({ title, sectionId, priority }) }).then(refresh)}>Save task</Button>
+            <Button type="button" variant="primary" onClick={() => void mutate(signal => appJson(`/api/todos/${todo.id}`, { method: "PATCH", signal, body: JSON.stringify({ title, sectionId, priority }) }))}>Save task</Button>
           </FormActions>
         </div>
       </Panel>
@@ -247,13 +248,12 @@ function TodoEditor({ route, todos, sections, refresh }: { route: WebAppRoute; t
   );
 }
 
-function NewSectionView({ route, sections, refresh }: { route: WebAppRoute; sections: Section[]; refresh: () => Promise<void> }) {
+function NewSectionView({ route, sections, mutate }: { route: WebAppRoute; sections: Section[]; mutate: MutateNotes }) {
   const [title, setTitle] = useState("");
   const parentId = String(route["parentId"] ?? "");
   async function submit() {
     if (!title.trim()) return;
-    const section = await appJson<Section>("/api/sections", { method: "POST", body: JSON.stringify({ title, parentId: parentId || undefined }) });
-    await refresh();
+    const section = await mutate(signal => appJson<Section>("/api/sections", { method: "POST", signal, body: JSON.stringify({ title, parentId: parentId || undefined }) }));
     navigateTo({ view: "section", sectionId: section.id });
   }
   return (
@@ -272,14 +272,13 @@ function NewSectionView({ route, sections, refresh }: { route: WebAppRoute; sect
   );
 }
 
-function NewNoteView({ route, sections, refresh }: { route: WebAppRoute; sections: Section[]; refresh: () => Promise<void> }) {
+function NewNoteView({ route, sections, mutate }: { route: WebAppRoute; sections: Section[]; mutate: MutateNotes }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [sectionId, setSectionId] = useState(String(route["sectionId"] ?? sections[0]?.id ?? ""));
   async function submit() {
     if (!title.trim() || !sectionId) return;
-    const note = await appJson<Note>("/api/notes", { method: "POST", body: JSON.stringify({ title, body, sectionId }) });
-    await refresh();
+    const note = await mutate(signal => appJson<Note>("/api/notes", { method: "POST", signal, body: JSON.stringify({ title, body, sectionId }) }));
     navigateTo({ view: "note", noteId: note.id });
   }
   return (
@@ -298,14 +297,13 @@ function NewNoteView({ route, sections, refresh }: { route: WebAppRoute; section
   );
 }
 
-function NewTodoView({ route, sections, refresh }: { route: WebAppRoute; sections: Section[]; refresh: () => Promise<void> }) {
+function NewTodoView({ route, sections, mutate }: { route: WebAppRoute; sections: Section[]; mutate: MutateNotes }) {
   const [title, setTitle] = useState("");
   const [sectionId, setSectionId] = useState(String(route["sectionId"] ?? sections[0]?.id ?? ""));
   const [priority, setPriority] = useState<Todo["priority"]>("normal");
   async function submit() {
     if (!title.trim() || !sectionId) return;
-    const todo = await appJson<Todo>("/api/todos", { method: "POST", body: JSON.stringify({ title, sectionId, priority }) });
-    await refresh();
+    const todo = await mutate(signal => appJson<Todo>("/api/todos", { method: "POST", signal, body: JSON.stringify({ title, sectionId, priority }) }));
     navigateTo({ view: "todo", todoId: todo.id });
   }
   return (
@@ -329,14 +327,14 @@ function NewTodoView({ route, sections, refresh }: { route: WebAppRoute; section
 }
 
 function NotesTodoApp() {
-  const { data, error, loading, refresh } = useLiveQuery<NotesTodoSnapshot | null>({
-    load: async () => {
-      const config = await appJson<{ passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }>("/api/config");
+  const { data, error, loading, refresh, mutate } = useLiveQuery<NotesTodoSnapshot | null>({
+    load: async (signal) => {
+      const config = await appJson<{ passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }>("/api/config", { signal });
       if (needsAuthentication(config)) return null;
       const [sections, notes, todos] = await Promise.all([
-        appJson<Section[]>("/api/sections"),
-        appJson<Note[]>("/api/notes"),
-        appJson<Todo[]>("/api/todos"),
+        appJson<Section[]>("/api/sections", { signal }),
+        appJson<Note[]>("/api/notes", { signal }),
+        appJson<Todo[]>("/api/todos", { signal }),
       ]);
       return { sections, notes, todos };
     },
@@ -348,19 +346,16 @@ function NotesTodoApp() {
   const sidebarSnapshotReady = data != null && !loading && !error;
 
   const patchTodo = useCallback(async (todo: Todo, patch: Partial<Todo>) => {
-    await appJson(`/api/todos/${todo.id}`, { method: "PATCH", body: JSON.stringify(patch) });
-    await refresh();
-  }, [refresh]);
+    await mutate(signal => appJson(`/api/todos/${todo.id}`, { method: "PATCH", signal, body: JSON.stringify(patch) }));
+  }, [mutate]);
 
   const deleteTodo = useCallback(async (todo: Todo) => {
-    await appJson(`/api/todos/${todo.id}`, { method: "DELETE" });
-    await refresh();
-  }, [refresh]);
+    await mutate(signal => appJson(`/api/todos/${todo.id}`, { method: "DELETE", signal }));
+  }, [mutate]);
 
   const deleteNote = useCallback(async (note: Note) => {
-    await appJson(`/api/notes/${note.id}`, { method: "DELETE" });
-    await refresh();
-  }, [refresh]);
+    await mutate(signal => appJson(`/api/notes/${note.id}`, { method: "DELETE", signal }));
+  }, [mutate]);
 
   const sectionActions = useCallback((section: Section): ActionMenuItem[] => [
     { id: "new-task", label: "New task in list", onAction: () => navigateTo({ view: "new-todo", sectionId: section.id }) },
@@ -534,11 +529,11 @@ function NotesTodoApp() {
         section: (route) => <SectionView route={route} sections={sections} notes={notes} todos={todos} />,
         tasks: (route) => <TasksView route={route} sections={sections} todos={todos} />,
         notes: <NotesView sections={sections} notes={notes} />,
-        note: (route) => <NoteEditor route={route} notes={notes} sections={sections} refresh={refresh} />,
-        todo: (route) => <TodoEditor route={route} todos={todos} sections={sections} refresh={refresh} />,
-        "new-section": (route) => <NewSectionView route={route} sections={sections} refresh={refresh} />,
-        "new-note": (route) => <NewNoteView route={route} sections={sections} refresh={refresh} />,
-        "new-todo": (route) => <NewTodoView route={route} sections={sections} refresh={refresh} />,
+        note: (route) => <NoteEditor route={route} notes={notes} sections={sections} mutate={mutate} />,
+        todo: (route) => <TodoEditor route={route} todos={todos} sections={sections} mutate={mutate} />,
+        "new-section": (route) => <NewSectionView route={route} sections={sections} mutate={mutate} />,
+        "new-note": (route) => <NewNoteView route={route} sections={sections} mutate={mutate} />,
+        "new-todo": (route) => <NewTodoView route={route} sections={sections} mutate={mutate} />,
       }}
       header={{
         renderTitle,
