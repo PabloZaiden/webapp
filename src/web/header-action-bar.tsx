@@ -20,12 +20,17 @@ export function HeaderActionBar({ primary, overflow, headerRef, ariaLabel }: {
     const header = headerRef.current;
     const content = primaryRef.current;
     if (!header || !content) return;
+    const title = header.querySelector(".wapp-main-header-title");
     function measure() {
       if (!header || !content) return;
       const style = getComputedStyle(header);
       const width = header.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
       const menuWidth = overflow.length ? (menuRef.current?.getBoundingClientRect().width ?? 0) + 8 : 0;
-      const collapse = content.getBoundingClientRect().width + menuWidth > width / 2;
+      const gap = parseFloat(style.columnGap) || 0;
+      const auxiliaryWidth = [...header.children]
+        .filter((child) => child !== title && child !== content.parentElement)
+        .reduce((total, child) => total + child.getBoundingClientRect().width + gap, 0);
+      const collapse = content.getBoundingClientRect().width + menuWidth > Math.max(0, width / 2 - auxiliaryWidth);
       if (collapse && content.contains(document.activeElement)) restoreFocusRef.current = true;
       if (!collapse && collapsed) {
         const active = document.activeElement;
@@ -45,6 +50,7 @@ export function HeaderActionBar({ primary, overflow, headerRef, ariaLabel }: {
     const observer = new ResizeObserver(measure);
     observer.observe(header);
     observer.observe(content);
+    if (title) observer.observe(title);
     measure();
     return () => observer.disconnect();
   }, [actions, collapsed, headerRef, overflow.length]);

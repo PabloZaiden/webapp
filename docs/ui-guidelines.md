@@ -91,6 +91,13 @@ input/select itself; short and normal controls retain their compact limits.
 Settings panels and lists fill the remaining width beside category navigation;
 do not constrain an entire Settings section to a form-reading width.
 Keep `Page layout="form"` for explicitly bounded forms, not general lists.
+Use `SettingsLayout` inside `Page layout="full"` for entity settings with the
+same desktop category navigation and mobile selector as global Settings.
+Supply categories, the selected category and its change handler; the layout
+does not own routing, authentication, draft state or mounting policy. Keep
+draft-owning children mounted across category changes. Use `SettingsFieldRow`
+and `SettingsSectionContent` for contents; `Input` and `Select` accept
+`fieldWidth` when the row already supplies the label.
 `FormGroup layout="inline"` groups related short fields
 and actions, wrapping at available width.
 Panel and entity-header actions stay right-aligned and inline when they fit,
@@ -159,9 +166,10 @@ For entity actions, prefer the framework title bar: define one `ActionMenuItem[]
 Route views contribute title-bar actions with `useHeaderActions({ primary, overflow })`.
 `primary` is a `HeaderPrimaryAction[]`: label, optional icon, disabled/loading
 state and either `onAction` or a native `form` ID. The framework displays these
-as subtle buttons while they fit within half the header; otherwise they appear
-first in the existing menu, without duplicates. Fit responds to actual header
-and action widths, not a separate mobile breakpoint. Native form actions retain
+as subtle buttons while they fit within half the header after allowing room
+for notifications; otherwise they appear first in the existing menu, without
+duplicates. Fit responds to actual header, action and notification widths,
+not a separate mobile breakpoint. Native form actions retain
 validation, submitter semantics and Enter submission from the menu.
 `overflow` is an `ActionMenuItem[]`, appended to configured and sidebar actions.
 Callbacks and loading state remain live without re-registering the screen.
