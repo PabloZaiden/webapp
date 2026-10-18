@@ -136,6 +136,12 @@ idempotent release callback: after a successful save or explicit cancel that
 navigates immediately, call it before navigating so that form does not prompt
 again while React commits its clean state. Other dirty forms remain protected.
 
+Sidebar items and `DataListRow` share symmetric `0.25rem` horizontal padding
+and `0.5rem` corner radii (4 px and 8 px at the default root font size).
+These insets apply in every interaction state, including card-style rows,
+without changing each layout's vertical padding. Use the framework defaults
+rather than consumer-specific spacing or hover overrides.
+
 `DataListRow` places `meta` beside the content by default. Use
 `metaPlacement="inline"` for secondary dates beside the title, wrapping below
 only when needed. Do not repeat a badge status in the description. Use
