@@ -145,6 +145,16 @@ Rows have no visible border or divider at rest, on hover, or when selected;
 rounded backgrounds communicate interaction and selection. Keyboard focus
 retains its visible accessibility indicator.
 
+`DataListRow` owns its `1.5` line height and `0.25rem` title-to-description
+spacing, so its default typography and density do not depend on Tailwind
+Preflight or the application's inherited line height. Card rows retain their
+compact title and description line heights. Applications should remove
+equivalent spacing overrides, such as `descriptionClassName="mt-1"`, when
+upgrading; `descriptionClassName` remains available for product-specific
+wrapping or truncation. App-owned gesture wrappers should preserve the shared
+row padding, corner radii and resting/hover appearance instead of replacing
+them with a separate row skin.
+
 `DataListRow` places `meta` beside the content by default. Use
 `metaPlacement="inline"` for secondary dates beside the title, wrapping below
 only when needed. Do not repeat a badge status in the description. Use

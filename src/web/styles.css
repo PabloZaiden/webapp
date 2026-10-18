@@ -1231,6 +1231,7 @@ textarea::placeholder {
   background: transparent;
   color: var(--wapp-text);
   padding: 0.75rem 0.375rem;
+  line-height: 1.5;
   text-align: left;
 }
 
@@ -1364,6 +1365,10 @@ textarea::placeholder {
 .wapp-data-list-row-meta {
   color: var(--wapp-muted);
   font-size: 0.8125rem;
+}
+
+.wapp-data-list-row-description {
+  margin-top: 0.25rem;
 }
 
 .wapp-data-list-row-heading > small {
