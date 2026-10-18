@@ -132,6 +132,7 @@ Changing selectors replaces the logical interest without reopening the socket.
 
 ```tsx
 const transcript = useVersionedRealtime<Transcript, Delta>({
+  deps: [chatId],
   kinds: ["content"], types: ["chat.delta"], targets: { chatId },
   load: async ({ signal }) => {
     const snapshot = await appJson<Snapshot>(`/api/chats/${chatId}`, { signal });
@@ -141,6 +142,17 @@ const transcript = useVersionedRealtime<Transcript, Delta>({
   reduce: (data, event) => applyTranscriptDelta(data, event),
 });
 ```
+
+`deps?: readonly unknown[]` declares the projection's identity, using React
+dependency equality and a fixed dependency-list shape. Supply the entity key,
+such as `deps: [chatId]` or `[jobId]`. Identity changes immediately stop exposing
+the previous data/error, retire its controller and cancel pending requests, and
+activate a new logical subscription on the existing shared socket. Late old
+results cannot populate the new projection. Same-identity reconnects preserve
+displayed data while establishing a new authoritative baseline.
+`UseVersionedRealtimeOptions<TData,TEvent>` is exported for typed compositions.
+Raw `useRealtime` also accepts `deps` when a logical consumer identity changes
+without changing its server selectors.
 
 The snapshot's `{ epoch: string, revision: number, data }` must be captured
 from one consistent authoritative domain cut. Deltas expose
@@ -229,3 +241,6 @@ exhaustion requests reconnect so an old command cannot revive a retired interest
 Authentication changes invalidate the shared session, clear old interests,
 cancel owned work, and require new baselines. The final subscriber releases
 the socket, browser listeners, heartbeat and retry timers.
+Idle retirement waits until the end of the current JavaScript turn, allowing
+replacement of the sole logical interest without recreating the transport.
+Explicit runtime disposal still tears down immediately.

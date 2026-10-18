@@ -35,6 +35,7 @@ export class RealtimeRuntime {
   private stopped = false;
   private listening = false;
   private blocked = false;
+  private idleCloseScheduled = false;
 
   constructor(private readonly url: string) {}
 
@@ -60,7 +61,13 @@ export class RealtimeRuntime {
       if (this.socket?.readyState === WebSocket.OPEN) {
         this.send({ type: "unsubscribe", subscriptionId: id, generation: ++subscription.generation });
       }
-      if (!this.subscriptions.size) this.stopTransport();
+      if (!this.subscriptions.size && !this.idleCloseScheduled) {
+        this.idleCloseScheduled = true;
+        queueMicrotask(() => {
+          this.idleCloseScheduled = false;
+          if (!this.subscriptions.size) this.stopTransport();
+        });
+      }
     };
   }
 

@@ -11,6 +11,7 @@ export type { RealtimeActivation, RealtimeStatus } from "./connection";
 export { useRealtimeRefresh } from "./useRealtimeRefresh";
 export { useLiveQuery } from "./useLiveQuery";
 export { useVersionedRealtime } from "./useVersionedRealtime";
+export type { UseVersionedRealtimeOptions } from "./useVersionedRealtime";
 export { createVersionedSyncController, RealtimeResyncRequiredError } from "./versioned-sync";
 export type { VersionedSnapshot, RealtimeDeltaVersion, VersionedSyncState, VersionedSyncOptions } from "./versioned-sync";
 export { createRealtimeRuntime, RealtimeRuntime } from "./connection";
@@ -35,6 +36,7 @@ export function realtimeEventMatches<TEvent>(event: TEvent, selector?: RealtimeE
   return realtimeInterestMatches(interest, interest.kinds[0]!, event, {}) && (predicate?.(event) ?? true);
 }
 export interface UseRealtimeOptions<TEvent> extends RealtimeEventSelector<TEvent> {
+  deps?: readonly unknown[];
   enabled?: boolean;
   onEvent?: (event: TEvent) => void;
   onSubscribed?: (activation: RealtimeActivation) => void | Promise<void>;
@@ -70,6 +72,7 @@ export function useRealtime<TEvent = ResourceRealtimeEvent>(options: UseRealtime
       latest.current.onStatus?.(next);
     };
     setLastEvent(undefined);
+    setError(undefined);
     if (!enabled || !session.ready) {
       changeStatus("closed");
       return;
@@ -98,6 +101,6 @@ export function useRealtime<TEvent = ResourceRealtimeEvent>(options: UseRealtime
       unsubscribe();
       latest.current.onStatus?.("closed");
     };
-  }, [enabled, key, session]);
+  }, [enabled, key, session, ...(options.deps ?? [])]);
   return { status, lastEvent, error };
 }
