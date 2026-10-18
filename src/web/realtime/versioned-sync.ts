@@ -85,6 +85,9 @@ export function createVersionedSyncController<TData, TEvent>(options: VersionedS
     const activation = generation;
     emit({ ...state, status: "loading", error: undefined });
     try {
+      // A fresh authoritative cut covers everything observed before this dispatch.
+      clearBuffer();
+      expectedEpoch = undefined;
       const snapshot = await options.load({ signal: controller.signal });
       if (!valid(token, activation)) return;
       if (queued) return;

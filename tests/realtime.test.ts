@@ -30,6 +30,7 @@ async function fixture(maxBufferedBytes?: number) {
   let epoch = "first";
   let revision = 0;
   let text = "";
+  let deferredDelta: Delta | undefined;
   let hold: ReturnType<typeof deferred<void>> | undefined;
   let snapshotStarted = deferred<void>();
   const app = createWebAppServer<Delta>({
@@ -52,13 +53,34 @@ async function fixture(maxBufferedBytes?: number) {
           return jsonResponse(cut);
         },
         async POST(req, ctx) {
-          const input = await req.json() as { text: string; otherOwner?: boolean };
+          const input = await req.json() as { text: string; otherOwner?: boolean; defer?: boolean };
           const baseRevision = revision++;
           text += input.text;
           const delta: Delta = { type: "document.delta", epoch, baseRevision, revision, text: input.text };
-          ctx.realtime.publish(delta, { target: { userId: input.otherOwner ? "another-owner" : ctx.requireUser().id, documentId: "active" } });
+          if (input.defer) deferredDelta = delta;
+          else ctx.realtime.publish(delta, { target: { userId: input.otherOwner ? "another-owner" : ctx.requireUser().id, documentId: "active" } });
           ctx.userRealtime.publishEntityChanged("documents", "active", { scope: "workspace" });
           return jsonResponse({ revision });
+        },
+      },
+      "/api/document/owner": {
+        auth: "user", sameOrigin: "mutations",
+        async POST(req, ctx) {
+          const input = await req.json() as { epoch: string };
+          epoch = input.epoch;
+          revision = 0;
+          ctx.userRealtime.publishEntityChanged("documents", "active");
+          return jsonResponse({ epoch });
+        },
+      },
+      "/api/document/flush": {
+        auth: "user", sameOrigin: "mutations",
+        POST(_req, ctx) {
+          if (deferredDelta) {
+            ctx.realtime.publish(deferredDelta, { target: { userId: ctx.requireUser().id, documentId: "active" } });
+            deferredDelta = undefined;
+          }
+          return jsonResponse({ ok: true });
         },
       },
       "/api/connections": {
@@ -73,17 +95,31 @@ async function fixture(maxBufferedBytes?: number) {
   return {
     app, base, url: base.replace("http:", "ws:") + "/api/ws",
     sockets,
-    async mutate(value: string, otherOwner = false) {
+    async mutate(value: string, otherOwner = false, defer = false) {
       const response = await fetch(`${base}/api/document`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: value, otherOwner }), signal: AbortSignal.timeout(5_000),
+        body: JSON.stringify({ text: value, otherOwner, defer }), signal: AbortSignal.timeout(5_000),
       });
       expect(response.status).toBe(200);
       await response.text();
     },
     hold() { hold = deferred<void>(); snapshotStarted = deferred<void>(); },
+    observeSnapshot() { snapshotStarted = deferred<void>(); },
     started() { return bounded(snapshotStarted.promise, "snapshot request reached the server"); },
     release() { hold?.resolve(); hold = undefined; },
+    async owner(nextEpoch: string) {
+      const response = await fetch(`${base}/api/document/owner`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ epoch: nextEpoch }), signal: AbortSignal.timeout(5_000),
+      });
+      expect(response.status).toBe(200);
+      await response.text();
+    },
+    async flush() {
+      const response = await fetch(`${base}/api/document/flush`, { method: "POST", signal: AbortSignal.timeout(5_000) });
+      expect(response.status).toBe(200);
+      await response.text();
+    },
     async restart() {
       await app.stop(true);
       epoch = "second";
@@ -193,7 +229,8 @@ test("dynamic authenticated interests, deduplicated routing, retirement and deli
 });
 
 // Product contract: acknowledged activation precedes the baseline; mutations during
-// reads are applied once, and reconnect restores interests against a new domain epoch.
+// reads are applied once, and reconnect/owner retirement establish authoritative epochs
+// while late delivery from the previous owner cannot duplicate or roll back content.
 test("one runtime synchronizes concurrent projections through snapshot races and server restart", async () => {
   const running = await fixture();
   const runtime = createRealtimeRuntime({ url: running.url });
@@ -258,6 +295,28 @@ test("one runtime synchronizes concurrent projections through snapshot races and
     await running.mutate(" restored");
     await waitState(() => state.epoch === "second" && state.revision === 1, "restored interest receives live deltas");
     expect(state.data).toBe("after restart restored");
+    await running.owner("cold");
+    await sync.refresh();
+    expect(state).toMatchObject({ status: "live", epoch: "cold", revision: 0, data: "after restart restored" });
+    running.hold();
+    const replacingOwner = sync.refresh();
+    await running.started();
+    await running.owner("active-next");
+    await running.mutate(" tail");
+    await running.owner("cold-next");
+    running.release();
+    await replacingOwner;
+    expect(state).toMatchObject({ status: "live", epoch: "cold-next", revision: 0, data: "after restart restored tail" });
+    await running.owner("active-final");
+    await sync.refresh();
+    await running.mutate(" delayed", false, true);
+    await running.owner("cold-final");
+    await sync.refresh();
+    running.observeSnapshot();
+    await running.flush();
+    await running.started();
+    await sync.refresh();
+    expect(state).toMatchObject({ status: "live", epoch: "cold-final", revision: 0, data: "after restart restored tail delayed" });
   } finally {
     unsubscribeDetail();
     unsubscribeList();

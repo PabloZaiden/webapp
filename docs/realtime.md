@@ -158,6 +158,11 @@ errors surface immediately. Recovery is bounded in either case. `refresh()`
 during an active read marks it dirty and queues one follow-up baseline; its
 promise covers that follow-up. Deactivation preserves displayed data while
 discarding buffers and pending results; the next activation requires a fresh cut.
+Each read dispatch drops the preceding temporary buffer and epoch expectation:
+the fresh authoritative cut must cover already-observed mutations. Only deltas
+arriving during that read constrain its epoch. This permits a live owner to
+retire into a cold persisted snapshot without preserving an obsolete stream
+incarnation; late old-owner deltas request another fresh cut.
 
 The same non-React owner is exported:
 
