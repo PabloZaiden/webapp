@@ -43,7 +43,10 @@ await query.mutate(
 `load(signal, previous?)` returns data rather than writing unrelated state.
 Only the owning generation can commit its result. Matching invalidations
 during a read mark it dirty and queue one follow-up; a dirty response is not
-installed as synchronized. Errors are returned as `query.error` and optionally
+installed as synchronized. A failed superseded read also yields to that queued
+follow-up, for example when a collection member is deleted while its detail
+is loading. A failure without a newer invalidation settles visibly rather
+than retrying indefinitely. Errors are returned as `query.error` and optionally
 reported to `realtime.onError`. `refresh()` resolves after its reads settle;
 read failures are exposed through state, not unhandled rejected promises.
 

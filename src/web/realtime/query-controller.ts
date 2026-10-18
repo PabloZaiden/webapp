@@ -70,9 +70,9 @@ export function createLiveQueryController<TData>(options: LiveQueryControllerOpt
           if (!dirty) emit({ data, loading: false });
         } catch (error) {
           if (!current(token) || generation !== read) return;
+          if (dirty) continue;
           report(error);
           // Persistent read failures are visible, not an unbounded retry loop.
-          dirty = false;
           return;
         }
       }
