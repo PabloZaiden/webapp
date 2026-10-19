@@ -832,6 +832,11 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
     setThemePreference: (value, userId) => setPreference("theme", value, userId),
     getLogLevelPreference: () => getPreference("logLevel") as LogLevelName | undefined,
     setLogLevelPreference: (value) => setPreference("logLevel", value),
+    getServerLogsEnabledPreference: () => {
+      const value = getPreference("serverLogsEnabled");
+      return value === "true" ? true : value === "false" ? false : undefined;
+    },
+    setServerLogsEnabledPreference: (value) => setPreference("serverLogsEnabled", String(value)),
 
     countUsers: () => Number((db.query("SELECT COUNT(*) AS count FROM webapp_users").get() as Row | null)?.["count"] ?? 0),
     listUsers: () => (db.query(`${userSelect()} ORDER BY u.created_at ASC`).all() as Row[]).map(mapUser),

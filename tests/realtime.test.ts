@@ -38,7 +38,7 @@ async function fixture(maxBufferedBytes?: number) {
     store: memoryWebAppStore(),
     runtimeConfig: {
       appName: "Realtime contract", envPrefix: "TEST_REALTIME", host: "127.0.0.1", port,
-      dataDir: directory, logLevel: "error", logLevelFromEnv: false, inMemoryLogsEnabled: false,
+      dataDir: directory, logLevel: "error", logLevelFromEnv: false,
       passkeyDisabled: true, sameOriginDisabled: true,
       trustProxy: { enabled: false, headers: [], chain: "first" }, development: false,
     },

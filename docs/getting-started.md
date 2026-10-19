@@ -243,13 +243,15 @@ environment locks the value.
 
 Admins can enable temporary server-log capture from Developer Settings next to
 the log-level selector. The shared WebApp server logger exposes the current state in
-`/api/config`; it starts disabled on every process start and is never stored in
-the database. Admin clients can retrieve a chronological snapshot from
-`GET /api/server/logs` after enabling capture. Capture starts disabled unless
-`{PREFIX}_IN_MEMORY_LOGS` enables it. Entries are appended to a private JSON
-Lines file in the operating system's temporary directory without a count or
-size cap. Turning capture off or shutting the server down cleanly removes the
-file; abrupt termination may leave it for the OS to clean. Retrieving the
+`/api/config`. The global preference is stored by the configured `WebAppStore`;
+the default SQLite store preserves it across process restarts, and capture is
+disabled until an administrator enables it. Admin clients can retrieve a
+chronological snapshot from `GET /api/server/logs` after enabling capture.
+Entries are appended to a private JSON Lines file in the operating system's
+temporary directory without a count or size cap. The preference survives a
+restart, but the log entries do not: capture starts in a new file, while
+turning capture off or shutting the server down cleanly removes the current
+file. Abrupt termination may leave it for the OS to clean. Retrieving the
 snapshot loads every entry into memory, and an unbounded capture can exhaust
 temporary disk space.
 
@@ -386,7 +388,6 @@ The app configures an uppercase `envPrefix`; the framework reads only variables 
 | `{PREFIX}_PORT` | `3000` | Bind port |
 | `{PREFIX}_DATA_DIR` | `$HOME/.<app>` | Default directory for SQLite and app-owned persistence; an explicit value replaces the default completely |
 | `{PREFIX}_LOG_LEVEL` | `info` | `silly`, `trace`, `debug`, `info`, `warn`, `error`, `fatal`; locks settings log-level control when set |
-| `{PREFIX}_IN_MEMORY_LOGS` | `false` | Initial value for process-local server-log capture (historical variable name); `true`, `1`, or `yes` enables it |
 | `{PREFIX}_DISABLE_PASSKEY` | unset | Emergency bypass that authenticates as the stored owner or creates an `admin` owner when none exists; it does not create additional users |
 | `{PREFIX}_DISABLE_SAME_ORIGIN_CHECK` | unset | Development/testing escape hatch |
 | `{PREFIX}_TRUST_PROXY` | `false` | Explicitly trust the documented `X-Forwarded-*` headers; keep disabled for direct deployments |

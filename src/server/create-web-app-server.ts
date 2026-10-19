@@ -63,6 +63,25 @@ function secureDynamicResponse(response: Response): Response {
   return response instanceof Response ? withSecurityHeaders(response) : response;
 }
 
+function restoreServerLogStorage(enabled: boolean, phase: string, resetFirst = false): void {
+  try {
+    if (resetFirst) {
+      resetServerLogStorage();
+    }
+    setServerLogStorageEnabled(enabled);
+  } catch (error) {
+    console.error(
+      `[webapp] Unable to initialize temporary server log capture during ${phase}; continuing with capture disabled.`,
+      error,
+    );
+    try {
+      resetServerLogStorage();
+    } catch (cleanupError) {
+      console.error("[webapp] Unable to reset temporary server log capture after initialization failed.", cleanupError);
+    }
+  }
+}
+
 function canUseSpaFallback(req: Request): boolean {
   return req.method === "GET" || req.method === "HEAD";
 }
@@ -80,29 +99,21 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     throw new Error("runtimeConfig appName and envPrefix must match the createWebAppServer inputs");
   }
   const routes = compileRouteTable(input.routes ?? {});
-  let serverLogsEnabled = config.inMemoryLogsEnabled;
-  resetServerLogStorage();
-  setServerLogStorageEnabled(config.inMemoryLogsEnabled);
+  const store = input.store ?? sqliteWebAppStore({ dataDir: config.dataDir });
+  store.initialize();
+  let serverLogsEnabled = store.getServerLogsEnabledPreference() ?? false;
+  restoreServerLogStorage(serverLogsEnabled, "server configuration", true);
   const serverLogs: ServerLogStorage = {
     isEnabled: serverLogStorage.isEnabled,
     setEnabled(enabled) {
-      try {
-        serverLogStorage.setEnabled(enabled);
-      } finally {
-        serverLogsEnabled = serverLogStorage.isEnabled();
-      }
+      serverLogStorage.setEnabled(enabled);
+      serverLogsEnabled = enabled;
     },
     getEntries: serverLogStorage.getEntries,
     reset() {
-      try {
-        serverLogStorage.reset();
-      } finally {
-        serverLogsEnabled = serverLogStorage.isEnabled();
-      }
+      serverLogStorage.reset();
     },
   };
-  const store = input.store ?? sqliteWebAppStore({ dataDir: config.dataDir });
-  store.initialize();
   const savedLogLevel = store.getLogLevelPreference();
   const activeLogLevel = resolveEffectiveLogLevel(config, savedLogLevel);
   setLogLevel(activeLogLevel);
@@ -199,7 +210,8 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     hooks: {
       ...(input.lifecycle ?? {}),
       beforeStart: async () => {
-        setServerLogStorageEnabled(serverLogsEnabled);
+        serverLogsEnabled = store.getServerLogsEnabledPreference() ?? false;
+        restoreServerLogStorage(serverLogsEnabled, "server startup");
         await input.lifecycle?.beforeStart?.();
       },
       afterStop: async (server) => {

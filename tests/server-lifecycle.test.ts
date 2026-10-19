@@ -145,7 +145,6 @@ function createLifecycleApp(
       dataDir,
       logLevel: "info",
       logLevelFromEnv: false,
-      inMemoryLogsEnabled: false,
       passkeyDisabled: true,
       sameOriginDisabled: true,
       trustProxy: { enabled: false, headers: [], chain: "first" },

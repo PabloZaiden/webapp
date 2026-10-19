@@ -578,6 +578,13 @@ export function memoryWebAppStore(): WebAppStore {
     setLogLevelPreference(value: LogLevelName): void {
       setPreference("logLevel", value);
     },
+    getServerLogsEnabledPreference(): boolean | undefined {
+      const value = getPreference("serverLogsEnabled");
+      return value === "true" ? true : value === "false" ? false : undefined;
+    },
+    setServerLogsEnabledPreference(value: boolean): void {
+      setPreference("serverLogsEnabled", String(value));
+    },
 
     countUsers(): number {
       return users.size;

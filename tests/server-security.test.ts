@@ -96,7 +96,6 @@ async function startServer(input: {
   web?: WebAppServerConfig["web"];
   requestFilter?: WebAppServerConfig["requestFilter"];
   passkeyDisabled?: boolean;
-  inMemoryLogsEnabled?: boolean;
 }): Promise<{
   app: ReturnType<typeof createWebAppServer>;
   store: WebAppStore;
@@ -111,7 +110,6 @@ async function startServer(input: {
     dataDir: input.dataDir,
     logLevel: "info",
     logLevelFromEnv: false,
-    inMemoryLogsEnabled: input.inMemoryLogsEnabled ?? false,
     passkeyDisabled: input.passkeyDisabled ?? false,
     sameOriginDisabled: false,
     trustProxy: { enabled: false, headers: [], chain: "first" },
@@ -150,10 +148,27 @@ test("captures more than 1,000 server log entries through the admin endpoint", a
     store,
     auth: { passkeys: false, apiKeys: true },
     web: false,
-    inMemoryLogsEnabled: true,
   });
 
   try {
+    const initialConfigResponse = await fetch(`${running.baseUrl}/api/config`);
+    const initialConfig = await responseJson<{ inMemoryLogs: { enabled: boolean } }>(initialConfigResponse);
+    expect(initialConfig.inMemoryLogs.enabled).toBe(false);
+    const initialLogsResponse = await fetch(`${running.baseUrl}/api/server/logs`, {
+      headers: { authorization: bearer(ownerKey.token) },
+    });
+    expect(await responseJson<{ enabled: boolean; logs: unknown[] }>(initialLogsResponse)).toEqual({
+      enabled: false,
+      logs: [],
+    });
+
+    const enabled = await fetch(`${running.baseUrl}/api/server/logs/settings`, {
+      method: "PUT",
+      headers: jsonHeaders(running.baseUrl, ownerKey.token),
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(enabled.status).toBe(200);
+
     const captureLogger = createLogger("server-log-capture-test");
     const consoleOutput = spyOn(console, "log").mockImplementation(() => undefined);
     try {
@@ -209,7 +224,10 @@ test("captures more than 1,000 server log entries through the admin endpoint", a
       const afterRestart = await fetch(`${restartedBaseUrl}/api/server/logs`, {
         headers: { authorization: bearer(ownerKey.token) },
       });
-      const restartedLogs = await responseJson<{ logs: Array<{ message: string }> }>(afterRestart);
+      const restartedLogs = await responseJson<{ enabled: boolean; logs: Array<{ message: string }> }>(afterRestart);
+      const restartedConfig = await fetch(`${restartedBaseUrl}/api/config`);
+      expect((await responseJson<{ inMemoryLogs: { enabled: boolean } }>(restartedConfig)).inMemoryLogs.enabled).toBe(true);
+      expect(restartedLogs.enabled).toBe(true);
       expect(restartedLogs.logs.some((entry) => entry.message === "capture-before-clean-shutdown")).toBe(false);
       expect(restartedLogs.logs.some((entry) => entry.message === "capture-after-clean-shutdown")).toBe(true);
     } finally {
@@ -217,6 +235,144 @@ test("captures more than 1,000 server log entries through the admin endpoint", a
     }
   } finally {
     await running.app.stop(true);
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("persists server log capture preference across server instances", async () => {
+  const dataDir = testDataDir("server-log-preference");
+  let first: Awaited<ReturnType<typeof startServer>> | undefined;
+  let restarted: Awaited<ReturnType<typeof startServer>> | undefined;
+  const envPrefix = "TEST_E2E_SERVER_LOG_PREFERENCE";
+
+  try {
+    first = await startServer({
+      envPrefix,
+      dataDir,
+      auth: { passkeys: false, apiKeys: true },
+      web: false,
+    });
+    const owner = createUser(first.store, "log-preference-owner");
+    const ownerKey = createApiKey(first.store, currentUser(owner), {
+      name: "server log preference test key",
+      scopes: ["*"],
+    });
+
+    const initialConfig = await fetch(`${first.baseUrl}/api/config`);
+    expect((await responseJson<{ inMemoryLogs: { enabled: boolean } }>(initialConfig)).inMemoryLogs.enabled).toBe(false);
+
+    const enabled = await fetch(`${first.baseUrl}/api/server/logs/settings`, {
+      method: "PUT",
+      headers: jsonHeaders(first.baseUrl, ownerKey.token),
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(enabled.status).toBe(200);
+
+    const captureLogger = createLogger("server-log-preference-test");
+    const consoleOutput = spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      captureLogger.info("before-server-instance-restart");
+    } finally {
+      consoleOutput.mockRestore();
+    }
+    await first.app.stop(true);
+
+    restarted = await startServer({
+      envPrefix,
+      dataDir,
+      auth: { passkeys: false, apiKeys: true },
+      web: false,
+    });
+
+    const configAfterRestart = await fetch(`${restarted.baseUrl}/api/config`);
+    expect((await responseJson<{ inMemoryLogs: { enabled: boolean } }>(configAfterRestart)).inMemoryLogs.enabled).toBe(true);
+
+    const logsAfterRestart = await fetch(`${restarted.baseUrl}/api/server/logs`, {
+      headers: { authorization: bearer(ownerKey.token) },
+    });
+    const restartedBody = await responseJson<{ enabled: boolean; logs: Array<{ message: string }> }>(logsAfterRestart);
+    expect(restartedBody.enabled).toBe(true);
+    expect(restartedBody.logs.some((entry) => entry.message === "before-server-instance-restart")).toBe(false);
+
+    const restartConsoleOutput = spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      captureLogger.info("after-server-instance-restart");
+    } finally {
+      restartConsoleOutput.mockRestore();
+    }
+    const logsAfterNewEntry = await fetch(`${restarted.baseUrl}/api/server/logs`, {
+      headers: { authorization: bearer(ownerKey.token) },
+    });
+    const newBody = await responseJson<{ logs: Array<{ message: string }> }>(logsAfterNewEntry);
+    expect(newBody.logs.some((entry) => entry.message === "after-server-instance-restart")).toBe(true);
+  } finally {
+    await restarted?.app.stop(true);
+    await first?.app.stop(true);
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("starts without capture when restoring temporary server logs fails", async () => {
+  const dataDir = testDataDir("server-log-storage-unavailable");
+  const store = sqliteWebAppStore({ dataDir });
+  store.initialize();
+  store.setServerLogsEnabledPreference(true);
+  const owner = createUser(store, "log-storage-unavailable-owner");
+  const ownerKey = createApiKey(store, currentUser(owner), {
+    name: "server log storage unavailable test key",
+    scopes: ["*"],
+  });
+  const envPrefix = "TEST_E2E_SERVER_LOG_STORAGE_UNAVAILABLE";
+  const runtimeConfig: RuntimeConfig = {
+    appName: "E2E Server",
+    envPrefix,
+    host: "127.0.0.1",
+    port: 0,
+    dataDir,
+    logLevel: "info",
+    logLevelFromEnv: false,
+    passkeyDisabled: false,
+    sameOriginDisabled: false,
+    trustProxy: { enabled: false, headers: [], chain: "first" },
+    development: false,
+  };
+  const previousTmpdir = process.env["TMPDIR"];
+  const errorOutput = spyOn(console, "error").mockImplementation(() => undefined);
+  process.env["TMPDIR"] = resolve(dataDir, "missing-temporary-directory");
+  let stopApp: (() => Promise<void>) | undefined;
+
+  try {
+    const app = createWebAppServer({
+      appName: runtimeConfig.appName,
+      envPrefix,
+      runtimeConfig,
+      web: false,
+      store,
+      auth: { passkeys: false, apiKeys: true },
+      routes: defineRoutes({}),
+    });
+    stopApp = () => app.stop(true);
+    const server = await app.start();
+    const baseUrl = server.url.toString().replace(/\/$/, "");
+    const configResponse = await fetch(`${baseUrl}/api/config`);
+    expect((await responseJson<{ inMemoryLogs: { enabled: boolean } }>(configResponse)).inMemoryLogs.enabled).toBe(false);
+
+    const logsResponse = await fetch(`${baseUrl}/api/server/logs`, {
+      headers: { authorization: bearer(ownerKey.token) },
+    });
+    expect(await responseJson<{ enabled: boolean; logs: unknown[] }>(logsResponse)).toEqual({
+      enabled: false,
+      logs: [],
+    });
+    expect(errorOutput).toHaveBeenCalled();
+  } finally {
+    if (previousTmpdir === undefined) {
+      delete process.env["TMPDIR"];
+    } else {
+      process.env["TMPDIR"] = previousTmpdir;
+    }
+    errorOutput.mockRestore();
+    await stopApp?.();
     rmSync(dataDir, { recursive: true, force: true });
   }
 });

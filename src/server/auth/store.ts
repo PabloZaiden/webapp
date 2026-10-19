@@ -138,6 +138,8 @@ export interface WebAppStore {
   setThemePreference(value: ThemePreference, userId?: string): void;
   getLogLevelPreference(): LogLevelName | undefined;
   setLogLevelPreference(value: LogLevelName): void;
+  getServerLogsEnabledPreference(): boolean | undefined;
+  setServerLogsEnabledPreference(value: boolean): void;
 
   countUsers(): number;
   listUsers(): UserRecord[];
