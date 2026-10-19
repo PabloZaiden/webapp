@@ -1,4 +1,5 @@
-import { appWebSocketUrl, onAuthRequired } from "../api-client";
+import { appPath, appWebSocketUrl, onAuthRequired } from "../api-client";
+import { onNetworkFailure } from "../network-failures";
 import { createRealtimeRuntime, type RealtimeRuntime } from "./connection";
 import { useSyncExternalStore } from "react";
 
@@ -18,6 +19,11 @@ export function resetRealtimeRuntime(): void {
   currentUrl = undefined;
 }
 onAuthRequired(() => setRealtimeIdentity(undefined));
+onNetworkFailure((request, error) => {
+  if (new URL(request.url).origin !== new URL(appPath("/api/config")).origin) return;
+  // Suspend reads before their rejection can become a per-resource error.
+  runtime?.recoverFromNetworkFailure(error);
+});
 
 export function setRealtimeIdentity(next: string | undefined, path?: string): void {
   const ready = next !== undefined && path !== undefined;

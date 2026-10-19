@@ -124,7 +124,7 @@ export class RealtimeRuntime {
     try {
       socket = new WebSocket(this.url);
     } catch (error) {
-      this.fail(error);
+      this.fail(error, false);
       return;
     }
     this.socket = socket;
@@ -169,7 +169,7 @@ export class RealtimeRuntime {
           }
         }
       } catch (error) {
-        this.fail(error);
+        this.fail(error, false);
       }
     };
     socket.onclose = event => { if (this.socket === socket) this.fail(new Error("Realtime connection closed"), event.code !== 1008); };
@@ -201,7 +201,8 @@ export class RealtimeRuntime {
   }
 
   private fail(error: unknown, retry = true): void {
-    for (const subscription of this.subscriptions.values()) this.report(subscription, error);
+    if (retry) log.warn("Realtime connection interrupted; reconnecting", { error: String(error) });
+    else for (const subscription of this.subscriptions.values()) this.report(subscription, error);
     this.retire();
     this.blocked = !retry;
     if (this.blocked || this.stopped || !this.subscriptions.size || this.retry !== undefined) return;
@@ -209,6 +210,10 @@ export class RealtimeRuntime {
       this.retry = undefined;
       this.connect();
     }, Math.min(250 * 2 ** this.retries++, 10_000));
+  }
+
+  recoverFromNetworkFailure(error: Error): void {
+    if (this.socket?.readyState === WebSocket.OPEN) this.fail(error);
   }
 
   private reconnect = (): void => {

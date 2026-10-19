@@ -1,3 +1,5 @@
+import { fetchAppRequest } from "./network-failures";
+
 export class WebAppApiError extends Error {
   status: number;
   error?: string;
@@ -113,7 +115,8 @@ export function appWebSocketUrl(path = "/api/ws"): string {
 }
 
 export async function appRequest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  return await fetch(typeof input === "string" ? appPath(input) : input, init);
+  const request = new Request(typeof input === "string" ? appPath(input) : input, init);
+  return await fetchAppRequest(request);
 }
 
 export async function appFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
