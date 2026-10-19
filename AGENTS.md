@@ -7,6 +7,18 @@
 - Keep Bun native hot reload as the development path: one Bun server serves the React UI, API routes and WebSockets.
 - When adding CI, Docker or release automation for framework apps, follow `docs/github-actions.md`.
 
+## Creating GitHub releases
+
+- When asked to create a new release, always use `bun run release`; do not
+  bypass it with manual tag creation or direct `gh release create` commands.
+- Obtain the requested major, minor, or patch increment from the user if it
+  was not specified, and review the script's proposed version and target before
+  confirming publication. Do not publish merely to validate the script.
+- The script publishes the remote default branch's pinned commit, not the
+  current local branch. Tags and titles are identical `vX.Y.Z` strings, with
+  GitHub-generated release notes. See `docs/release.md` for prerequisites
+  and usage.
+
 ## Browser and UI validation
 
 - Use `Bun.WebView` from Bun 1.4+ for browser automation and screenshot capture. Let Bun resolve Chromium from `PATH`; do not launch a browser directly from a platform-specific path.
