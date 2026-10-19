@@ -1,5 +1,6 @@
 import { resolveCliAuth, type ResolveCliAuthOptions } from "./auth-resolution";
 import type { CliCommandResult } from "./runtime";
+import { realtimeClientMessageSchema, realtimeServerMessageSchema } from "../contracts/realtime";
 
 export interface CliInput extends AsyncIterable<string | Uint8Array> {}
 
@@ -119,7 +120,8 @@ export async function runWebSocketCliCommand(
         return;
       }
       try {
-        input.output.write(event.data);
+        realtimeServerMessageSchema.parse(JSON.parse(event.data));
+        input.output.write(`${event.data}\n`);
       } catch (error) {
         closeWithError(`Unable to write WebSocket output: ${errorMessage(error)}`);
       }
@@ -159,7 +161,7 @@ export async function runWebSocketCliCommand(
               const line = pending.slice(0, newline).replace(/\r$/, "");
               pending = pending.slice(newline + 1);
               if (line) {
-                JSON.parse(line) as unknown;
+                realtimeClientMessageSchema.parse(JSON.parse(line));
                 socket.send(line);
               }
               newline = pending.indexOf("\n");
@@ -168,7 +170,7 @@ export async function runWebSocketCliCommand(
           pending += decoder.decode();
           const finalLine = pending.replace(/\r$/, "");
           if (finalLine) {
-            JSON.parse(finalLine) as unknown;
+            realtimeClientMessageSchema.parse(JSON.parse(finalLine));
             socket.send(finalLine);
           }
           if (!settled) {

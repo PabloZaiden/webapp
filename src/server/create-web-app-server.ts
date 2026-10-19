@@ -107,7 +107,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   const activeLogLevel = resolveEffectiveLogLevel(config, savedLogLevel);
   setLogLevel(activeLogLevel);
   input.logLevel?.onChange?.(activeLogLevel);
-  const realtime = createRealtimeBus<TEvent>();
+  const realtime = createRealtimeBus<TEvent>(input.realtime);
   const version = input.version ?? "0.0.0-development";
   const wsPath = input.realtime?.path ?? "/api/ws";
   const publicRoutes = input.publicRoutes ?? {};
@@ -169,7 +169,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     if (publicRoute) {
       return publicRoute;
     }
-    if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/.well-known/") || url.pathname === "/device") {
+    if (url.pathname === wsPath || url.pathname.startsWith("/api/") || url.pathname.startsWith("/.well-known/") || url.pathname === "/device") {
       const builtIn = await frameworkEndpoints.handleBuiltIn(req, server);
       if (builtIn) {
         return secureDynamicResponse(builtIn);
@@ -224,6 +224,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     tls: input.server?.tls,
     publicRoutes,
     appWebsockets,
+    wsPath,
     realtime,
     ensurePublicAssetPaths: publicRouteDispatcher.ensurePublicAssetPaths,
     ensureWebDocument,

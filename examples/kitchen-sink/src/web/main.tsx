@@ -9,6 +9,7 @@ interface Project {
   status: "idle" | "running" | "failed";
   updatedAt: string;
 }
+type MutateProjects = ReturnType<typeof useLiveQuery<Project[] | null>>["mutate"];
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await appFetch(path, { ...init, headers: { "content-type": "application/json", ...init.headers } });
@@ -51,13 +52,12 @@ function NotificationExamples() {
   );
 }
 
-function NewProjectView({ refresh }: { refresh: () => Promise<void> }) {
+function NewProjectView({ mutate }: { mutate: MutateProjects }) {
   const [name, setName] = useState("");
   async function createProject() {
     if (!name.trim()) return;
-    await api("/api/projects", { method: "POST", body: JSON.stringify({ name }) });
+    await mutate(signal => api("/api/projects", { method: "POST", signal, body: JSON.stringify({ name }) }));
     setName("");
-    await refresh();
   }
   useHeaderActions({
     primary: [{ id: "create-project", label: "Create", disabled: !name.trim(), onAction: () => void createProject() }],
@@ -114,11 +114,11 @@ function ActivityView({ projects, publicPing }: { projects: Project[]; publicPin
 
 function KitchenSinkApp() {
   const [publicPing, setPublicPing] = useState<"checking" | "ok" | "failed">("checking");
-  const { data, error, loading, refresh } = useLiveQuery<Project[] | null>({
-    load: async () => {
-      const config = await api<{ passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }>("/api/config");
+  const { data, error, loading, refresh, mutate } = useLiveQuery<Project[] | null>({
+    load: async (signal) => {
+      const config = await api<{ passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }>("/api/config", { signal });
       if (needsAuthentication(config)) return null;
-      return api<Project[]>("/api/projects");
+      return api<Project[]>("/api/projects", { signal });
     },
     realtime: { resources: ["projects"] },
   });
@@ -131,9 +131,8 @@ function KitchenSinkApp() {
   }, []);
 
   const updateProjectStatus = useCallback(async (project: Project, status: Project["status"]) => {
-    await api(`/api/projects/${project.id}`, { method: "PATCH", body: JSON.stringify({ status }) });
-    await refresh();
-  }, [refresh]);
+    await mutate(signal => api(`/api/projects/${project.id}`, { method: "PATCH", signal, body: JSON.stringify({ status }) }));
+  }, [mutate]);
 
   const getProjectActions = useCallback((project: Project): ActionMenuItem[] => [
     { id: "mark-running", label: "Mark running", disabled: project.status === "running", onAction: () => void updateProjectStatus(project, "running") },
@@ -205,7 +204,7 @@ function KitchenSinkApp() {
       }}
       routes={{
         home: <Home projects={projects} />,
-        "new-project": <NewProjectView refresh={refresh} />,
+        "new-project": <NewProjectView mutate={mutate} />,
         activity: <ActivityView projects={projects} publicPing={publicPing} />,
         project: (route) => <ProjectView route={route} projects={projects} />,
       }}

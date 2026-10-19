@@ -125,6 +125,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
       appName: config.appName,
       version,
       publicBasePath: getRequestOriginInfo(req, config).pathPrefix,
+      realtime: { path: wsPath },
       currentUser: user,
       passkeyAuth: passkeyStatus(req, store, config, passkeysEnabled),
       userManagement: {
@@ -175,11 +176,12 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
       if (path === wsPath) {
         const auth = await authentication.authorize(req, true);
         if (auth instanceof Response) return auth;
+        const user = authentication.requireUser(auth);
         const originFailure = checkSameOrigin(req, config, auth, "always");
         if (originFailure) return originFailure;
         if (!server) return errorResponse(400, "websocket_unavailable", "WebSocket server is unavailable");
-        const filters = Object.fromEntries(url.searchParams.entries());
-        const upgraded = server.upgrade(req, { data: { filters, userId: authentication.currentUser(auth)?.id } });
+        if (url.search) return errorResponse(400, "invalid_subscription", "Use realtime subscription messages, not URL query filters");
+        const upgraded = server.upgrade(req, { data: { userId: user.id } });
         return upgraded ? undefined : errorResponse(400, "websocket_upgrade_failed", "WebSocket upgrade failed");
       }
       if (path === "/api/auth/status" && req.method === "GET") {

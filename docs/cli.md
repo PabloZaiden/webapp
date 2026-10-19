@@ -342,7 +342,17 @@ printf '%s\n' '{"type":"ping"}' | my-app --profile production ws
 ```
 
 The command accepts JSON lines from stdin, sends each line as an unchanged text
-frame, and writes received text frames unchanged to stdout. It does not accept
+frame, and writes received text frames as newline-delimited JSON to stdout.
+Both directions are validated against the current realtime protocol. Send
+`subscribe` messages with concrete interests to receive application events;
+an open socket without subscriptions receives only control responses:
+
+```json
+{"type":"subscribe","subscriptionId":"todos","generation":1,"interest":{"kinds":["state"],"resources":["todos"]}}
+```
+
+See [Realtime](realtime.md) for activation acknowledgements, generations and
+unsubscribe messages. The command does not accept
 positional base URLs and does not interpret application event types. EOF,
 `SIGINT`, and `SIGTERM` close normally; invalid input, binary frames, connection
 errors, and abnormal closes produce a non-zero result.

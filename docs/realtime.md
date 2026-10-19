@@ -1,168 +1,264 @@
 # Realtime
 
-Every server has a typed `RealtimeBus`. Apps should prefer the framework event convention:
+Application hooks share **one authenticated WebSocket per JavaScript runtime**.
+Mounting or changing an interest sends dynamic subscription messages, not a
+new connection. Raw terminal/preview transports are separate application protocols.
+An open connection without subscriptions receives no application events.
+Hooks wait for `WebAppRoot` to identify the authenticated user before opening
+the shared transport; domain hooks may be declared above that root without
+creating a redundant bootstrap connection.
+
+The server advertises its `realtime.path` through `/api/config`; the shared
+runtime uses that configured endpoint, including custom paths outside `/api`.
+Do not configure endpoints separately on individual hooks.
+An authentication-required response retires the old runtime and invalidates
+the cached configuration so the root can show the sign-in flow. Obsolete
+configuration responses cannot reactivate a previous authenticated session.
+
+## State collections
+
+Use resource publications for invalidation, not transcript or action bodies:
 
 ```ts
-type AppEvent = ResourceRealtimeEvent;
-
-const routes = defineRoutes<AppEvent>({
-  "/api/todos": {
-    async POST(req, ctx) {
-      const user = ctx.requireUser();
-      const todo = await createTodo(user.id, req);
-      ctx.userRealtime.publishEntityChanged("todos", todo.id);
-      return jsonResponse(todo);
-    },
-  },
-});
+ctx.userRealtime.publishEntityChanged("todos", todo.id);
+ctx.userRealtime.publishDeleted("todos", todo.id);
+ctx.userRealtime.publishSettingsChanged();
+// Scheduled/background work supplies the authoritative owner explicitly:
+app.realtime.publishChanged("todos", { target: { userId: todo.userId } });
 ```
 
-Standard events have `type`, `resource`, `action`, optional `id`, optional `scope` and optional `payload`:
-
-| Helper | Event |
-| --- | --- |
-| `publishChanged("todos")` | `{ type: "todos.changed", resource: "todos", action: "changed" }` |
-| `publishEntityChanged("todos", id)` | `{ type: "todos.changed", resource: "todos", action: "changed", id }` |
-| `publishDeleted("todos", id)` | `{ type: "todos.deleted", resource: "todos", action: "deleted", id }` |
-| `publishSettingsChanged()` | `{ type: "settings.changed", resource: "settings", action: "changed" }` |
-
-For records that belong to the signed-in user, use `ctx.userRealtime.publishChanged`, `publishEntityChanged`, `publishDeleted`, or `publishSettingsChanged`. These helpers target only websocket connections authenticated as that user, so other users do not receive entity ids or timing signals.
-
-Frontend code can refresh declaratively:
-
-```tsx
-useRealtimeRefresh({
-  resources: ["todos", "notes"],
-  refresh: () => refreshData(),
-  onOpen: () => refreshData(),
-});
-```
-
-Or combine initial loading and realtime refresh:
-
-```tsx
-import { appJson, useLiveQuery } from "@pablozaiden/webapp/web";
-
-type Todo = { id: string; title: string };
-
-const { data: todos } = useLiveQuery<Todo[]>({
-  load: () => appJson<Todo[]>("/api/todos"),
-  realtime: { resources: ["todos"] },
-});
-```
-
-For targeted delivery, clients subscribe with filters and the server publishes to matching targets:
-
-```tsx
-useRealtimeRefresh({
-  filters: { resource: "todos", scope: workspaceId },
-  resources: ["todos"],
-  scopes: [workspaceId],
-  refresh,
-  onOpen: () => refresh(),
-});
-```
-
-```ts
-ctx.realtime.publishEntityChanged("todos", todo.id, { scope: workspaceId });
-```
-
-Use scoped/global `ctx.realtime` for non-user scopes only when the server validates access to that scope. For per-user app data, prefer `ctx.userRealtime` instead of trusting a client-provided websocket filter.
-
-## Server target matching
-
-Standard event metadata is also the default websocket routing target. The server derives `resource`, `id`, and `scope` from the event, then merges any explicit `target` fields into that target. `userId` and custom dimensions such as `tenantId` narrow delivery without removing the event-derived fields. A target field whose value is `undefined` does not erase an inferred field.
-
-The event metadata is authoritative for `resource`, `id`, and `scope`. Repeating one of those fields in `target` is allowed only when it has the same value; a conflicting value, or a target-only value that would make the event metadata inconsistent, throws before the event is serialized or sent. `ctx.userRealtime` always supplies the authenticated user's ID, even if a caller attempted to provide a different `userId`.
-
-Websocket query filters are combined with the target using AND semantics. A socket must satisfy its authenticated user restriction and every defined filter field to receive the event. The `target` object is routing metadata and is not added to the event payload, so clients should select on the event's `resource`, `id`, and `scope` fields.
-
-## Client refresh lifecycle
-
-Subscriptions do not replay missed events. Use `onOpen` to read an authoritative
-snapshot after **every** physical connection opens, including the first one.
-The initial HTTP load can predate the subscription. `onOpen` runs directly from
-the socket lifecycle, independently of React connection-status renders; its
-latest callback is used without reconnecting. Rejected recovery promises are
-logged as errors. Applications should also expose load failures through their
-normal error state.
-
-`useLiveQuery` automatically queues an authoritative load on every opening.
-`useRealtime` and `useRealtimeRefresh` require an explicit `onOpen` callback
-because their event callbacks cannot recover state that was never delivered.
-
-For the default `/api/ws` endpoint, the client sends an application-level `ping`
-immediately after
-opening and every 15 seconds after a successful pong. If a JSON
-`{ "type": "pong" }` response does not arrive within 5 seconds, it retires the
-unresponsive socket and reconnects with the normal backoff. This detects
-connections that still appear open after a network interruption. Control pongs
-alone do not prove that application messages can reach the browser.
-Custom `path` endpoints retain their existing protocol: heartbeat is disabled
-by default. They can opt in with `heartbeat: true` when they implement the same
-ping/pong contract. Use `heartbeat: false` to explicitly disable these probes.
-An opening handshake always has a 5-second deadline before the same retry path.
-
-Returning to a visible document, coming online, or restoring a page from the
-back-forward cache replaces the subscription immediately. Each opening then
-invokes `onOpen` so missed changes can be recovered without HTTP polling.
-Unmounting, disabling, or changing the subscription removes all socket
-callbacks, browser lifecycle listeners, and heartbeat/retry timers.
-
-`useRealtime` and `useRealtimeRefresh` apply resource, action, ID, scope, type,
-and predicate selectors before updating `lastEvent` or invoking event/refresh
-callbacks. Rejected events do not cause an event-driven hook render and do not
-replace the last accepted event. Selectors and callbacks stay current without
-reconnecting the socket when their identity changes. Server-side `filters`
-still control delivery; client-side selectors avoid unnecessary React work
-for events that reach the browser.
-
-Both hooks track the last accepted event by default. Set `trackLastEvent: false`
-for callback-only consumers that do not render the event itself:
-
-```tsx
-type ChatDeltaEvent = {
-  type: "chat.message.delta";
-  chatId: string;
-  delta: string;
-};
-
-useRealtime<ChatDeltaEvent>({
-  types: ["chat.message.delta"],
-  predicate: (event) => event.chatId === activeChatId,
-  trackLastEvent: false,
-  onEvent: applyChatDelta,
-});
-```
-
-Matching events still invoke callbacks, but do not update event state in this
-mode. Connection status remains reactive and reconnection behavior is unchanged.
-Disabling tracking does not clear an event retained before the option changed;
-a subscription started with tracking disabled has no `lastEvent`.
-
-`useLiveQuery` keeps default tracking and also accepts this option in its
-`realtime` configuration. Its authoritative data updates still render normally.
-It combines the initial load with this refresh path:
+Resource events contain `type`, `resource`, `action`, and optional `id`, `scope`,
+and `payload`. `publishChanged`, `publishEntityChanged`, `publishDeleted`,
+`publishSettingsChanged`, and `publishResource` publish **state** events.
+They infer routing metadata from the event; contradictory explicit resource,
+ID, or scope targets throw. `ctx.userRealtime` always overwrites the owner
+target with the authenticated user, even if the caller supplied another ID.
 
 ```tsx
 const query = useLiveQuery<Todo[]>({
-  load: () => appJson<Todo[]>("/api/todos"),
-  deps: [workspaceId],
-  realtime: { resources: ["todos"], scopes: [workspaceId] },
+  load: signal => appJson("/api/todos", { signal }),
+  realtime: { resources: ["todos"] },
+});
+await query.mutate(
+  signal => appJson<Todo>("/api/todos", {
+    method: "POST", signal, body: JSON.stringify(input),
+  }),
+  (previous, todo) => previous ? [...previous, todo] : undefined,
+);
+```
+
+`load(signal, previous?)` returns data rather than writing unrelated state.
+Only the owning generation can commit its result. Matching invalidations
+during a read mark it dirty and queue one follow-up; a dirty response is not
+installed as synchronized. A failed superseded read also yields to that queued
+follow-up, for example when a collection member is deleted while its detail
+is loading. A failure without a newer invalidation settles visibly rather
+than retrying indefinitely. Errors are returned as `query.error` and optionally
+reported to `realtime.onError`. `refresh()` resolves after its reads settle;
+read failures are exposed through state, not unhandled rejected promises.
+
+`mutate(operation, reconcile?)` establishes a barrier **before** starting the
+operation: it cancels older reads, pauses reads while mutations are pending,
+guards optional response reconciliation, and requests an authoritative cut
+after the last mutation settles. Mutation failures reject the returned promise.
+Mutations are not retried; cancellation cannot promise that a server mutation
+did not execute. Zero-argument operation callbacks are supported.
+
+The loader's `previous` argument supports authoritative refetches of an
+already-loaded paginated prefix. The application determines page depth,
+ordering, unread counts, and domain reconciliation. Changing `deps` cancels
+the old query lifecycle and resets data to the current `initialData` (or
+`undefined`); reconnect preserves previous data. `refresh` and `mutate` are
+stable callbacks. Omitting `realtime`, setting it to `false`, or disabling it
+creates an ordinary query without an application subscription.
+Ordinary queries do not wait for realtime identity and can load and refresh
+on public pages or outside `WebAppRoot`. Session changes still cancel their
+old lifecycle and reset the query's displayed data.
+
+For an existing cancellable refresh operation:
+
+```tsx
+useRealtimeRefresh({
+  resources: ["todos"],
+  refresh: (_event, signal) => refreshData(signal),
 });
 ```
 
-The `load` callback is kept current without using its identity as a reload trigger. Automatic loads use normal React dependency semantics: only a value in `deps` changing starts a new load. Call `query.refresh()` for an explicit manual refresh.
+It refreshes after **every acknowledged activation**, including an interest
+added to an already-open socket, and coalesces concurrent invalidations. The
+initial activation passes `undefined` as the event. An opaque callback's
+independent state writes cannot be guarded by the framework: use `useLiveQuery`
+or `createLiveQueryController` when reads must not overwrite mutations.
 
-Each started load has a generation. Only the newest generation can commit `data`, `error`, or the final `loading` state; an older promise that resolves or rejects later is ignored. Unmounting invalidates pending generations. Load failures are normalized to `Error` and remain available through `query.error`.
+## Content and actions
 
-Keep initial loading, mutation refreshes, and reconnect recovery on the same
-query. Return snapshots from `load` instead of writing independent React state
-inside it; those side effects are not protected by the query's generation.
-Related collections can be returned together as one snapshot. Derive sidebar
-readiness from that snapshot and the query's loading/error state, and surface
-load errors through the application's normal error UI.
+Custom publications default to `kind: "content"`; transient actions explicitly
+use `kind: "action"`. State subscribers never receive either accidentally.
 
-Realtime events are coalesced while work is active. At most one realtime load runs at a time, with one queued follow-up for a burst of additional matching events. The follow-up uses the latest loader and runs after active work settles, preventing an event burst from creating unbounded concurrent requests.
+```ts
+app.realtime.publish(delta, {
+  kind: "content",
+  target: { userId: owner.id, chatId: chat.id },
+});
+app.realtime.publish(action, {
+  kind: "action",
+  target: { userId: owner.id, clientId: client.id },
+});
+```
 
-`ctx.realtime.publish(customEvent)` and `useRealtime({ onEvent })` still exist as low-level escape hatches. The hook reconnects with exponential backoff and uses the same origin as the page.
+```tsx
+useRealtime<ChatDelta>({
+  kinds: ["content"],
+  types: ["chat.delta"],
+  targets: { chatId },
+  trackLastEvent: false,
+  onEvent: applyDelta,
+  onSubscribed: ({ generation }) => recover(generation),
+  onError: setError,
+});
+```
+
+Server selectors are `resources`, `actions`, `ids`, `scopes`, `types`, `kinds`,
+and `targets`. Array entries are OR; different selectors/dimensions are AND.
+Arbitrary targets such as `taskId`, `chatId`, `agentRunId`,
+`provisioningJobId`, or `clientId` support either one string or an array.
+Undefined target values are omitted by hooks. Resource interests default to
+`kinds: ["state"]`; interests without resources default to content/action.
+At least one concrete selector other than kinds is required.
+
+`realtimeEventMatches(event, selector, { kind, target })` evaluates the same
+selectors against an explicit publication kind and routing target. Supply the
+actual routing metadata: targets and kinds cannot be inferred from an event
+payload. The matcher also applies the optional local predicate.
+
+`predicate` is a local refinement, not a server interest or authorization rule.
+Client interests cannot select `userId`. Delivery first checks publication
+ownership independently of interest matching, then optional server-side access
+filters. Always supply an authoritative owner for private custom publications;
+an intentionally untargeted publication is global to matching authenticated
+connections. Interests do not grant access to a resource.
+
+Overlapping interests produce one event frame listing each matching
+subscription generation. Each logical subscriber receives it once.
+Consumer exceptions are isolated and reported to that consumer's error handler.
+Changing selectors replaces the logical interest without reopening the socket.
+
+## Authoritative versioned projections
+
+```tsx
+const transcript = useVersionedRealtime<Transcript, Delta>({
+  deps: [chatId],
+  kinds: ["content"], types: ["chat.delta"], targets: { chatId },
+  load: async ({ signal }) => {
+    const snapshot = await appJson<Snapshot>(`/api/chats/${chatId}`, { signal });
+    return { data: snapshot.transcript, ...snapshot.position };
+  },
+  version: event => event.position,
+  reduce: (data, event) => applyTranscriptDelta(data, event),
+});
+```
+
+`deps?: readonly unknown[]` declares the projection's identity, using React
+dependency equality and a fixed dependency-list shape. Supply the entity key,
+such as `deps: [chatId]` or `[jobId]`. Identity changes immediately stop exposing
+the previous data/error, retire its controller and cancel pending requests, and
+activate a new logical subscription on the existing shared socket. Late old
+results cannot populate the new projection. Same-identity reconnects preserve
+displayed data while establishing a new authoritative baseline.
+`UseVersionedRealtimeOptions<TData,TEvent>` is exported for typed compositions.
+Raw `useRealtime` also accepts `deps` when a logical consumer identity changes
+without changing its server selectors.
+
+The snapshot's `{ epoch: string, revision: number, data }` must be captured
+from one consistent authoritative domain cut. Deltas expose
+`{ epoch, baseRevision, revision }`; revisions are non-negative safe integers,
+and each delta must advance its base. Do not fabricate revisions from socket
+send counters, timestamps, ETags, or independently read metadata.
+
+Acknowledgement starts a bounded temporary buffer and the authoritative load.
+Baseline installation discards deltas already represented by the snapshot,
+orders newer deltas by domain revision, and drains them in one synchronous
+handoff. Duplicate revisions are ignored. Stale generation/read results
+cannot commit. A gap, epoch change, or buffer overflow requests a new baseline.
+Persistent inconsistency is surfaced as an error after bounded recovery.
+There is no replay history. Defaults are 512 events and 2 MiB.
+Reducers can throw `RealtimeResyncRequiredError` when a domain-specific base
+length or projection bound requires an authoritative baseline. Other reducer
+errors surface immediately. Recovery is bounded in either case. `refresh()`
+during an active read marks it dirty and queues one follow-up baseline; its
+promise covers that follow-up. Deactivation preserves displayed data while
+discarding buffers and pending results; the next activation requires a fresh cut.
+An obsolete read failure yields to an already-queued baseline, just like an
+obsolete success. A failure of the final requested baseline remains visible
+and does not start an unbounded retry loop.
+Each read dispatch drops the preceding temporary buffer and epoch expectation:
+the fresh authoritative cut must cover already-observed mutations. Only deltas
+arriving during that read constrain its epoch. This permits a live owner to
+retire into a cold persisted snapshot without preserving an obsolete stream
+incarnation; late old-owner deltas request another fresh cut.
+
+The same non-React owner is exported:
+
+```ts
+const sync = createVersionedSyncController<Data, Event>({
+  load: ({ signal }) => loadSnapshot(signal),
+  version: event => event.position,
+  reduce,
+  onChange: state => render(state),
+  maxBufferedEvents: 512,
+  maxBufferedBytes: 2 * 1024 * 1024,
+});
+// Connect it to useRealtime's callbacks:
+// onSubscribed: activation => sync.activate(activation)
+// onStatus: status => { if (status !== "open") sync.deactivate(); }
+// onEvent: event => sync.receive(event)
+```
+
+It provides `activate({generation})`, `receive(event)`, `refresh()`,
+`deactivate()`, `getState()`, and `dispose()`. State contains optional
+`data`, `epoch`, `revision`, `error`, and status
+`"idle" | "loading" | "live" | "error"`.
+
+`createLiveQueryController({load,initialData?,onChange,onError?})` is the
+invalidation-only equivalent. `prepare()` permits local mutations before
+activation; `activate()` enables acknowledged reads; `suspend()` cancels reads
+without abandoning mutation barriers. `invalidate()`, `mutate()`,
+`reset(data?)`, `deactivate()`, and `getState()` complete its lifecycle.
+
+## Wire protocol and lifecycle
+
+The exported contract schemas runtime-validate JSON on both sides. The endpoint
+accepts no query parameters and implements only the current protocol:
+
+```json
+{"type":"subscribe","subscriptionId":"detail","generation":1,"interest":{"kinds":["content"],"types":["chat.delta"],"targets":{"chatId":"chat"}}}
+{"type":"subscribed","subscriptionId":"detail","generation":1}
+{"type":"event","subscriptions":[{"subscriptionId":"detail","generation":1}],"event":{"type":"chat.delta"}}
+{"type":"unsubscribe","subscriptionId":"detail","generation":2}
+{"type":"unsubscribed","subscriptionId":"detail","generation":2}
+{"type":"ping"}
+{"type":"pong"}
+```
+
+Resubmitting `subscribe` with a newer generation updates an existing interest.
+No late acknowledgement/event can reactivate an obsolete client generation.
+The runtime restores current interests on reconnect and waits for their new
+acknowledgements before recovery. One heartbeat probes every 15 seconds, with
+a 5-second connection, pong, and subscription-ack deadline; one bounded
+exponential retry timer owns reconnect. Online/bfcache restoration can reconnect,
+but changing visibility alone does not replace a healthy socket.
+
+Server limits default to 128 subscriptions, 64 KiB client messages and 1 MiB
+outbound buffered data; configure them under `realtime` as `maxSubscriptions`,
+`maxMessageBytes`, and `maxBufferedBytes`. Backpressure emits an error where
+possible and closes with 1013, forcing recovery instead of silently dropping
+events. Protocol errors close with 1008. Client buffering is also bounded.
+Subscription limits cannot exceed the protocol maximum of 128. Retired
+generations remain bounded at 32 times the configured subscription limit;
+exhaustion requests reconnect so an old command cannot revive a retired interest.
+Authentication changes invalidate the shared session, clear old interests,
+cancel owned work, and require new baselines. The final subscriber releases
+the socket, browser listeners, heartbeat and retry timers.
+Idle retirement waits until the end of the current JavaScript turn, allowing
+replacement of the sole logical interest without recreating the transport.
+Explicit runtime disposal still tears down immediately.

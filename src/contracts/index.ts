@@ -151,6 +151,7 @@ export interface WebAppConfigResponse {
   appName: string;
   version: string;
   publicBasePath: string;
+  realtime: { path: string };
   currentUser?: CurrentUser;
   passkeyAuth: PasskeyAuthStatusResponse;
   userManagement: {
@@ -178,3 +179,4 @@ export interface WebAppErrorResponse {
   message: string;
   details?: unknown;
 }
+export * from "./realtime";

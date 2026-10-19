@@ -338,7 +338,7 @@ setWebAppPublicBasePath(config.publicBasePath);
 const downloadUrl = appPath("/api/items/export");
 const shareUrl = appAbsoluteUrl("/#/items");
 const setupPage = appPagePath("/setup");
-const socket = new WebSocket(appWebSocketUrl("/api/ws"));
+const terminalUrl = appWebSocketUrl("/api/terminal");
 const rawResponse = await appRequest("/api/items");
 window.history.replaceState(null, "", appPagePath("/"));
 ```
