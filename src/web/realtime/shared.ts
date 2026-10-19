@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 
 let runtime: RealtimeRuntime | undefined;
 let currentUrl: string | undefined;
+let currentPath: string | undefined;
 let identity: string | undefined;
 let session = { generation: 0, ready: false };
 const listeners = new Set<() => void>();
@@ -16,16 +17,13 @@ export function resetRealtimeRuntime(): void {
   runtime = undefined;
   currentUrl = undefined;
 }
-onAuthRequired(() => {
-  resetRealtimeRuntime();
-  identity = undefined;
-  notify(false);
-});
+onAuthRequired(() => setRealtimeIdentity(undefined));
 
-export function setRealtimeIdentity(next: string | undefined): void {
-  const ready = next !== undefined;
-  if (next === identity && session.ready === ready) return;
+export function setRealtimeIdentity(next: string | undefined, path?: string): void {
+  const ready = next !== undefined && path !== undefined;
+  if (next === identity && path === currentPath && session.ready === ready) return;
   identity = next;
+  currentPath = path;
   resetRealtimeRuntime();
   notify(ready);
 }
@@ -39,7 +37,10 @@ export function useRealtimeSession() {
 }
 
 export function sharedRealtimeRuntime(): RealtimeRuntime {
-  const url = appWebSocketUrl("/api/ws");
+  if (!session.ready || currentPath === undefined) {
+    throw new Error("Realtime configuration is not ready.");
+  }
+  const url = appWebSocketUrl(currentPath);
   if (runtime && url !== currentUrl) {
     resetRealtimeRuntime();
     notify(session.ready);

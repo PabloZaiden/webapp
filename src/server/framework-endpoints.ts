@@ -125,6 +125,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
       appName: config.appName,
       version,
       publicBasePath: getRequestOriginInfo(req, config).pathPrefix,
+      realtime: { path: wsPath },
       currentUser: user,
       passkeyAuth: passkeyStatus(req, store, config, passkeysEnabled),
       userManagement: {

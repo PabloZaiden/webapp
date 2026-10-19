@@ -8,6 +8,13 @@ Hooks wait for `WebAppRoot` to identify the authenticated user before opening
 the shared transport; domain hooks may be declared above that root without
 creating a redundant bootstrap connection.
 
+The server advertises its `realtime.path` through `/api/config`; the shared
+runtime uses that configured endpoint, including custom paths outside `/api`.
+Do not configure endpoints separately on individual hooks.
+An authentication-required response retires the old runtime and invalidates
+the cached configuration so the root can show the sign-in flow. Obsolete
+configuration responses cannot reactivate a previous authenticated session.
+
 ## State collections
 
 Use resource publications for invalidation, not transcript or action bodies:
@@ -64,6 +71,9 @@ the old query lifecycle and resets data to the current `initialData` (or
 `undefined`); reconnect preserves previous data. `refresh` and `mutate` are
 stable callbacks. Omitting `realtime`, setting it to `false`, or disabling it
 creates an ordinary query without an application subscription.
+Ordinary queries do not wait for realtime identity and can load and refresh
+on public pages or outside `WebAppRoot`. Session changes still cancel their
+old lifecycle and reset the query's displayed data.
 
 For an existing cancellable refresh operation:
 
@@ -115,6 +125,11 @@ Arbitrary targets such as `taskId`, `chatId`, `agentRunId`,
 Undefined target values are omitted by hooks. Resource interests default to
 `kinds: ["state"]`; interests without resources default to content/action.
 At least one concrete selector other than kinds is required.
+
+`realtimeEventMatches(event, selector, { kind, target })` evaluates the same
+selectors against an explicit publication kind and routing target. Supply the
+actual routing metadata: targets and kinds cannot be inferred from an event
+payload. The matcher also applies the optional local predicate.
 
 `predicate` is a local refinement, not a server interest or authorization rule.
 Client interests cannot select `userId`. Delivery first checks publication
@@ -173,6 +188,9 @@ errors surface immediately. Recovery is bounded in either case. `refresh()`
 during an active read marks it dirty and queues one follow-up baseline; its
 promise covers that follow-up. Deactivation preserves displayed data while
 discarding buffers and pending results; the next activation requires a fresh cut.
+An obsolete read failure yields to an already-queued baseline, just like an
+obsolete success. A failure of the final requested baseline remains visible
+and does not start an unbounded retry loop.
 Each read dispatch drops the preceding temporary buffer and epoch expectation:
 the fresh authoritative cut must cover already-observed mutations. Only deltas
 arriving during that read constrain its epoch. This permits a live owner to

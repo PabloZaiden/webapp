@@ -169,7 +169,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     if (publicRoute) {
       return publicRoute;
     }
-    if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/.well-known/") || url.pathname === "/device") {
+    if (url.pathname === wsPath || url.pathname.startsWith("/api/") || url.pathname.startsWith("/.well-known/") || url.pathname === "/device") {
       const builtIn = await frameworkEndpoints.handleBuiltIn(req, server);
       if (builtIn) {
         return secureDynamicResponse(builtIn);
@@ -224,6 +224,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     tls: input.server?.tls,
     publicRoutes,
     appWebsockets,
+    wsPath,
     realtime,
     ensurePublicAssetPaths: publicRouteDispatcher.ensurePublicAssetPaths,
     ensureWebDocument,

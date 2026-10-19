@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { VALID_LOG_LEVELS, type WebAppConfigResponse } from "../contracts";
-import { appJson, isWebAppPublicBasePath, setWebAppPublicBasePath } from "./api-client";
+import { appJson, isWebAppPublicBasePath, onAuthRequired, setWebAppPublicBasePath } from "./api-client";
 import { setRealtimeIdentity } from "./realtime/shared";
 
 export interface WebAppConfigState {
@@ -39,6 +39,8 @@ function isWebAppConfigResponse(value: unknown): value is WebAppConfigResponse {
     && typeof value["appName"] === "string"
     && typeof value["version"] === "string"
     && isWebAppPublicBasePath(value["publicBasePath"])
+    && isRecord(value["realtime"])
+    && isWebAppPublicBasePath(value["realtime"]["path"])
     && (value["currentUser"] === undefined || isCurrentUser(value["currentUser"]))
     && hasBooleanFields(value["passkeyAuth"], [
       "enabled",
@@ -86,20 +88,24 @@ export function WebAppConfigProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error>();
   const requestIdRef = useRef(0);
+  const requestRef = useRef<AbortController | undefined>(undefined);
 
   const refresh = useCallback(async () => {
+    requestRef.current?.abort();
+    const request = new AbortController();
+    requestRef.current = request;
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     setLoading(true);
     setError(undefined);
 
     try {
-      const response = parseWebAppConfigResponse(await appJson<unknown>("/api/config"));
+      const response = parseWebAppConfigResponse(await appJson<unknown>("/api/config", { signal: request.signal }));
       if (requestId !== requestIdRef.current) {
         return;
       }
       setWebAppPublicBasePath(response.publicBasePath);
-      setRealtimeIdentity(response.currentUser?.id);
+      setRealtimeIdentity(response.currentUser?.id, response.realtime.path);
       setConfig(response);
     } catch (value) {
       if (requestId === requestIdRef.current) {
@@ -107,13 +113,25 @@ export function WebAppConfigProvider({ children }: { children: ReactNode }) {
       }
     } finally {
       if (requestId === requestIdRef.current) {
+        requestRef.current = undefined;
         setLoading(false);
       }
     }
   }, []);
 
   useEffect(() => {
+    const unsubscribe = onAuthRequired(() => {
+      setConfig(undefined);
+      void refresh();
+    });
     void refresh();
+    return () => {
+      unsubscribe();
+      requestIdRef.current++;
+      requestRef.current?.abort();
+      requestRef.current = undefined;
+      setRealtimeIdentity(undefined);
+    };
   }, [refresh]);
 
   const state = useMemo<WebAppConfigState>(() => ({

@@ -36,7 +36,7 @@ export function useLiveQuery<TData, TEvent = ResourceRealtimeEvent>({
       // Query identity changed: never reconcile another route's data into this projection.
       controller.reset(initial.current);
     }
-    if (!session.ready) return () => controller.deactivate();
+    if (realtimeEnabled && !session.ready) return () => controller.deactivate();
     controller.prepare();
     if (!realtimeEnabled || subscribed.current) {
       void controller.activate();

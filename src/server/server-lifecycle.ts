@@ -18,6 +18,7 @@ export interface ServerLifecycleDependencies<TEvent = unknown> {
   tls?: Bun.TLSOptions | Bun.TLSOptions[];
   publicRoutes: Readonly<Record<string, unknown>>;
   appWebsockets: NonNullable<WebAppServerConfig["websockets"]>;
+  wsPath: string;
   realtime: RealtimeBus<TEvent>;
   ensurePublicAssetPaths: () => Promise<ReadonlySet<string>>;
   ensureWebDocument?: () => Promise<WebDocument>;
@@ -36,6 +37,7 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     tls,
     publicRoutes,
     appWebsockets,
+    wsPath,
     realtime,
     ensurePublicAssetPaths,
     ensureWebDocument,
@@ -120,6 +122,7 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
         "/device": deviceAuthEnabled ? spaDocumentRoute : dynamicHandler,
         "/setup": spaDocumentRoute,
         "/*": spaDocumentRoute,
+        [wsPath]: dynamicHandler,
       },
       websocket: {
         open(socket) {

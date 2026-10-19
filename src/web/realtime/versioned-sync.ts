@@ -121,6 +121,7 @@ export function createVersionedSyncController<TData, TEvent>(options: VersionedS
       emit({ data, epoch: snapshot.epoch, revision, status: "live" });
     } catch (error) {
       if (valid(token, activation)) {
+        if (queued) return;
         if (error instanceof RealtimeResyncRequiredError) recover(error.message);
         else fail(error);
       }

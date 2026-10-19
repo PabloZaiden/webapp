@@ -29,11 +29,23 @@ export interface RealtimeEventSelector<TEvent = ResourceRealtimeEvent> {
   targets?: Record<string, string | string[] | undefined>;
   predicate?: (event: TEvent) => boolean;
 }
-export function realtimeEventMatches<TEvent>(event: TEvent, selector?: RealtimeEventSelector<TEvent>): boolean {
+function toRealtimeInterest<TEvent>(options: RealtimeEventSelector<TEvent>): RealtimeInterest {
+  const targets = Object.fromEntries(Object.entries(options.targets ?? {}).filter((entry): entry is [string, string | string[]] => entry[1] !== undefined));
+  return {
+    kinds: options.kinds ?? (options.resources ? ["state"] : ["content", "action"]),
+    resources: options.resources, actions: options.actions, ids: options.ids,
+    scopes: options.scopes, types: options.types,
+    ...(Object.keys(targets).length ? { targets } : {}),
+  };
+}
+export function realtimeEventMatches<TEvent>(
+  event: TEvent,
+  selector: RealtimeEventSelector<TEvent> | undefined,
+  routing: { kind: RealtimeKind; target: Record<string, string | undefined> },
+): boolean {
   if (!selector) return true;
-  const { predicate, targets: _targets, ...fields } = selector;
-  const interest: RealtimeInterest = { ...fields, kinds: selector.kinds ?? (selector.resources ? ["state"] : ["content", "action"]) };
-  return realtimeInterestMatches(interest, interest.kinds[0]!, event, {}) && (predicate?.(event) ?? true);
+  return realtimeInterestMatches(toRealtimeInterest(selector), routing.kind, event, routing.target)
+    && (selector.predicate?.(event) ?? true);
 }
 export interface UseRealtimeOptions<TEvent> extends RealtimeEventSelector<TEvent> {
   deps?: readonly unknown[];
@@ -52,14 +64,7 @@ export function useRealtime<TEvent = ResourceRealtimeEvent>(options: UseRealtime
   const latest = useRef(options);
   latest.current = options;
   const session = useRealtimeSession();
-  const targets = Object.fromEntries(Object.entries(options.targets ?? {}).filter((entry): entry is [string, string | string[]] => entry[1] !== undefined));
-  const interest = {
-    kinds: options.kinds ?? (options.resources ? ["state"] : ["content", "action"]),
-    resources: options.resources, actions: options.actions, ids: options.ids,
-    scopes: options.scopes, types: options.types,
-    ...(Object.keys(targets).length ? { targets } : {}),
-  };
-  const key = JSON.stringify(interest);
+  const key = JSON.stringify(toRealtimeInterest(options));
   const enabled = options.enabled !== false;
   useEffect(() => {
     const report = (value: unknown): void => {
