@@ -59,7 +59,6 @@ test("native server documents load an application-local react-dom export", async
         dataDir: join(fixture.root, "data", "native"),
         logLevel: "info",
         logLevelFromEnv: false,
-        inMemoryLogsEnabled: false,
         passkeyDisabled: true,
         sameOriginDisabled: true,
         trustProxy: { enabled: false, headers: [], chain: "first" },

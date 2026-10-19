@@ -24,8 +24,6 @@ export interface RuntimeConfig {
   developmentSourcePath?: string;
   logLevel: LogLevelName;
   logLevelFromEnv: boolean;
-  /** Historical field name for the initial temporary server-log capture setting. */
-  inMemoryLogsEnabled: boolean;
   passkeyDisabled: boolean;
   sameOriginDisabled: boolean;
   publicBaseUrl?: string;
@@ -367,7 +365,6 @@ export function readRuntimeConfig(input: {
   const persisted = readWebAppConfig(dataDir);
   const logLevelRaw = readEnv(environment, envPrefix, "LOG_LEVEL");
   const logLevel = parseLogLevel(logLevelRaw, input.defaultLogLevel ?? DEFAULT_LOG_LEVEL, envName(envPrefix, "LOG_LEVEL"));
-  const inMemoryLogsEnabled = parseBoolean(readEnv(environment, envPrefix, "IN_MEMORY_LOGS"), false, envName(envPrefix, "IN_MEMORY_LOGS"));
   const publicBaseUrl = parsePublicBaseUrl(readEnv(environment, envPrefix, "PUBLIC_BASE_URL"), envName(envPrefix, "PUBLIC_BASE_URL"));
   const trustProxyEnabled = parseBoolean(readEnv(environment, envPrefix, "TRUST_PROXY"), false, envName(envPrefix, "TRUST_PROXY"));
   const trustProxy = {
@@ -392,7 +389,6 @@ export function readRuntimeConfig(input: {
     developmentSourcePath: persisted.development?.sourcePath,
     logLevel,
     logLevelFromEnv: Boolean(logLevelRaw),
-    inMemoryLogsEnabled,
     passkeyDisabled: isTruthyEnv(readEnv(environment, envPrefix, "DISABLE_PASSKEY")),
     sameOriginDisabled: isTruthyEnv(readEnv(environment, envPrefix, "DISABLE_SAME_ORIGIN_CHECK")),
     publicBaseUrl,
@@ -414,7 +410,6 @@ export function safeRuntimeConfig(config: RuntimeConfig): Record<string, unknown
     developmentSourcePath: config.developmentSourcePath,
     logLevel: config.logLevel,
     logLevelFromEnv: config.logLevelFromEnv,
-    inMemoryLogsEnabled: config.inMemoryLogsEnabled,
     passkeyDisabled: config.passkeyDisabled,
     sameOriginDisabled: config.sameOriginDisabled,
     publicBaseUrl: config.publicBaseUrl,

@@ -9,9 +9,9 @@ Settings is framework-owned so apps stay consistent. It includes:
   storage when available
 - Admin user management
 - Admin log-level preference unless `{PREFIX}_LOG_LEVEL` is set
-- Admin server-log capture toggle; disabled by default, with temporary files
-  removed on clean shutdown or when turned off; `{PREFIX}_IN_MEMORY_LOGS` can
-  enable it initially
+- Admin server-log capture preference, disabled by default and saved by the
+  configured store; captured logs remain temporary and are removed on clean
+  shutdown or when capture is turned off
 - Admin server kill
 - Version/about
 
@@ -51,17 +51,19 @@ the shared hook state after a successful save, and `fromEnv` is true when
 `{PREFIX}_LOG_LEVEL` locks the value. Applications should not add a separate
 configuration fetch or initializer component.
 
-Administration also includes **Preserve logs**. It
-is an admin-only, process-local setting and is disabled when the server starts
-unless `{PREFIX}_IN_MEMORY_LOGS` is set to `true`, `1`, or `yes` (the
-environment variable keeps its historical name). When enabled, the shared
-`tslog` service appends eligible entries to a private JSON Lines file in the
-operating system's temporary directory. There is no entry or size limit;
-disabling capture or a clean shutdown removes the file. Abrupt termination may
-leave it for the operating system's temporary-file cleanup. Retrieving the
-snapshot loads all entries into memory, and the unbounded file can exhaust the
-temporary filesystem. Writes are synchronous and can add latency at high log
-volume; avoid logging secrets. Captured logs are never stored in SQLite.
+Administration also includes **Preserve logs**. It is an admin-only global
+preference stored by the configured `WebAppStore`; the default SQLite store
+persists it across server restarts. When no preference is saved, capture
+defaults to disabled. With a custom store, persistence follows that store's
+behavior. When enabled, the shared `tslog` service appends eligible entries to
+a private JSON Lines file in the operating system's temporary directory. The
+preference survives a restart, but captured entries do not: clean shutdown
+removes the file and the next start creates a fresh one. Disabling capture
+also removes the file; abrupt termination may leave it for the operating
+system's temporary-file cleanup. There is no entry or size limit; retrieving
+the snapshot loads all entries into memory, and the unbounded file can exhaust
+the temporary filesystem. Writes are synchronous and can add latency at high
+log volume; avoid logging secrets. Captured logs are never stored in SQLite.
 
 Security lists only show useful active user credentials. Managed API keys created by
 server-side applications, and their metadata, are not returned by the browser API-key

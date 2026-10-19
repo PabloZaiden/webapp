@@ -21,7 +21,6 @@ for (const id of ["first", "second"]) {
       dataDir: join(directory, id),
       logLevel: "error",
       logLevelFromEnv: false,
-      inMemoryLogsEnabled: false,
       passkeyDisabled: true,
       sameOriginDisabled: false,
       trustProxy: { enabled: false, headers: [], chain: "first" },

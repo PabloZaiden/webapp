@@ -80,29 +80,22 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     throw new Error("runtimeConfig appName and envPrefix must match the createWebAppServer inputs");
   }
   const routes = compileRouteTable(input.routes ?? {});
-  let serverLogsEnabled = config.inMemoryLogsEnabled;
+  const store = input.store ?? sqliteWebAppStore({ dataDir: config.dataDir });
+  store.initialize();
+  let serverLogsEnabled = store.getServerLogsEnabledPreference() ?? false;
   resetServerLogStorage();
-  setServerLogStorageEnabled(config.inMemoryLogsEnabled);
+  setServerLogStorageEnabled(serverLogsEnabled);
   const serverLogs: ServerLogStorage = {
     isEnabled: serverLogStorage.isEnabled,
     setEnabled(enabled) {
-      try {
-        serverLogStorage.setEnabled(enabled);
-      } finally {
-        serverLogsEnabled = serverLogStorage.isEnabled();
-      }
+      serverLogStorage.setEnabled(enabled);
+      serverLogsEnabled = enabled;
     },
     getEntries: serverLogStorage.getEntries,
     reset() {
-      try {
-        serverLogStorage.reset();
-      } finally {
-        serverLogsEnabled = serverLogStorage.isEnabled();
-      }
+      serverLogStorage.reset();
     },
   };
-  const store = input.store ?? sqliteWebAppStore({ dataDir: config.dataDir });
-  store.initialize();
   const savedLogLevel = store.getLogLevelPreference();
   const activeLogLevel = resolveEffectiveLogLevel(config, savedLogLevel);
   setLogLevel(activeLogLevel);
@@ -199,6 +192,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     hooks: {
       ...(input.lifecycle ?? {}),
       beforeStart: async () => {
+        serverLogsEnabled = store.getServerLogsEnabledPreference() ?? false;
         setServerLogStorageEnabled(serverLogsEnabled);
         await input.lifecycle?.beforeStart?.();
       },

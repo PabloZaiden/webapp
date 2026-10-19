@@ -510,7 +510,27 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
         const body = await parseJson(req, serverLogSettingsRequestSchema);
-        serverLogs.setEnabled(body.enabled);
+        const previousEnabled = store.getServerLogsEnabledPreference() ?? false;
+        store.setServerLogsEnabledPreference(body.enabled);
+        try {
+          serverLogs.setEnabled(body.enabled);
+        } catch (error) {
+          const errors: unknown[] = [error];
+          try {
+            serverLogs.setEnabled(previousEnabled);
+          } catch (restoreError) {
+            errors.push(restoreError);
+          }
+          try {
+            store.setServerLogsEnabledPreference(previousEnabled);
+          } catch (restoreError) {
+            errors.push(restoreError);
+          }
+          if (errors.length > 1) {
+            throw new AggregateError(errors, "Unable to update server-log capture setting");
+          }
+          throw error;
+        }
         return successResponse({ enabled: serverLogs.isEnabled() });
       }
       if (path === "/api/server/kill" && req.method === "POST") {
