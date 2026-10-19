@@ -312,6 +312,71 @@ test("persists server log capture preference across server instances", async () 
   }
 });
 
+test("starts without capture when restoring temporary server logs fails", async () => {
+  const dataDir = testDataDir("server-log-storage-unavailable");
+  const store = sqliteWebAppStore({ dataDir });
+  store.initialize();
+  store.setServerLogsEnabledPreference(true);
+  const owner = createUser(store, "log-storage-unavailable-owner");
+  const ownerKey = createApiKey(store, currentUser(owner), {
+    name: "server log storage unavailable test key",
+    scopes: ["*"],
+  });
+  const envPrefix = "TEST_E2E_SERVER_LOG_STORAGE_UNAVAILABLE";
+  const runtimeConfig: RuntimeConfig = {
+    appName: "E2E Server",
+    envPrefix,
+    host: "127.0.0.1",
+    port: 0,
+    dataDir,
+    logLevel: "info",
+    logLevelFromEnv: false,
+    passkeyDisabled: false,
+    sameOriginDisabled: false,
+    trustProxy: { enabled: false, headers: [], chain: "first" },
+    development: false,
+  };
+  const previousTmpdir = process.env["TMPDIR"];
+  const errorOutput = spyOn(console, "error").mockImplementation(() => undefined);
+  process.env["TMPDIR"] = resolve(dataDir, "missing-temporary-directory");
+  let stopApp: (() => Promise<void>) | undefined;
+
+  try {
+    const app = createWebAppServer({
+      appName: runtimeConfig.appName,
+      envPrefix,
+      runtimeConfig,
+      web: false,
+      store,
+      auth: { passkeys: false, apiKeys: true },
+      routes: defineRoutes({}),
+    });
+    stopApp = () => app.stop(true);
+    const server = await app.start();
+    const baseUrl = server.url.toString().replace(/\/$/, "");
+    const configResponse = await fetch(`${baseUrl}/api/config`);
+    expect((await responseJson<{ inMemoryLogs: { enabled: boolean } }>(configResponse)).inMemoryLogs.enabled).toBe(false);
+
+    const logsResponse = await fetch(`${baseUrl}/api/server/logs`, {
+      headers: { authorization: bearer(ownerKey.token) },
+    });
+    expect(await responseJson<{ enabled: boolean; logs: unknown[] }>(logsResponse)).toEqual({
+      enabled: false,
+      logs: [],
+    });
+    expect(errorOutput).toHaveBeenCalled();
+  } finally {
+    if (previousTmpdir === undefined) {
+      delete process.env["TMPDIR"];
+    } else {
+      process.env["TMPDIR"] = previousTmpdir;
+    }
+    errorOutput.mockRestore();
+    await stopApp?.();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("supports a headless server with a deny-by-default request surface", async () => {
   const dataDir = testDataDir("headless-request-filter");
   const running = await startServer({
