@@ -99,7 +99,12 @@ export class RealtimeRuntime {
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
     try {
       const payload = JSON.stringify(frame);
-      if (socket.bufferedAmount + new TextEncoder().encode(payload).byteLength > MAX_FRAME_BYTES) {
+      const bytes = new TextEncoder().encode(payload).byteLength;
+      if (bytes > MAX_FRAME_BYTES) {
+        this.fail(new Error("Realtime outbound frame exceeds the size limit"), false);
+        return;
+      }
+      if (socket.bufferedAmount + bytes > MAX_FRAME_BYTES) {
         throw new Error("Realtime outbound buffer exceeded");
       }
       socket.send(payload);
@@ -135,7 +140,10 @@ export class RealtimeRuntime {
       this.deadline = undefined;
       this.retries = 0;
       this.ping();
-      for (const [id, subscription] of this.subscriptions) this.activate(id, subscription);
+      for (const [id, subscription] of this.subscriptions) {
+        if (this.socket !== socket) break;
+        this.activate(id, subscription);
+      }
     };
     socket.onmessage = message => {
       if (this.socket !== socket) return;
@@ -205,7 +213,12 @@ export class RealtimeRuntime {
     else for (const subscription of this.subscriptions.values()) this.report(subscription, error);
     this.retire();
     this.blocked = !retry;
-    if (this.blocked || this.stopped || !this.subscriptions.size || this.retry !== undefined) return;
+    if (this.blocked) {
+      clearTimeout(this.retry);
+      this.retry = undefined;
+      return;
+    }
+    if (this.stopped || !this.subscriptions.size || this.retry !== undefined) return;
     this.retry = setTimeout(() => {
       this.retry = undefined;
       this.connect();

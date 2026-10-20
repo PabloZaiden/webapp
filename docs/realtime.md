@@ -26,9 +26,17 @@ transport before rejecting the request. This suspends stale background reads
 and recovers them through the same acknowledged reconnection, even when HTTP
 fails before the WebSocket notices the interruption. Request construction
 errors, HTTP error responses and cancellation do not trigger this recovery.
+Successful response bodies are monitored through consumption, including JSON,
+text, binary reads, clones and direct stream readers, without buffering the whole
+response. A body transport failure retires the shared connection before the
+consumer sees its rejection; malformed JSON, consumed/locked bodies and explicit
+stream cancellation are not connection failures. Fetch URL, redirect/type metadata
+and response-header immutability are preserved.
 Explicit operations still reject normally, and mutations are never retried.
 Invalid protocol frames, rejected subscriptions and consumer/synchronization
 failures remain actionable errors.
+An outbound frame exceeding the client's 2 MiB limit is an actionable terminal
+error, not a reconnect loop. Temporary outbound-buffer pressure remains retryable.
 
 ## State collections
 
