@@ -15,6 +15,29 @@ An authentication-required response retires the old runtime and invalidates
 the cached configuration so the root can show the sign-in flow. Obsolete
 configuration responses cannot reactivate a previous authenticated session.
 
+Connection loss and automatic reconnection are silent in the UI, including
+extended interruptions. Recoverable transport failures are logged and exposed
+through `onStatus`/`status`, not `onError`/`error`; applications should not turn
+those status changes into global error notices. Previously loaded data remains
+visible, and acknowledged reconnection refreshes authoritative state.
+
+Network failures from the configured API client also retire an open shared
+transport before rejecting the request. This suspends stale background reads
+and recovers them through the same acknowledged reconnection, even when HTTP
+fails before the WebSocket notices the interruption. Request construction
+errors, HTTP error responses and cancellation do not trigger this recovery.
+Successful response bodies are monitored through consumption, including JSON,
+text, binary reads, clones and direct stream readers, without buffering the whole
+response. A body transport failure retires the shared connection before the
+consumer sees its rejection; malformed JSON, consumed/locked bodies and explicit
+stream cancellation are not connection failures. Fetch URL, redirect/type metadata
+and response-header immutability are preserved.
+Explicit operations still reject normally, and mutations are never retried.
+Invalid protocol frames, rejected subscriptions and consumer/synchronization
+failures remain actionable errors.
+An outbound frame exceeding the client's 2 MiB limit is an actionable terminal
+error, not a reconnect loop. Temporary outbound-buffer pressure remains retryable.
+
 ## State collections
 
 Use resource publications for invalidation, not transcript or action bodies:
