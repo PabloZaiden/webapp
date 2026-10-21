@@ -159,7 +159,6 @@ textarea::placeholder {
   overflow: hidden;
   border-right: 0;
   background: var(--wapp-shell-bg);
-  backdrop-filter: blur(12px);
   transition: width 180ms ease, min-width 180ms ease, transform 180ms ease, opacity 180ms ease;
 }
 
