@@ -12,6 +12,11 @@ The framework intentionally provides a consistent base UI:
 - Main content should prefer panels, toolbars, badges and simple forms over custom one-off layouts.
 - `WebAppRoot` owns the fixed main title bar and `.wapp-main-content`; app routes should not render or style those shell elements directly.
 
+Keep the sidebar's opaque shell background free of backdrop filters, including
+while translated offscreen on mobile, to avoid WebKit compositing artifacts on
+the main header. The mobile drawer backdrop dims the page; modal and dialog
+backdrops retain their separate blur.
+
 ## Transient notifications
 
 Use `useToast()` from `@pablozaiden/webapp/web` for short-lived success,
