@@ -159,6 +159,10 @@ chain deterministic. The framework does not infer trust from header presence,
 does not parse the RFC `Forwarded` header, and does not provide a
 proxy-address allowlist in this release.
 
+When `proto` is trusted, `X-Forwarded-Proto` accepts `http` and `https` and
+normalizes WebSocket schemes `ws` to `http` and `wss` to `https`, including
+values sent by Traefik for WebSocket upgrades. Other schemes are ignored.
+
 Use `MY_APP_PUBLIC_BASE_URL` when the external origin must remain deterministic
 regardless of request headers. A trusted prefix controls cookie paths and
 framework-generated setup/device links. If trust is disabled, the framework
