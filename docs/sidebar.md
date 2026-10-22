@@ -283,7 +283,7 @@ available. A closed mobile or desktop-collapsed sidebar is inert and
 `aria-hidden`, so its search field, links, tabs, and actions are not reachable
 by keyboard or exposed as active navigation.
 
-Use `actions` when an entity needs commands in the sidebar. `WebAppRoot` finds the active route-backed sidebar node and automatically renders its `ActionMenuItem[]` in the title-bar overflow menu, so the sidebar right-click menu and header menu stay consistent from one source of truth. Use `header.getActions` only for extra route-level actions that are not represented by the active sidebar node.
+Use `actions` when an entity needs commands in the sidebar. `WebAppRoot` finds the active route-backed sidebar node and automatically renders its `ActionMenuItem[]` in the title-bar overflow menu; by default, the same items appear in the sidebar right-click menu. Set `contextActions` when the sidebar menu and custom-renderer actions should differ from the title-bar actions. The title bar continues to use the full `actions` list. Use `onActivate` to synchronously gate the framework-owned row button before navigation; returning `false` prevents activation for both pointer and keyboard input while retaining the node's route metadata. Use `header.getActions` only for extra route-level actions that are not represented by the active sidebar node.
 
 ```tsx
 const actions = projectActions(project);

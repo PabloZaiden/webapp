@@ -77,6 +77,7 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
           );
         }
         const active = node.route?.view === route.view && Object.entries(node.route).every(([key, value]) => key === "view" || route[key] === value);
+        const actions = node.contextActions ?? node.actions ?? [];
         const badgeLabel = node.badge ? formatStatusLabel(node.badge) : "";
         const isTextBadge = node.badgeAppearance === "text";
         const itemClassName = [
@@ -85,16 +86,19 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
           node.itemLayout === "subtitle-above-title" ? "wapp-sidebar-item-subtitle-above-title" : "",
         ].filter(Boolean).join(" ");
         const activate = () => {
+          if (node.onActivate?.() === false) {
+            return;
+          }
           if (node.route) {
             navigate(node.route);
           }
         };
         const handleContextMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
-          if (!node.actions?.length) {
+          if (!actions.length) {
             return;
           }
           event.preventDefault();
-          setContextMenu({ position: { x: event.clientX, y: event.clientY }, items: node.actions, title: node.title });
+          setContextMenu({ position: { x: event.clientX, y: event.clientY }, items: actions, title: node.title });
         };
         const itemProps = {
           type: "button" as const,
@@ -133,7 +137,7 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
           searchActive,
           navigate,
           toggleCollapsed: toggleNodeCollapsed,
-          actions: node.actions ?? [],
+          actions,
         });
         const itemContent = customContent ?? standardContent;
         return (

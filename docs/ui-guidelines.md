@@ -65,7 +65,7 @@ Use these first:
 | `Page` | Required top-level route wrapper; standard padding, `layout="form"` for bounded forms, `layout="full"` for viewport-sized tools |
 | `Toolbar` | Content toolbar with optional `identity`, `primary`, `secondary` slots; identity flexes before actions |
 | `Panel` | Cards/sections; use `actions` for a top-right menu/action area |
-| `ActionMenu` | Quiet overflow action menu for secondary surfaces; entity-level shell menus should usually come from `SidebarNode.actions` so the framework renders them in the sidebar context menu and fixed title bar |
+| `ActionMenu` | Quiet overflow action menu for secondary surfaces; entity-level shell menus should usually come from `SidebarNode.actions` so the framework renders them in the fixed title bar and, by default, the sidebar context menu |
 | `FloatingPanel` | Anchored arbitrary popup content; use it instead of app-owned portals when the content is not a simple `ActionMenu` |
 | `Button` / `IconButton` | Form submission and true inline controls; prefer action menus for entity/app commands |
 | `Badge` | Generic status/count labels; use the default pill appearance or `appearance="text"` for a transparent, foreground-colored label |
@@ -188,7 +188,7 @@ Normal focus restoration still prefers the invoking control when it exists.
 explicit modal option when the caller also makes the rest of the page
 unavailable; use `ConfirmDialog` or `Modal` for normal overlays.
 
-For entity actions, prefer the framework title bar: define one `ActionMenuItem[]` builder and attach it to `SidebarNode.actions` for the route-backed node. The framework reuses those actions for both sidebar right-click and the active route title-bar menu. Use `WebAppRoot.header.getActions` only for additional actions not owned by a sidebar node.
+For entity actions, prefer the framework title bar: define one `ActionMenuItem[]` builder and attach it to `SidebarNode.actions` for the route-backed node. The framework reuses those actions for both sidebar right-click and the active route title-bar menu by default. Use `SidebarNode.contextActions` only when sidebar actions should differ; the title bar continues using the full `actions` list. Use `SidebarNode.onActivate` to gate framework-owned pointer and keyboard navigation without removing route metadata. Use `WebAppRoot.header.getActions` only for additional actions not owned by a sidebar node.
 
 Route views contribute title-bar actions with `useHeaderActions({ primary, overflow })`.
 `primary` is a `HeaderPrimaryAction[]`: label, optional icon, disabled/loading
