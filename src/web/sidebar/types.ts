@@ -80,8 +80,12 @@ export interface SidebarNode {
   itemLayout?: SidebarItemLayout;
   render?: SidebarItemRenderer;
   route?: WebAppRoute;
+  /** Synchronously gates the framework-owned row button; returning false prevents navigation. */
+  onActivate?: () => boolean;
   action?: SidebarAction;
   actions?: ActionMenuItem[];
+  /** Overrides sidebar context-menu and renderer actions; title-bar actions continue to use `actions`. */
+  contextActions?: ActionMenuItem[];
   pinnable?: boolean;
   pinId?: string;
   defaultCollapsed?: boolean;
