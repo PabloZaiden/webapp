@@ -62,6 +62,12 @@ function directOrigin(req: Request): RequestOriginInfo {
 
 function forwardedProtocol(value: string | undefined): string | undefined {
   const normalized = value?.toLowerCase();
+  if (normalized === "wss") {
+    return "https";
+  }
+  if (normalized === "ws") {
+    return "http";
+  }
   return normalized === "http" || normalized === "https" ? normalized : undefined;
 }
 
