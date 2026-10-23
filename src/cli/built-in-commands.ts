@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import type { RouteCatalogEntry } from "../server/route-catalog";
 import {
   readRuntimeConfig,
@@ -239,7 +240,7 @@ function authCommand<TAppContext>(
         baseUrl: normalizeBaseUrl(baseUrl),
         clientId: readOption(args, ["--client-id"])
           ?? dependencies.input.clientId
-          ?? `${dependencies.input.commandName}-cli`,
+          ?? `${dependencies.input.commandName}-cli-${hostname()}`,
         scope: readOption(args, ["--scope"]),
         store: credentials,
         fetchFn: dependencies.fetchFn,

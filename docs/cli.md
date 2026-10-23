@@ -233,6 +233,15 @@ my-app profile remove production
 refresh credentials only to the selected profile. Profile files reuse
 `createJsonFileStore()` and its locking and permissions behavior.
 
+The default device `client_id` is `<commandName>-cli-<hostname>`, using the
+operating system hostname so computers with different hostnames do not replace
+each other's sessions. `auth --client-id ID` takes precedence over the
+application's `clientId` option, which takes precedence over that default.
+The selected ID is stored with the credentials and reused for refreshes.
+Run `auth` again after upgrading from a CLI that used the shared
+`<commandName>-cli` default. Computers sharing a hostname, or independently
+authenticated profiles on one computer, need distinct explicit IDs to coexist.
+
 When a selected profile has no credentials, authenticated commands can use the
 exact `${PREFIX}_BASE_URL` and `${PREFIX}_API_KEY` environment pair. A partial
 pair is ignored. Environment API keys remain in memory and are never written to

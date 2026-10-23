@@ -189,6 +189,40 @@ belong to the requested client before it is revoked and replaced. A replayed
 token revokes its entire family and never inserts a successor. A disabled or
 missing user follows the same no-successor rule.
 
+### CLI session lifetime and multiple computers
+
+Device access tokens last 10 minutes. Each newly issued refresh token lasts
+30 days, including after rotation; this is not a guarantee that an explicitly
+revoked session remains usable for 30 days.
+
+Completing device authorization revokes active refresh sessions for the same
+user and `client_id`. The composable CLI defaults to
+`<commandName>-cli-<hostname>`, using the operating system hostname, so computers
+with different hostnames remain signed in independently without a manual
+`--client-id`. Reauthenticating with the same client ID replaces that client's
+previous session. Its already-issued access token can still work until its
+10-minute expiration.
+Listing device sessions also revokes duplicate active entries with the same
+`client_id`; it is not a read-only operation.
+
+An explicit `auth --client-id` overrides the application's configured `clientId`,
+which overrides the generated default. Computers with identical hostnames, or
+independent profiles on the same computer, still need distinct explicit IDs
+to coexist. The CLI persists the selected value with the credentials and
+reuses it for refreshes, even if the hostname subsequently changes.
+New `auth` invocations generate the default from the current hostname.
+
+Older CLI versions used `<commandName>-cli` on every computer. After updating,
+run `auth` again on each computer to obtain hostname-based credentials;
+existing credentials keep their original client ID until reauthentication.
+
+A normal server restart preserves both tokens and signing keys when using
+SQLite with the same data directory. The memory store or a replaced data
+directory does not. See the [CLI invalidation reproduction](auth-validation.md#cli-session-invalidation-reproduction)
+for a local diagnostic contrasting restart persistence with same-client revocation.
+
+### Signing-key persistence and custom stores
+
 The default SQLite store persists the signing key and enforces one active key
 across processes with a database-backed marker and unique partial index.
 First-use initialization uses conflict-safe get-or-create semantics and every

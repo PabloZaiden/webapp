@@ -99,6 +99,33 @@ Run this checklist before releasing a framework app or cutting a checkpoint.
 9. Revoke the active device session from Settings and confirm refresh fails.
 10. Create a new authorization request after an older request expires and confirm expired device requests are cleaned up without removing active requests.
 
+## CLI session invalidation reproduction
+
+Run from the repository root:
+
+```bash
+bun scripts/reproduce-cli-session-invalidation.ts
+```
+
+This diagnostic uses real CLI child processes with separate credential
+directories and a real HTTP server backed by SQLite. It creates disposable
+state under `.cache/tests`, binds only to loopback, and enables the passkey
+bypass only in that disposable server to approve device requests without a
+browser. It does not use existing accounts or credentials, print tokens, or
+change authentication behavior. Its child processes and data are cleaned up
+on completion.
+
+The current behavior is reproduced when all of these assertions hold:
+
+1. Computer A can use its access token and refresh successfully after the server process restarts against the same data directory; its listed refresh session still has more than 29 days remaining.
+2. Computer B authenticates independently using the same explicit `client_id` as A, reproducing the shared default used by older CLI versions.
+3. A's still-unexpired access token works, but its next refresh returns HTTP `400` with `invalid_grant` because the refresh session was revoked.
+4. B can refresh successfully. Authenticating computer C with the hostname-based default leaves both B and C able to refresh.
+
+The script exits successfully only when it observes the current invalidation
+and both controls. It is a diagnostic reproducer, not a regression test
+asserting that simultaneous default-client sessions should fail permanently.
+
 ## Atomic credential transitions
 
 1. Open one device verification link in two browser contexts, approve it with different users, and confirm the first approval remains the approver.
