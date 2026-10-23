@@ -338,6 +338,13 @@ transform runs only after authorization, before matching interests. Return
 corresponding target fields together; never rewrite arbitrary text, logs or
 payload strings. Authorization/disposal callbacks are synchronous; arrange
 async transport teardown through the application's existing lifecycle owner.
+Policy and transform inputs use `RealtimePublication<unknown>`: authorization
+can inspect trusted target metadata, while event-dependent code must validate
+or narrow the event before reading it. A transform returns a publication with
+the bus's typed application event. The generic identifies produced/delivered
+events, not an assumption that an external source already conforms to them.
+This also preserves composition of event-agnostic routes in typed realtime
+applications without casts or weakened callback parameter checks.
 
 ## Per-user external sources
 

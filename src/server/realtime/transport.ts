@@ -19,7 +19,7 @@ export type RealtimeTarget = {
   userId?: string;
 } & Record<string, string | undefined>;
 
-export interface RealtimePublication<TEvent> {
+export interface RealtimePublication<TEvent = unknown> {
   event: TEvent;
   target: Readonly<RealtimeTarget>;
   kind: RealtimeKind;
@@ -28,20 +28,21 @@ export interface RealtimePublication<TEvent> {
 export interface RealtimeConnectionOptions<TEvent> {
   /**
    * Replaces default userId targeting. Must authorize the original owner AND
-   * resource scope, independently of untrusted subscription interests.
+   * resource scope, independently of untrusted subscription interests. Event
+   * data is unknown at this policy boundary and must be narrowed before use.
    */
-  authorize?: (publication: Readonly<RealtimePublication<TEvent>>) => boolean;
+  authorize?: (publication: Readonly<RealtimePublication>) => boolean;
   /** Runs after authorization, before matching the connection's interests. */
-  transform?: (publication: Readonly<RealtimePublication<TEvent>>) => RealtimePublication<TEvent> | undefined;
+  transform?: (publication: Readonly<RealtimePublication>) => RealtimePublication<TEvent> | undefined;
   onDispose?: () => void;
 }
 
 export interface RealtimeSourceOptions<TEvent> {
   /** Authenticated local recipient, never an upstream storage owner. */
   userId: string;
-  /** Validates original upstream event metadata before any transformation. */
-  authorize: (publication: Readonly<RealtimePublication<TEvent>>) => boolean;
-  transform?: (publication: Readonly<RealtimePublication<TEvent>>) => RealtimePublication<TEvent> | undefined;
+  /** Validates original upstream metadata and unknown event data before transformation. */
+  authorize: (publication: Readonly<RealtimePublication>) => boolean;
+  transform?: (publication: Readonly<RealtimePublication>) => RealtimePublication<TEvent> | undefined;
   onDispose?: () => void;
 }
 
