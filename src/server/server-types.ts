@@ -81,6 +81,7 @@ export interface WebAppServerConfig<TEvent = unknown> {
     maxSubscriptions?: number;
     maxMessageBytes?: number;
     maxBufferedBytes?: number;
+    maxInterestObservers?: number;
   };
   lifecycle?: WebAppServerLifecycleHooks;
   logLevel?: {

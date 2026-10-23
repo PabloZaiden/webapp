@@ -4,11 +4,13 @@ import {
   type ResourceRealtimeEvent,
 } from "../../contracts/realtime";
 import { createLogger } from "../logger";
+import { RealtimeInterestObservers, type RealtimeInterestListener, type RealtimeInterestObserverOptions } from "./interests";
 import type {
   RealtimeConnectionOptions, RealtimePublication, RealtimeSource,
   RealtimeSourceOptions, RealtimeTarget, RealtimeTransport,
 } from "./transport";
 export * from "./transport";
+export type { RealtimeInterestListener, RealtimeInterestObserverOptions } from "./interests";
 export type { RealtimeAction, RealtimeKind, ResourceRealtimeEvent } from "../../contracts/realtime";
 
 export interface RealtimePublishOptions {
@@ -30,6 +32,7 @@ export interface RealtimeBusOptions {
   maxSubscriptions?: number;
   maxMessageBytes?: number;
   maxBufferedBytes?: number;
+  maxInterestObservers?: number;
 }
 
 /** Owns server subscription state, never authorization inferred from client interests. */
@@ -37,12 +40,14 @@ export class RealtimeBus<TEvent = unknown> {
   private sockets = new Map<RealtimeTransport, Connection<TEvent>>();
   private sources = new Set<RealtimeSource<TEvent>>();
   private readonly limits: Required<RealtimeBusOptions>;
+  private readonly interests: RealtimeInterestObservers;
 
   constructor(options: RealtimeBusOptions = {}) {
     this.limits = {
       maxSubscriptions: options.maxSubscriptions ?? MAX_REALTIME_SUBSCRIPTIONS,
       maxMessageBytes: options.maxMessageBytes ?? 64 * 1024,
       maxBufferedBytes: options.maxBufferedBytes ?? 1024 * 1024,
+      maxInterestObservers: options.maxInterestObservers ?? 1024,
     };
     for (const value of Object.values(this.limits)) {
       if (!Number.isSafeInteger(value) || value <= 0) throw new TypeError("Realtime limits must be positive integers");
@@ -50,6 +55,14 @@ export class RealtimeBus<TEvent = unknown> {
     if (this.limits.maxSubscriptions > MAX_REALTIME_SUBSCRIPTIONS) {
       throw new TypeError(`Realtime supports at most ${MAX_REALTIME_SUBSCRIPTIONS} subscriptions per connection`);
     }
+    this.interests = new RealtimeInterestObservers(userId => {
+      const interests: RealtimeInterest[] = [];
+      for (const [socket, connection] of this.sockets) {
+        if (socket.data.userId !== userId) continue;
+        for (const subscription of connection.subscriptions.values()) interests.push(subscription.interest);
+      }
+      return interests;
+    }, this.limits.maxInterestObservers);
   }
 
   add(socket: RealtimeTransport, options: RealtimeConnectionOptions<TEvent> = {}): void {
@@ -60,7 +73,14 @@ export class RealtimeBus<TEvent = unknown> {
   remove(socket: RealtimeTransport): void {
     const connection = this.sockets.get(socket);
     this.sockets.delete(socket);
-    if (connection) this.cleanup(connection.options.onDispose);
+    if (connection) {
+      this.interests.changed(socket.data.userId);
+      this.cleanup(connection.options.onDispose);
+    }
+  }
+
+  observeInterests(userId: string, listener: RealtimeInterestListener, options?: RealtimeInterestObserverOptions): () => void {
+    return this.interests.observe(userId, listener, options);
   }
 
   private cleanup(dispose?: () => void): void {
@@ -135,7 +155,9 @@ export class RealtimeBus<TEvent = unknown> {
     if (frame.type === "unsubscribe") {
       connection.subscriptions.delete(frame.subscriptionId);
       if (previousGeneration !== undefined) connection.generations.set(frame.subscriptionId, frame.generation);
-      this.send(socket, { type: "unsubscribed", subscriptionId: frame.subscriptionId, generation: frame.generation });
+      if (this.send(socket, { type: "unsubscribed", subscriptionId: frame.subscriptionId, generation: frame.generation })) {
+        this.interests.changed(socket.data.userId);
+      }
       return;
     }
     if (!existing && connection.subscriptions.size >= this.limits.maxSubscriptions) {
@@ -149,7 +171,9 @@ export class RealtimeBus<TEvent = unknown> {
     connection.generations.set(frame.subscriptionId, frame.generation);
     connection.subscriptions.set(frame.subscriptionId, { generation: frame.generation, interest: frame.interest });
     // The subscription is active before the ack; WebSocket frame order makes the handoff deterministic.
-    this.send(socket, { type: "subscribed", subscriptionId: frame.subscriptionId, generation: frame.generation });
+    if (this.send(socket, { type: "subscribed", subscriptionId: frame.subscriptionId, generation: frame.generation })) {
+      this.interests.changed(socket.data.userId);
+    }
   }
 
   publish(event: TEvent, options: RealtimePublishOptions = {}): void {
@@ -221,6 +245,7 @@ export class RealtimeBus<TEvent = unknown> {
   dispose(): void {
     for (const source of this.sources) source.dispose();
     for (const socket of this.sockets.keys()) this.close(socket, 1001, "server_stopped");
+    this.interests.dispose();
   }
 
   publishChanged<TPayload = unknown>(resource: string, options: ResourceOptions<TPayload> = {}): void {

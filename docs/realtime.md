@@ -383,3 +383,73 @@ subsequent publications are ignored. Dispose on upstream loss or revocation,
 then establish a fresh admitted source after recovery. `app.realtime.dispose()`
 releases all sources and portable connections and is also called on server
 shutdown; the bus can accept fresh connections when the server restarts.
+
+### Observe live local interests
+
+A paired source can keep its admitted control/realtime transport connected
+without subscribing to remote content while no local client needs it:
+
+```ts
+const stopObserving = app.realtime.observeInterests(
+  authenticatedLocalUser.id,
+  interests => upstreamSubscriptions.replace(
+    references.toSource(remoteIdentity, interests),
+  ),
+  { onError: () => source.dispose() },
+);
+
+// Source teardown also releases its observer:
+stopObserving();
+```
+
+The public signature is:
+
+```ts
+observeInterests(
+  userId: string,
+  listener: (interests: readonly RealtimeInterest[]) => void,
+  options?: { onError?: (error: unknown) => void },
+): () => void;
+```
+
+`RealtimeInterest` is exported from `@pablozaiden/webapp/contracts`;
+`RealtimeInterestListener` and `RealtimeInterestObserverOptions` are server
+exports. The listener receives an immediate synchronous authoritative snapshot,
+including `[]`. It aggregates current acknowledged subscriptions from all
+connections admitted as that `data.userId`, never another user's connections.
+Equal interests collapse, selector order is canonicalized, and snapshots are
+immutable independent copies. Generations and subscription IDs are local
+protocol details, not additional interests.
+
+Subscribe, replacement, unsubscribe and connection removal schedule a fresh
+snapshot after acknowledgement, coalesced in one microtask per turn. Only an
+actual change is delivered; closing one of two clients sharing an interest
+does not retire the other's interest. The pending set contains at most one
+entry per observed user, and the observer retains only its current snapshot
+identity, not event or subscription history.
+
+An empty snapshot means retire upstream subscriptions, **not** revoke pairing
+or close the control transport. Map qualified resource selectors, IDs, scopes,
+types and explicit targets at the application's source boundary; filter out
+interests that do not select that source. Do not broaden content subscriptions
+to every remote log, infer authorization from selectors, or globally republish
+remote events. The original membership/source authorization still constrains
+every forwarded publication. Re-admission/reconnect must reapply current
+interests; registering a fresh observer supplies that snapshot immediately.
+
+Callbacks run synchronously. If upstream application work is asynchronous,
+its owner must serialize/cancel updates so an obsolete update cannot replace
+newer interests. A callback exception logs an error, detaches that observer and
+calls `onError` with the original failure. An initial exception is also rethrown
+to the registering caller. Rejections from accidentally returned promises are
+reported through the same error path. Use `onError` to fail closed by closing
+or suspending upstream delivery; failure handlers must not re-log the same
+failure unless they add meaningful context.
+
+The idempotent returned function stops observation without changing client
+subscriptions. Call it during source teardown. `app.realtime.dispose()` emits
+a final empty snapshot when needed, detaches all observers and releases their
+capacity; observers must be registered again after a runtime restart.
+`realtime.maxInterestObservers` defaults to 1024 across the bus. It must be a
+positive safe integer. Registration over that bound throws `RangeError` rather
+than silently leaving a source with stale subscription state.
