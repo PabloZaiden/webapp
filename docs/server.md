@@ -184,6 +184,8 @@ output; it does not generate prose documentation automatically:
 | `requestSchema`, `querySchema`, `responseSchema` | Optional schema objects for CLI/schema output; use the same runtime `requestSchema` with `parseJson` when a route accepts a body |
 | `operations` | Optional `Partial<Record<HttpMethod, RouteOperationMetadata>>` refinements for each registered method |
 | `automation` | Optional explicit automation policy; inherited by method metadata |
+| `delegation` | Explicit resource/action contract for trusted server-code delegation; default deny, method `false` removes an inherited grant |
+| `partialResults` | Optional `{ header: string }` declaring incomplete aggregate response metadata |
 | `catalog: false` | Exclude a route from generated catalogs |
 
 Use `createRouteCatalog(routes)` and `findRouteCatalogEntry(catalog, input)` to power app CLI commands without maintaining a second route catalog.
@@ -191,7 +193,7 @@ Use `createRouteCatalog(routes)` and `findRouteCatalogEntry(catalog, input)` to 
 ### Per-method operation contracts
 
 `RouteOperationMetadata` declares `description`, `requestSchema`, `querySchema`,
-`responseSchema`, and `automation`. `RouteMetadata`, `RouteDefinition`, and
+`responseSchema`, `automation`, `delegation`, and `partialResults`. `RouteMetadata`, `RouteDefinition`, and
 `RouteCatalogEntry` expose `operations` without changing existing route-level
 metadata. Metadata may describe only methods with registered handlers; an
 unsupported or unregistered metadata method fails route compilation.
@@ -230,6 +232,11 @@ advertise a creation body. An omitted property inherits the route default.
 `null` also denotes no schema for conversion. Resolving an unregistered method
 throws. Metadata is descriptive, not automatic request validation: handlers
 still parse and validate their actual input.
+
+See [trusted delegated operations](delegation.md) for server-only dispatch,
+actor/resource-authority separation, and post-policy `routeMiddleware`.
+Incomplete collection responses keep their normal body; declare the signal
+header with `partialResults`, described in [CLI metadata](cli.md#partial-collections).
 
 `routeSchemaToJsonSchema(schema, options?)` returns a
 `Record<string, unknown>` or `undefined` for an absent schema. It uses Zod's

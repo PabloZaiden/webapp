@@ -180,3 +180,4 @@ export interface WebAppErrorResponse {
   details?: unknown;
 }
 export * from "./realtime";
+export * from "./response-metadata";

@@ -317,6 +317,38 @@ canonical API contract. Automation descriptors must never contain secrets.
 `logs` reuses the same selected profile/environment
 authentication and requests `GET /api/server/logs`.
 
+### Partial collections
+
+Aggregated collections can declare `partialResults: { header: "X-App-Partial" }`
+on the route or selected operation. Return the usual JSON body, including a
+plain array, and set that header to `true` when an authorized source could not
+be read. `X-WebApp-Partial` is the default when no header is declared; a product
+can declare, for example, `X-Clanky-Partial` without changing framework code.
+
+The API CLI preserves the body in its ordinary structured envelope:
+
+```json
+{
+  "status": { "code": 200, "ok": true, "text": "OK" },
+  "partial": true,
+  "response": [{ "id": "local-document" }]
+}
+```
+
+An incomplete result exits nonzero even when HTTP succeeds. Stdout remains
+JSON; no warning is appended to it. Complete results retain the existing
+envelope and exit behavior. Consumers using `responseFormat: "body"` retain
+the original body and still receive the nonzero exit status.
+
+Browser callers can preserve both body and metadata with
+`appJsonWithMetadata<T>(input, init?, partialResults?)`, returning
+`{ data: T, metadata: { partial: boolean } }`. Set the default with
+`configureWebAppClient({ partialResults: { header: "X-App-Partial" } })`, or
+pass the declaration to one call. Existing `appJson<T>` continues to return
+`T` unchanged. Raw `appFetch` callers can inspect response headers directly.
+The shared contracts export `readResponseMetadata(response, declaration?)`
+and `DEFAULT_PARTIAL_RESULT_HEADER`.
+
 ## Updating installed binaries
 
 Configure the framework update command with the application release metadata:

@@ -23,6 +23,7 @@ import { createPublicRouteDispatcher } from "./public-route-dispatch";
 import { createRouteDispatcher } from "./route-dispatch";
 import { compileRouteTable } from "./routes";
 import { notFound, withSecurityHeaders } from "./responses";
+import type { DelegatedDispatchOptions } from "./delegation";
 
 export const MAX_SERVER_IDLE_TIMEOUT_SECONDS = 255;
 export const DEFAULT_SERVER_IDLE_TIMEOUT_SECONDS = MAX_SERVER_IDLE_TIMEOUT_SECONDS;
@@ -169,7 +170,19 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     routes,
     authentication,
     realtime,
+    middleware: input.routeMiddleware,
   });
+
+  async function dispatchDelegated<TAuthorization extends object>(
+    req: Request,
+    options: DelegatedDispatchOptions<TAuthorization>,
+  ): Promise<Response | undefined> {
+    if (input.requestFilter && !await input.requestFilter(req)) {
+      return withSecurityHeaders(notFound());
+    }
+    const result = await routeDispatcher.dispatch(req, undefined, options);
+    return result.matched ? result.response : withSecurityHeaders(notFound());
+  }
 
   async function handleRequest(req: Request, server?: Server<WebAppWebSocketData>): Promise<Response | undefined> {
     if (input.requestFilter && !await input.requestFilter(req)) {
@@ -216,6 +229,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       },
       afterStop: async (server) => {
         const errors: unknown[] = [];
+        realtime.dispose();
         try {
           await input.lifecycle?.afterStop?.(server);
         } catch (error) {
@@ -251,6 +265,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     } catch (error) {
       errors.push(error);
     }
+    realtime.dispose();
     try {
       resetServerLogStorage();
     } catch (error) {
@@ -262,5 +277,5 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     }
   }
 
-  return { config, store, realtime, handleRequest, ...lifecycle, stop };
+  return { config, store, realtime, handleRequest, dispatchDelegated, ...lifecycle, stop };
 }

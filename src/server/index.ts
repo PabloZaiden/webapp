@@ -1,5 +1,6 @@
 export * from "./runtime-config";
 export * from "./routes";
+export * from "./delegation";
 export * from "./route-catalog";
 export * from "./route-schema";
 export * from "./responses";

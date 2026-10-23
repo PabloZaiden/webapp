@@ -1,4 +1,5 @@
 import { fetchAppRequest } from "./network-failures";
+import { readResponseMetadata, type PartialResultMetadata, type WebAppResponseMetadata } from "../contracts/response-metadata";
 
 export class WebAppApiError extends Error {
   status: number;
@@ -20,6 +21,7 @@ const authRequiredListeners = new Set<AuthRequiredListener>();
 let configuredPublicBasePath: string | undefined;
 let configuredApiBaseUrl: string | undefined;
 let configuredWebSocketBaseUrl: string | undefined;
+let configuredPartialResults: PartialResultMetadata | undefined;
 const ABSOLUTE_URL_PATTERN = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
 
 export function onAuthRequired(listener: AuthRequiredListener): () => void {
@@ -37,10 +39,12 @@ export function configureWebAppClient(options: {
   publicBasePath?: string | null;
   apiBaseUrl?: string | null;
   wsBaseUrl?: string | null;
+  partialResults?: PartialResultMetadata;
 } = {}): void {
   setWebAppPublicBasePath(options.publicBasePath);
   configuredApiBaseUrl = normalizeOptionalBaseUrl(options.apiBaseUrl);
   configuredWebSocketBaseUrl = normalizeOptionalBaseUrl(options.wsBaseUrl);
+  configuredPartialResults = options.partialResults;
 }
 
 export function setWebAppPublicBasePath(basePath?: string | null): void {
@@ -145,12 +149,21 @@ export async function appFetch(input: RequestInfo | URL, init?: RequestInit): Pr
 }
 
 export async function appJson<T>(input: RequestInfo | URL, init: RequestInit = {}): Promise<T> {
+  return (await appJsonWithMetadata<T>(input, init)).data;
+}
+
+/** Preserve collection bodies while allowing callers to display incomplete state. */
+export async function appJsonWithMetadata<T>(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  partialResults: PartialResultMetadata | undefined = configuredPartialResults,
+): Promise<{ data: T; metadata: WebAppResponseMetadata }> {
   const headers = new Headers(init.headers);
   if (init.body != null && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
   const response = await appFetch(input, { ...init, headers });
-  return await response.json() as T;
+  return { data: await response.json() as T, metadata: readResponseMetadata(response, partialResults) };
 }
 
 function normalizeOptionalBaseUrl(rawValue?: string | null): string | undefined {

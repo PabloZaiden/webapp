@@ -12,6 +12,7 @@ export interface AccessTokenClaims {
 
 export type AuthenticatedRequestState =
   | { kind: "anonymous" }
+  | { kind: "delegated"; user: CurrentUser }
   | { kind: "passkey"; user: CurrentUser; passkeyId?: string }
   | { kind: "api-key"; user: CurrentUser; apiKeyId: string; scopes: string[] }
   | { kind: "bearer"; user: CurrentUser; claims: AccessTokenClaims };
