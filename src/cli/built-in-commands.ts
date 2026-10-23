@@ -1,3 +1,5 @@
+import { hostname } from "node:os";
+import { sha256 } from "../server/auth/crypto";
 import type { RouteCatalogEntry } from "../server/route-catalog";
 import {
   readRuntimeConfig,
@@ -214,6 +216,11 @@ function apiCommand<TAppContext>(
   };
 }
 
+function defaultDeviceClientId(commandName: string): string {
+  const clientId = `${commandName}-cli-${hostname()}`;
+  return clientId.length <= 200 ? clientId : `cli-${sha256(clientId)}`;
+}
+
 function authCommand<TAppContext>(
   dependencies: BuiltInCommandDependencies<TAppContext>,
 ): WebAppCliCommandDefinition<TAppContext> {
@@ -239,7 +246,7 @@ function authCommand<TAppContext>(
         baseUrl: normalizeBaseUrl(baseUrl),
         clientId: readOption(args, ["--client-id"])
           ?? dependencies.input.clientId
-          ?? `${dependencies.input.commandName}-cli`,
+          ?? defaultDeviceClientId(dependencies.input.commandName),
         scope: readOption(args, ["--scope"]),
         store: credentials,
         fetchFn: dependencies.fetchFn,
