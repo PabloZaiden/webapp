@@ -73,6 +73,9 @@ return await app.dispatchDelegated(request, {
     // invocation.authorization retains its inferred application type.
     return operationAuthority.run(invocation.authorization, invoke);
   },
+  onError(error, operation) {
+    return domain.errorResponse(error, operation);
+  },
 });
 ```
 
@@ -83,6 +86,8 @@ return await app.dispatchDelegated(request, {
   authority object or `false`/`undefined`, synchronously or asynchronously.
 - Optional `run(invocation: DelegatedInvocation<TAuthorization>, invoke)`
   returning `Promise<Response | undefined>`.
+- Optional `onError(error: unknown, operation: MatchedRouteOperation)` returning
+  `Response | Promise<Response>` for application failures.
 
 `DelegatedInvocation<T>` contains `actor`, `operation`, and `authorization: T`.
 `DelegatedOperation` extends `MatchedRouteOperation` with the admitted
@@ -119,6 +124,35 @@ admission. It does not forge `Origin`, bearer scopes, cookies, or passkey state.
 The grant callback receives declared scopes along with domain metadata and
 must authorize the full operation. Ordinary HTTP authentication, API-key/bearer
 scope checks and same-origin policy are unchanged.
+
+### Application error mapping
+
+The delegated-only `onError` hook lets an application classify its own typed
+domain errors and return intentional safe responses, such as a 403 for an
+operation outside the guest's workspace role. It is invoked for application
+exceptions from `authorize`, and from admitted `run`, route middleware or the
+handler. Use typed error codes/classes rather than matching message text;
+applications need not throw HTTP-specific objects from domain services.
+
+The operation uses the canonical matched pattern, effective method, decoded
+params, scopes and metadata. It is a `MatchedRouteOperation`, not an admitted
+invocation: authorization may have failed before a grant or application
+operation context existed. The hook does not grant access, retry, resume the
+handler or run it after a denial.
+
+Framework `AuthError` denials and framework request-body validation failures
+retain their intentional responses without invoking the hook. This includes
+undeclared/privileged delegation, a false grant, ownership/admin checks, and
+malformed, invalid or oversized request bodies. Ordinary HTTP never uses this
+per-invocation hook. Without a hook, existing framework error mapping remains
+unchanged.
+
+Hook responses receive the normal security headers and `HEAD` handling. A hook
+that throws, rejects, or returns a non-`Response` at runtime produces the fixed
+500 `request_failed` / `Request failed` response. The framework logs that hook
+failure using only the canonical route pattern and method, not raw exceptions,
+params, requests, credentials or grant data. The application owns safe mapping
+and boundary logging when its hook handles a domain failure.
 
 ## Canonical request and response routing
 

@@ -44,7 +44,7 @@ function method(req: Request): HttpMethod | undefined {
   }
 }
 
-function routeHandlerErrorResponse(error: unknown): Response {
+function frameworkRouteErrorResponse(error: unknown): Response | undefined {
   const requestBodyFailure = requestBodyErrorResponse(error);
   if (requestBodyFailure) {
     return requestBodyFailure;
@@ -52,8 +52,37 @@ function routeHandlerErrorResponse(error: unknown): Response {
   if (error instanceof AuthError) {
     return errorResponse(error.status, error.code, error.message);
   }
-  log.error("Unhandled route handler error", { error: error instanceof Error ? error.message : String(error) });
+  return undefined;
+}
+
+function failedRequest(): Response {
   return errorResponse(500, "request_failed", "Request failed");
+}
+
+function routeHandlerErrorResponse(error: unknown): Response {
+  const frameworkFailure = frameworkRouteErrorResponse(error);
+  if (frameworkFailure) return frameworkFailure;
+  log.error("Unhandled route handler error", { error: error instanceof Error ? error.message : String(error) });
+  return failedRequest();
+}
+
+async function delegatedErrorResponse<TAuthorization extends object>(
+  error: unknown,
+  operation: MatchedRouteOperation,
+  options: DelegatedDispatchOptions<TAuthorization>,
+): Promise<Response> {
+  const frameworkFailure = frameworkRouteErrorResponse(error);
+  if (frameworkFailure) return frameworkFailure;
+  if (!options.onError) return routeHandlerErrorResponse(error);
+  try {
+    const response = await options.onError(error, operation);
+    if (!(response instanceof Response)) throw new TypeError("Delegated onError must return a Response");
+    return response;
+  } catch {
+    // Error hooks may fail while handling private domain or credential data.
+    log.error("Delegated application error hook failed", { path: operation.path, method: operation.method });
+    return failedRequest();
+  }
 }
 
 function routeResponse(req: Request, response: Response): Response {
@@ -137,7 +166,10 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
           assertScopes(auth.kind === "api-key" ? auth.scopes : scopesFromBearer(auth.claims), matched.route.scopes ?? []);
         }
       } catch (error) {
-        return { matched: true, response: routeResponse(req, delegated ? routeHandlerErrorResponse(error) : authErrorResponse(error)) };
+        const response = delegated
+          ? await delegatedErrorResponse(error, operation, delegated)
+          : authErrorResponse(error);
+        return { matched: true, response: routeResponse(req, response) };
       }
       const current = () => authentication.requireUser(auth);
       const userRealtime = {
@@ -177,7 +209,10 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
           : await execute();
         return { matched: true, response: response ? routeResponse(req, response) : undefined };
       } catch (error) {
-        return { matched: true, response: routeResponse(req, routeHandlerErrorResponse(error)) };
+        const response = delegated
+          ? await delegatedErrorResponse(error, operation, delegated)
+          : routeHandlerErrorResponse(error);
+        return { matched: true, response: routeResponse(req, response) };
       }
     },
   };

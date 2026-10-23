@@ -50,4 +50,9 @@ export interface DelegatedDispatchOptions<TAuthorization extends object> {
     invocation: DelegatedInvocation<TAuthorization>,
     invoke: () => Promise<Response | undefined>,
   ) => Promise<Response | undefined>;
+  /** Map application failures without replacing framework denials or input validation. */
+  onError?: (
+    error: unknown,
+    operation: MatchedRouteOperation,
+  ) => Response | Promise<Response>;
 }
