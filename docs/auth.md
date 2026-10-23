@@ -205,6 +205,11 @@ previous session. Its already-issued access token can still work until its
 Listing device sessions also revokes duplicate active entries with the same
 `client_id`; it is not a read-only operation.
 
+Generated defaults longer than the server's 200-character limit use
+`cli-<hash>` instead, with a base64url-encoded SHA-256 of the full
+`<commandName>-cli-<hostname>` value. The fallback is deterministic and avoids
+collisions caused by truncating hostnames or command names.
+
 An explicit `auth --client-id` overrides the application's configured `clientId`,
 which overrides the generated default. Computers with identical hostnames, or
 independent profiles on the same computer, still need distinct explicit IDs

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createCliProfileStore } from "../src/cli";
@@ -113,6 +114,23 @@ test("keeps CLI sessions on different hostnames independent and preserves explic
     await refreshAndCheckStatus("laptop", "cli-auth-test-cli-laptop");
     await refreshAndCheckStatus("desktop", "cli-auth-test-cli-desktop");
 
+    const boundaryHostname = "h".repeat(200 - "cli-auth-test-cli-".length);
+    await run(boundaryHostname, ["auth", "--base-url", baseUrl]);
+    await refreshAndCheckStatus(boundaryHostname, `cli-auth-test-cli-${boundaryHostname}`);
+    const longHostnames = [`${boundaryHostname}a`, `${boundaryHostname}b`];
+    for (const machine of longHostnames) {
+      await run(machine, ["auth", "--base-url", baseUrl]);
+    }
+    for (const machine of longHostnames) {
+      const hash = createHash("sha256").update(`cli-auth-test-cli-${machine}`).digest("base64url");
+      await refreshAndCheckStatus(machine, `cli-${hash}`);
+    }
+    await run(longHostnames[0]!, ["auth"]);
+    for (const machine of longHostnames) {
+      const hash = createHash("sha256").update(`cli-auth-test-cli-${machine}`).digest("base64url");
+      await refreshAndCheckStatus(machine, `cli-${hash}`);
+    }
+
     await run("configured", ["auth", "--base-url", baseUrl], "configured-client");
     await refreshAndCheckStatus("configured", "configured-client");
     await run("configured", ["auth", "--client-id", "explicit-client"], "configured-client");
@@ -121,4 +139,4 @@ test("keeps CLI sessions on different hostnames independent and preserves explic
     await server.stop(true);
     await rm(directory, { recursive: true, force: true });
   }
-}, 40_000);
+}, 70_000);

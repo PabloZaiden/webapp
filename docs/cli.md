@@ -237,6 +237,10 @@ The default device `client_id` is `<commandName>-cli-<hostname>`, using the
 operating system hostname so computers with different hostnames do not replace
 each other's sessions. `auth --client-id ID` takes precedence over the
 application's `clientId` option, which takes precedence over that default.
+If the generated value exceeds the server's 200-character limit, it becomes
+`cli-<hash>`, where `<hash>` is the base64url-encoded SHA-256 of the entire
+generated value. This deterministic fallback preserves differences in the
+command name and hostname without truncation; explicit IDs are not rewritten.
 The selected ID is stored with the credentials and reused for refreshes.
 Run `auth` again after upgrading from a CLI that used the shared
 `<commandName>-cli` default. Computers sharing a hostname, or independently
