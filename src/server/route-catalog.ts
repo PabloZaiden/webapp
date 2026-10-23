@@ -4,6 +4,7 @@ import {
   compileRouteTable,
   compareRoutePatterns,
   matchCompiledRoutePattern,
+  resolveRouteOperationMetadata,
   type CompiledRoute,
   type CompiledRoutePatterns,
   type HttpMethod,
@@ -34,14 +35,7 @@ export function resolveRouteOperation(entry: RouteCatalogEntry, method: HttpMeth
   if (!entry.methods.includes(method)) {
     throw new Error(`Method ${method} is not available for ${entry.path}`);
   }
-  const metadata: RouteOperationMetadata = {
-    description: entry.description,
-    requestSchema: entry.requestSchema,
-    querySchema: entry.querySchema,
-    responseSchema: entry.responseSchema,
-    automation: entry.automation,
-    ...entry.operations?.[method],
-  };
+  const metadata = resolveRouteOperationMetadata(entry, method);
   return {
     ...metadata,
     method,
@@ -95,6 +89,8 @@ function catalogEntry<TEvent>(compiled: CompiledRoute<TEvent>): RouteCatalogEntr
     querySchema: compiled.route.querySchema,
     responseSchema: compiled.route.responseSchema,
     automation: compiled.route.automation,
+    delegation: compiled.route.delegation,
+    partialResults: compiled.route.partialResults,
     operations: compiled.route.operations,
   };
   compiledCatalogEntries.set(entry, compiled.patterns);

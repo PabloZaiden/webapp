@@ -285,3 +285,171 @@ the socket, browser listeners, heartbeat and retry timers.
 Idle retirement waits until the end of the current JavaScript turn, allowing
 replacement of the sole logical interest without recreating the transport.
 Explicit runtime disposal still tears down immediately.
+
+## Portable admitted transports
+
+`RealtimeTransport`, exported from `@pablozaiden/webapp/server`, is the minimal
+server-side connection interface:
+
+```ts
+interface RealtimeTransport {
+  readonly data: { userId?: string };
+  send(payload: string): number | void;
+  close(code?: number, reason?: string): void;
+  getBufferedAmount(): number;
+}
+```
+
+Bun `ServerWebSocket` satisfies it directly. An application can adapt one
+admitted logical relay channel without exposing or fabricating a Bun socket:
+
+```ts
+app.realtime.add(channel, {
+  authorize: publication =>
+    publication.target.userId === grant.ownerId
+    && grant.allowsScope(publication.target.scope),
+  transform: publication => references.toGuest(publication),
+  onDispose: () => relay.detach(channel),
+});
+// On each admitted channel payload:
+app.realtime.message(channel, bytes); // string | Uint8Array
+// On transport loss/revocation:
+app.realtime.remove(channel);
+```
+
+The ordinary protocol, acknowledgements, interest matching, generations, limits
+and backpressure behavior are unchanged. `send` may return Bun's numeric result
+(`0` means lost, `-1` means queued) or `void`; adapters must report their real
+queued byte count and close the logical channel when asked. Do not hide an
+unbounded queue behind the adapter. `remove` retires framework state and runs
+`onDispose` once; the caller still owns closing an externally removed transport.
+Protocol/transport failures and server shutdown close and retire it.
+
+Without `authorize`, connections retain ordinary `target.userId` ownership
+targeting. Providing it **replaces** that default: the application must validate
+the original publication's owner **and** current resource/membership scope.
+It runs for every publication independently of client interests, which can
+only narrow delivery. The connection's `data.userId` remains its guest actor.
+Policy exceptions fail closed and close that connection.
+
+`RealtimePublication<TEvent>` contains `{ event, target, kind }`. The optional
+transform runs only after authorization, before matching interests. Return
+`undefined` to omit delivery. Map explicit event/reference metadata and its
+corresponding target fields together; never rewrite arbitrary text, logs or
+payload strings. Authorization/disposal callbacks are synchronous; arrange
+async transport teardown through the application's existing lifecycle owner.
+Policy and transform inputs use `RealtimePublication<unknown>`: authorization
+can inspect trusted target metadata, while event-dependent code must validate
+or narrow the event before reading it. A transform returns a publication with
+the bus's typed application event. The generic identifies produced/delivered
+events, not an assumption that an external source already conforms to them.
+This also preserves composition of event-agnostic routes in typed realtime
+applications without casts or weakened callback parameter checks.
+
+## Per-user external sources
+
+Applications may merge an admitted remote feed into the user's existing
+authenticated `/api/ws` connection, including the CLI `ws` command:
+
+```ts
+const source = app.realtime.attachSource({
+  userId: authenticatedLocalUser.id,
+  authorize: original => remoteMembership.allows(original.target),
+  transform: original => references.fromSource(remoteIdentity, original),
+  onDispose: () => upstream.close(),
+});
+
+// After validating an upstream protocol frame, supply trusted original owner
+// and resource metadata from that admitted session, not client interests.
+source.publish(event, { kind: "state", target: trustedRemoteTarget });
+```
+
+`RealtimeSourceOptions<TEvent>` requires the local `userId` and `authorize`;
+`transform` and `onDispose` are optional. Source authorization sees upstream
+metadata before transformation. Delivery goes directly into only that local
+user's active connections, applies their connection policies and interests,
+and uses their existing bounded send path. It does **not** call global
+`publish`, broadcast to another local user, retain event history, or create a
+second browser transport. State invalidations and narrow content/action
+streams use the same interface.
+
+The application owns source discovery, upstream subscriptions, protocol
+validation and reconnect/admission. Call `source.invalidate()` after an upstream
+gap/reconnect or changed grant: it closes the local recipient's active
+connections with 1012 so normal reconnect establishes fresh interests and
+authoritative snapshots. No automatic remote replay is implied.
+`source.dispose()` idempotently detaches, invalidates, and runs cleanup;
+subsequent publications are ignored. Dispose on upstream loss or revocation,
+then establish a fresh admitted source after recovery. `app.realtime.dispose()`
+releases all sources and portable connections and is also called on server
+shutdown; the bus can accept fresh connections when the server restarts.
+
+### Observe live local interests
+
+A paired source can keep its admitted control/realtime transport connected
+without subscribing to remote content while no local client needs it:
+
+```ts
+const stopObserving = app.realtime.observeInterests(
+  authenticatedLocalUser.id,
+  interests => upstreamSubscriptions.replace(
+    references.toSource(remoteIdentity, interests),
+  ),
+  { onError: () => source.dispose() },
+);
+
+// Source teardown also releases its observer:
+stopObserving();
+```
+
+The public signature is:
+
+```ts
+observeInterests(
+  userId: string,
+  listener: (interests: readonly RealtimeInterest[]) => void,
+  options?: { onError?: (error: unknown) => void },
+): () => void;
+```
+
+`RealtimeInterest` is exported from `@pablozaiden/webapp/contracts`;
+`RealtimeInterestListener` and `RealtimeInterestObserverOptions` are server
+exports. The listener receives an immediate synchronous authoritative snapshot,
+including `[]`. It aggregates current acknowledged subscriptions from all
+connections admitted as that `data.userId`, never another user's connections.
+Equal interests collapse, selector order is canonicalized, and snapshots are
+immutable independent copies. Generations and subscription IDs are local
+protocol details, not additional interests.
+
+Subscribe, replacement, unsubscribe and connection removal schedule a fresh
+snapshot after acknowledgement, coalesced in one microtask per turn. Only an
+actual change is delivered; closing one of two clients sharing an interest
+does not retire the other's interest. The pending set contains at most one
+entry per observed user, and the observer retains only its current snapshot
+identity, not event or subscription history.
+
+An empty snapshot means retire upstream subscriptions, **not** revoke pairing
+or close the control transport. Map qualified resource selectors, IDs, scopes,
+types and explicit targets at the application's source boundary; filter out
+interests that do not select that source. Do not broaden content subscriptions
+to every remote log, infer authorization from selectors, or globally republish
+remote events. The original membership/source authorization still constrains
+every forwarded publication. Re-admission/reconnect must reapply current
+interests; registering a fresh observer supplies that snapshot immediately.
+
+Callbacks run synchronously. If upstream application work is asynchronous,
+its owner must serialize/cancel updates so an obsolete update cannot replace
+newer interests. A callback exception logs an error, detaches that observer and
+calls `onError` with the original failure. An initial exception is also rethrown
+to the registering caller. Rejections from accidentally returned promises are
+reported through the same error path. Use `onError` to fail closed by closing
+or suspending upstream delivery; failure handlers must not re-log the same
+failure unless they add meaningful context.
+
+The idempotent returned function stops observation without changing client
+subscriptions. Call it during source teardown. `app.realtime.dispose()` emits
+a final empty snapshot when needed, detaches all observers and releases their
+capacity; observers must be registered again after a runtime restart.
+`realtime.maxInterestObservers` defaults to 1024 across the bus. It must be a
+positive safe integer. Registration over that bound throws `RangeError` rather
+than silently leaving a source with stale subscription state.

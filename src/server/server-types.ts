@@ -3,7 +3,8 @@ import type { LogLevelName, WebAppConfigResponse } from "../contracts";
 import type { RealtimeBus, WebSocketData } from "./realtime/bus";
 import type { WebAppStore } from "./auth/store";
 import type { RuntimeConfig } from "./runtime-config";
-import type { RouteTable } from "./routes";
+import type { RouteTable, WebAppRouteMiddleware } from "./routes";
+import type { DelegatedDispatchOptions } from "./delegation";
 
 export const WEBAPP_SOCKET_HANDLER = "webappSocketHandler";
 
@@ -67,6 +68,7 @@ export interface WebAppServerConfig<TEvent = unknown> {
   version?: string;
   store?: WebAppStore;
   routes?: RouteTable<TEvent>;
+  routeMiddleware?: WebAppRouteMiddleware<TEvent>;
   publicRoutes?: Record<string, PublicRouteDefinition>;
   websockets?: Record<string, Partial<WebSocketHandler<WebAppWebSocketData>>>;
   auth?: {
@@ -79,6 +81,7 @@ export interface WebAppServerConfig<TEvent = unknown> {
     maxSubscriptions?: number;
     maxMessageBytes?: number;
     maxBufferedBytes?: number;
+    maxInterestObservers?: number;
   };
   lifecycle?: WebAppServerLifecycleHooks;
   logLevel?: {
@@ -92,6 +95,10 @@ export interface WebAppServer<TEvent = unknown> {
   store: WebAppStore;
   realtime: RealtimeBus<TEvent>;
   handleRequest(req: Request, server?: Server<WebSocketData>): Promise<Response | undefined>;
+  dispatchDelegated<TAuthorization extends object>(
+    req: Request,
+    options: DelegatedDispatchOptions<TAuthorization>,
+  ): Promise<Response | undefined>;
   start(): Promise<Server<WebSocketData>>;
   stop(closeActiveConnections?: boolean): Promise<void>;
 }

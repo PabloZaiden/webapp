@@ -1,7 +1,8 @@
 import type { Server } from "bun";
-import type { CurrentUser } from "../contracts";
+import type { CurrentUser, PartialResultMetadata } from "../contracts";
 import type { AuthenticatedRequestState } from "./auth/types";
 import type { RealtimeBus, ResourceRealtimeEvent, RealtimeTarget } from "./realtime/bus";
+import type { DelegatedInvocation, MatchedRouteOperation, RouteDelegationMetadata } from "./delegation";
 
 export type RouteAuth = "required" | "user" | "admin" | "owner" | "public" | "optional";
 export type SameOriginMode = "mutations" | "always" | "never";
@@ -22,6 +23,7 @@ export interface RouteContext<TParams extends Record<string, string> = Record<st
   params: TParams;
   auth: AuthenticatedRequestState;
   user?: CurrentUser;
+  delegation?: DelegatedInvocation;
   requireUser(): CurrentUser;
   requireAdmin(): CurrentUser;
   requireOwner(): CurrentUser;
@@ -38,6 +40,14 @@ export interface RouteContext<TParams extends Record<string, string> = Record<st
 export type WebAppRouteHandler<TParams extends Record<string, string> = Record<string, string>, TEvent = unknown> = (
   req: Request,
   ctx: RouteContext<TParams, TEvent>,
+) => Response | undefined | Promise<Response | undefined>;
+
+/** Runs after route authentication and policy checks, including delegated grants. */
+export type WebAppRouteMiddleware<TEvent = unknown> = (
+  req: Request,
+  ctx: RouteContext<Record<string, string>, TEvent>,
+  operation: MatchedRouteOperation,
+  invoke: () => Promise<Response | undefined>,
 ) => Response | undefined | Promise<Response | undefined>;
 
 export interface RouteAutomationCredentialResource {
@@ -85,6 +95,9 @@ export interface RouteOperationMetadata {
   querySchema?: unknown;
   responseSchema?: unknown;
   automation?: RouteAutomationMetadata;
+  /** Default deny; an operation may explicitly override an inherited grant with false. */
+  delegation?: RouteDelegationMetadata | false;
+  partialResults?: PartialResultMetadata;
 }
 
 export interface RouteMetadata extends RouteOperationMetadata {
@@ -92,6 +105,19 @@ export interface RouteMetadata extends RouteOperationMetadata {
   tags?: string[];
   operations?: Partial<Record<HttpMethod, RouteOperationMetadata>>;
   catalog?: boolean;
+}
+
+export function resolveRouteOperationMetadata(route: RouteMetadata, method: HttpMethod): RouteOperationMetadata {
+  return {
+    description: route.description,
+    requestSchema: route.requestSchema,
+    querySchema: route.querySchema,
+    responseSchema: route.responseSchema,
+    automation: route.automation,
+    delegation: route.delegation,
+    partialResults: route.partialResults,
+    ...route.operations?.[method],
+  };
 }
 
 export type RouteDefinition<TEvent = unknown> = {
@@ -200,8 +226,8 @@ export type CompiledRoutePatternMatch =
       readonly kind: "no-match";
     };
 
-// Route event types are compile-time-only, so use never for the erased cache value.
-const compiledRouteTables = new WeakMap<object, CompiledRouteTable<never>>();
+// A table's key preserves its event type; erase only the heterogeneous cache.
+const compiledRouteTables = new WeakMap<object, unknown>();
 
 function splitPath(pathname: string): string[] {
   return pathname.split("/").filter(Boolean);

@@ -12,6 +12,7 @@ import type {
 } from "./device-auth";
 import type { CliEnvironment } from "./environment-auth";
 import { readOption, type CliCommandResult } from "./runtime";
+import { readResponseMetadata } from "../contracts/response-metadata";
 
 export type ApiCliCredentialsStore = DeviceCredentialsStore & {
   read(): Promise<StoredDeviceCredentials | undefined>;
@@ -44,6 +45,8 @@ function operationSchemaOutput(operation: RouteOperationMetadata) {
     requestSchema: routeSchemaToJsonSchema(operation.requestSchema),
     responseSchema: routeSchemaToJsonSchema(operation.responseSchema, { io: "output" }),
     automation: operation.automation,
+    delegation: operation.delegation,
+    partialResults: operation.partialResults,
   };
 }
 
@@ -165,6 +168,7 @@ export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<Cli
     }
   }
   const text = await response.text();
+  const { partial } = readResponseMetadata(response, resolveRouteOperation(match.entry, method as HttpMethod).partialResults);
   let parsed: unknown = text;
   try {
     parsed = text ? JSON.parse(text) as unknown : null;
@@ -175,10 +179,11 @@ export async function runApiCliCommand(input: ApiCliCommandOptions): Promise<Cli
     ? text
     : JSON.stringify({
       status: { code: response.status, ok: response.ok, text: response.statusText },
+      ...(partial ? { partial: true } : {}),
       response: parsed,
     }, null, 2);
   return {
-    exitCode: response.ok ? 0 : 1,
+    exitCode: response.ok && !partial ? 0 : 1,
     output: output ?? "",
   };
 }

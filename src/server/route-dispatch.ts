@@ -1,13 +1,15 @@
 import type { Server } from "bun";
 import { assertScopes } from "./auth/api-keys";
 import { AuthError } from "./auth/types";
+import type { AuthenticatedRequestState } from "./auth/types";
+import type { DelegatedDispatchOptions, DelegatedInvocation, DelegatedOperation, MatchedRouteOperation } from "./delegation";
 import { authErrorResponse, enforceRouteAuth, requiresAuth, scopesFromBearer, type Authentication } from "./authentication";
 import type { RuntimeConfig } from "./runtime-config";
 import { createLogger } from "./logger";
 import { checkSameOrigin } from "./same-origin";
 import type { RealtimeBus } from "./realtime/bus";
 import { invalidPath, errorResponse, requestBodyErrorResponse, methodNotAllowed, responseForRequest, withSecurityHeaders } from "./responses";
-import { matchCompiledRouteTable, type CompiledRouteTable, type HttpMethod, type UserScopedRealtimePublisher } from "./routes";
+import { matchCompiledRouteTable, resolveRouteOperationMetadata, type CompiledRouteTable, type HttpMethod, type RouteContext, type UserScopedRealtimePublisher, type WebAppRouteMiddleware } from "./routes";
 import type { WebAppWebSocketData } from "./server-types";
 
 export interface RouteDispatchResult {
@@ -20,6 +22,7 @@ export interface RouteDispatcherDependencies<TEvent = unknown> {
   routes: CompiledRouteTable<TEvent>;
   authentication: Authentication;
   realtime: RealtimeBus<TEvent>;
+  middleware?: WebAppRouteMiddleware<TEvent>;
 }
 
 const log = createLogger("webapp:routes");
@@ -41,7 +44,7 @@ function method(req: Request): HttpMethod | undefined {
   }
 }
 
-function routeHandlerErrorResponse(error: unknown): Response {
+function frameworkRouteErrorResponse(error: unknown): Response | undefined {
   const requestBodyFailure = requestBodyErrorResponse(error);
   if (requestBodyFailure) {
     return requestBodyFailure;
@@ -49,8 +52,37 @@ function routeHandlerErrorResponse(error: unknown): Response {
   if (error instanceof AuthError) {
     return errorResponse(error.status, error.code, error.message);
   }
-  log.error("Unhandled route handler error", { error: error instanceof Error ? error.message : String(error) });
+  return undefined;
+}
+
+function failedRequest(): Response {
   return errorResponse(500, "request_failed", "Request failed");
+}
+
+function routeHandlerErrorResponse(error: unknown): Response {
+  const frameworkFailure = frameworkRouteErrorResponse(error);
+  if (frameworkFailure) return frameworkFailure;
+  log.error("Unhandled route handler error", { error: error instanceof Error ? error.message : String(error) });
+  return failedRequest();
+}
+
+async function delegatedErrorResponse<TAuthorization extends object>(
+  error: unknown,
+  operation: MatchedRouteOperation,
+  options: DelegatedDispatchOptions<TAuthorization>,
+): Promise<Response> {
+  const frameworkFailure = frameworkRouteErrorResponse(error);
+  if (frameworkFailure) return frameworkFailure;
+  if (!options.onError) return routeHandlerErrorResponse(error);
+  try {
+    const response = await options.onError(error, operation);
+    if (!(response instanceof Response)) throw new TypeError("Delegated onError must return a Response");
+    return response;
+  } catch {
+    // Error hooks may fail while handling private domain or credential data.
+    log.error("Delegated application error hook failed", { path: operation.path, method: operation.method });
+    return failedRequest();
+  }
 }
 
 function routeResponse(req: Request, response: Response): Response {
@@ -61,7 +93,11 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
   const { config, routes, authentication, realtime } = dependencies;
 
   return {
-    async dispatch(req: Request, server?: Server<WebAppWebSocketData>): Promise<RouteDispatchResult> {
+    async dispatch<TAuthorization extends object>(
+      req: Request,
+      server?: Server<WebAppWebSocketData>,
+      delegated?: DelegatedDispatchOptions<TAuthorization>,
+    ): Promise<RouteDispatchResult> {
       const routeMatch = matchCompiledRouteTable(routes, new URL(req.url).pathname);
       if (routeMatch.kind === "no-match") {
         return { matched: false };
@@ -70,7 +106,7 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
         return { matched: true, response: routeResponse(req, invalidPath()) };
       }
       const matched = routeMatch.match;
-      const requestMethod = method(req);
+      const requestMethod = req.method.toUpperCase() === "HEAD" ? "GET" : method(req);
       const handler = req.method.toUpperCase() === "HEAD"
         ? matched.route.GET
         : requestMethod
@@ -80,11 +116,44 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
         return { matched: true, response: routeResponse(req, methodNotAllowed(matched.compiled.methods)) };
       }
       const routeAuth = matched.route.auth ?? "required";
-      const auth = await authentication.authorize(req, requiresAuth(routeAuth));
+      const operation: MatchedRouteOperation = Object.freeze({
+        path: matched.pattern,
+        method: requestMethod!,
+        params: Object.freeze({ ...matched.params }),
+        auth: routeAuth,
+        scopes: Object.freeze([...(matched.route.scopes ?? [])]),
+        metadata: Object.freeze(resolveRouteOperationMetadata(matched.route, requestMethod!)),
+      });
+      const auth: AuthenticatedRequestState | Response = delegated
+        ? { kind: "delegated", user: Object.freeze({ ...delegated.actor }) }
+        : await authentication.authorize(req, requiresAuth(routeAuth));
       if (auth instanceof Response) {
         return { matched: true, response: routeResponse(req, auth) };
       }
+      let delegation: DelegatedInvocation<TAuthorization> | undefined;
       try {
+        if (delegated) {
+          const metadata = operation.metadata.delegation;
+          if (
+            !metadata || !metadata.resource || !metadata.action || (routeAuth !== "user" && routeAuth !== "required")
+            || auth.kind !== "delegated" || !auth.user.id
+            || auth.user.role !== "user" || auth.user.isAdmin || auth.user.isOwner
+          ) {
+            throw new AuthError("delegation_forbidden", "This operation does not permit delegated access", 403);
+          }
+          const delegatedOperation: DelegatedOperation = Object.freeze({
+            ...operation,
+            delegation: Object.freeze({
+              ...metadata,
+              bindings: metadata.bindings?.map(reference => Object.freeze({ ...reference })),
+            }),
+          });
+          const authorization = await delegated.authorize(delegatedOperation, req);
+          if (!authorization || typeof authorization !== "object") {
+            throw new AuthError("delegation_forbidden", "Delegated access was not granted", 403);
+          }
+          delegation = Object.freeze({ actor: auth.user, operation: delegatedOperation, authorization });
+        }
         enforceRouteAuth(routeAuth, auth, authentication);
         if (matched.route.userParam) {
           const paramValue = matched.params[matched.route.userParam];
@@ -97,7 +166,10 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
           assertScopes(auth.kind === "api-key" ? auth.scopes : scopesFromBearer(auth.claims), matched.route.scopes ?? []);
         }
       } catch (error) {
-        return { matched: true, response: routeResponse(req, authErrorResponse(error)) };
+        const response = delegated
+          ? await delegatedErrorResponse(error, operation, delegated)
+          : authErrorResponse(error);
+        return { matched: true, response: routeResponse(req, response) };
       }
       const current = () => authentication.requireUser(auth);
       const userRealtime = {
@@ -106,15 +178,18 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
         publishDeleted: (resource, id, options = {}) => realtime.publishDeleted(resource, id, { ...options, target: { ...options.target, userId: current().id } }),
         publishSettingsChanged: (options = {}) => realtime.publishSettingsChanged({ ...options, target: { ...options.target, userId: current().id } }),
       } satisfies UserScopedRealtimePublisher<TEvent>;
-      const originFailure = checkSameOrigin(req, config, auth, matched.route.sameOrigin ?? "mutations");
+      // Delegated admission is a server-code capability, not browser credentials.
+      // The verified transport replaces the browser origin check only on this path.
+      const originFailure = delegated ? undefined : checkSameOrigin(req, config, auth, matched.route.sameOrigin ?? "mutations");
       if (originFailure) {
         return { matched: true, response: routeResponse(req, originFailure) };
       }
       try {
-        const response = await handler(req, {
+        const context: RouteContext<Record<string, string>, TEvent> = {
           params: matched.params,
           auth,
           user: authentication.currentUser(auth),
+          delegation,
           requireUser: () => authentication.requireUser(auth),
           requireAdmin: () => authentication.requireAdmin(auth),
           requireOwner: () => authentication.requireOwner(auth),
@@ -124,10 +199,20 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
           realtime,
           userRealtime,
           server,
-        });
+        };
+        const invoke = async () => await handler(req, context);
+        const execute = async () => dependencies.middleware
+          ? await dependencies.middleware(req, context, operation, invoke)
+          : await invoke();
+        const response = delegated?.run && delegation
+          ? await delegated.run(delegation, execute)
+          : await execute();
         return { matched: true, response: response ? routeResponse(req, response) : undefined };
       } catch (error) {
-        return { matched: true, response: routeResponse(req, routeHandlerErrorResponse(error)) };
+        const response = delegated
+          ? await delegatedErrorResponse(error, operation, delegated)
+          : routeHandlerErrorResponse(error);
+        return { matched: true, response: routeResponse(req, response) };
       }
     },
   };

@@ -97,7 +97,7 @@ function requireUser(auth: AuthenticatedRequestState): CurrentUser {
 
 function requireAdmin(auth: AuthenticatedRequestState): CurrentUser {
   const user = requireUser(auth);
-  if (!user.isAdmin) {
+  if (auth.kind === "delegated" || !user.isAdmin) {
     throw new AuthError("admin_required", "Admin permissions are required", 403);
   }
   return user;
@@ -105,7 +105,7 @@ function requireAdmin(auth: AuthenticatedRequestState): CurrentUser {
 
 function requireOwner(auth: AuthenticatedRequestState): CurrentUser {
   const user = requireUser(auth);
-  if (!user.isOwner) {
+  if (auth.kind === "delegated" || !user.isOwner) {
     throw new AuthError("owner_required", "Owner permissions are required", 403);
   }
   return user;
