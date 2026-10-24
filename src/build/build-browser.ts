@@ -34,7 +34,6 @@ interface BuildBrowserOptions {
   build?: WebAppBrowserBuildOptions;
   publicAssets?: WebAppPublicAssetOptions[];
   assets?: WebAppStaticAssetOptions[];
-  remote?: { apiBaseUrl?: string };
 }
 
 export interface WebAppBrowserBuild {
@@ -60,20 +59,20 @@ export async function buildWebAppBrowser(options: BuildBrowserOptions): Promise<
   const cacheDir = mkdtempSync(join(cacheRoot, "browser-"));
   const outdir = resolve(cacheDir, "output");
   const renderer = resolve(cacheDir, "webapp-renderer-prelude.ts");
-  const client = resolve(cacheDir, "webapp-client-entry.ts");
   try {
     writeFileSync(renderer, `import { createRoot } from ${JSON.stringify(reactDomClientPath.replaceAll("\\", "/"))};
-import { configureWebAppRenderer${options.remote ? ", configureWebAppClient" : ""} } from "@pablozaiden/webapp/web";
+import { configureWebAppRenderer, initializeWebAppClient } from "@pablozaiden/webapp/web";
 configureWebAppRenderer(createRoot);
-${options.remote ? `configureWebAppClient(${JSON.stringify({ mode: "remote", ...options.remote })});\nawait import(${JSON.stringify(entry)});\n` : ""}`);
-    writeFileSync(client, `import ${JSON.stringify(entry)};\n`);
+await initializeWebAppClient();
+await import(${JSON.stringify(entry)});
+`);
     const result = await Bun.build({
-      entrypoints: options.remote ? [renderer] : [renderer, client],
+      entrypoints: [renderer],
       outdir,
       target: "browser",
       format: "esm",
       splitting: true,
-      publicPath: options.remote ? "./" : "/webapp-compiled/",
+      publicPath: "./",
       minify: true,
       sourcemap: "external",
       define: { ...options.define, ...options.build?.define },
@@ -88,10 +87,10 @@ ${options.remote ? `configureWebAppClient(${JSON.stringify({ mode: "remote", ...
     }
     const assets: WebAppBrowserAsset[] = await Promise.all(result.outputs.map(async (output) => {
       const relativePath = buildOutputRelativePath(outdir, output);
-      const path = normalizePublicAssetPath(`${options.remote ? "/" : "/webapp-compiled/"}${relativePath}`);
+      const path = normalizePublicAssetPath(`/webapp-compiled/${relativePath}`);
       const kind = publicAssetKindForBuildArtifact(output);
       const name = basename(output.path);
-      const scriptOrder = name === "webapp-renderer-prelude.js" ? 0 : name === "webapp-client-entry.js" ? 1 : undefined;
+      const scriptOrder = name === "webapp-renderer-prelude.js" ? 0 : undefined;
       return {
         path,
         kind,

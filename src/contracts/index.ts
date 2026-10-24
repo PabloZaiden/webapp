@@ -1,3 +1,5 @@
+export * from "./client-bootstrap";
+
 export const VALID_LOG_LEVELS = ["silly", "trace", "debug", "info", "warn", "error", "fatal"] as const;
 
 export type LogLevelName = typeof VALID_LOG_LEVELS[number];

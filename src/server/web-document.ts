@@ -15,12 +15,15 @@ import {
 } from "../web-document";
 import { notFound, withSecurityHeaders } from "./responses";
 import type { RuntimeConfig } from "./runtime-config";
+import { WEB_APP_CLIENT_CONFIG_PATH, type WebAppClientBootstrap } from "../contracts/client-bootstrap";
+import { getRequestOriginInfo } from "./auth/request-origin";
 import {
   assertUniquePublicAssetPaths,
   decodePublicAssetBody,
   normalizePublicAssetPath,
   publicAssetKind,
   type WebAppPublicAssetKind,
+  type WebAppPublicAssetArtifact,
 } from "./public-asset-manifest";
 
 type HtmlBundleIndex = { index: string };
@@ -184,6 +187,44 @@ function compiledClient(): CompiledClient | undefined {
   return { packageRoot: candidate.packageRoot, assets };
 }
 
+function assetRoutes(
+  config: RuntimeConfig,
+  artifacts: WebAppPublicAssetArtifact[],
+): Record<string, PublicRouteDefinition> {
+  assertUniquePublicAssetPaths(artifacts.map((asset) => asset.path), "web document assets");
+  const routes: Record<string, PublicRouteDefinition> = {};
+  for (const artifact of artifacts) {
+    routes[artifact.path] = {
+      headers: { "content-type": artifact.contentType },
+      GET: () => artifact.content.slice(),
+    };
+  }
+  routes[WEB_APP_CLIENT_CONFIG_PATH] = {
+    GET: (req) => Response.json({
+      mode: "integrated",
+      publicBasePath: getRequestOriginInfo(req, config).pathPrefix,
+    } satisfies WebAppClientBootstrap, { headers: { "cache-control": "no-store" } }),
+  };
+  return routes;
+}
+
+function prebuiltDocument(compiled: CompiledClient, config: RuntimeConfig, cacheDir: string): WebDocument | undefined {
+  const html = compiled.assets.find((asset) => asset.path === "/index.html");
+  if (!html) return undefined;
+  const icon = compiled.assets.find((asset) => asset.path === "/webapp-icon.svg");
+  if (!icon) throw new Error("Prebuilt client document is missing its default icon.");
+  const manifest = compiled.assets.find((asset) => asset.path === "/site.webmanifest");
+  const decoder = new TextDecoder();
+  return {
+    entryPublicPath: "",
+    cacheDir,
+    html: decoder.decode(html.content),
+    icon: decoder.decode(icon.content),
+    manifest: manifest ? decoder.decode(manifest.content) : "",
+    generatedPublicRoutes: assetRoutes(config, compiled.assets),
+  };
+}
+
 async function createWebDocument(
   config: RuntimeConfig,
   webInput: WebAppDocumentConfig | undefined,
@@ -196,6 +237,8 @@ async function createWebDocument(
   const publicEntry = entryFile ? webEntryPublicPath(entryFile, packageRoot) : "";
   const cacheDir = createDocumentCacheDir(config.envPrefix);
   try {
+    const prebuilt = compiled ? prebuiltDocument(compiled, config, cacheDir) : undefined;
+    if (prebuilt) return prebuilt;
     const htmlPath = resolve(cacheDir, `${config.envPrefix.toLowerCase()}-index.html`);
     const documentAssets = await generateWebAppDocumentAssets(config.appName, web, packageRoot);
     for (const artifact of documentAssets.artifacts) {
@@ -231,16 +274,8 @@ configureWebAppRenderer(createRoot);
       throw new Error("Generated web document did not produce a Bun HTMLBundle");
     }
     const html = bundle ? await Bun.file(bundle.index).text() : sourceHtml;
-    const generatedPublicRoutes: Record<string, PublicRouteDefinition> = {};
     const staticAssets = await readWebAppStaticAssets(resolution.staticAssets ?? []);
     const artifacts = [...documentAssets.artifacts, ...(compiled?.assets ?? []), ...staticAssets];
-    assertUniquePublicAssetPaths(artifacts.map((asset) => asset.path), "web document assets");
-    for (const artifact of artifacts) {
-      generatedPublicRoutes[artifact.path] = {
-        headers: { "content-type": artifact.contentType },
-        GET: () => artifact.content.slice(),
-      };
-    }
     return {
       bundle,
       entryPublicPath: publicEntry,
@@ -248,7 +283,7 @@ configureWebAppRenderer(createRoot);
       html,
       manifest: documentAssets.manifest,
       icon: documentAssets.icon,
-      generatedPublicRoutes,
+      generatedPublicRoutes: assetRoutes(config, artifacts),
     };
   } catch (error) {
     cleanupDocumentCacheDir(cacheDir);
@@ -279,6 +314,7 @@ export function createWebDocumentProvider(
   const appleTouch = iconConfig(webInput?.icons?.appleTouch) ?? favicon;
   const iconPath = (src: string | URL): string => pathExtension(resolveDocumentAsset(src, resolution.packageRoot)) || ".png";
   const generatedRoutePaths = new Set([
+    WEB_APP_CLIENT_CONFIG_PATH,
     ...(resolution.entryFile ? [webEntryPublicPath(resolution.entryFile, resolution.packageRoot)] : []),
     ...(compiledClient()?.assets.map((asset) => asset.path) ?? []),
     ...(resolution.staticAssets?.map((asset) => asset.path) ?? []),

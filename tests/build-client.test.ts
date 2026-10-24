@@ -59,6 +59,8 @@ body { font-family: Test; }`);
     const origin = `http://127.0.0.1:${server.port}`;
     for (const mount of ["/", "/nested/client/"]) {
       const documentUrl = `${origin}${mount}`;
+      const bootstrap = await fetch(`${documentUrl}webapp-client.json`, { signal: AbortSignal.timeout(5_000) });
+      expect(await bootstrap.json()).toEqual({ mode: "remote", apiBaseUrl: "https://api.example.test" });
       const graph = await fetchClientArtifacts(documentUrl);
       expect([...graph.keys()].every((url) => url.startsWith(documentUrl))).toBe(true);
       expect([...graph.keys()].some((url) => url.endsWith(".css"))).toBe(true);

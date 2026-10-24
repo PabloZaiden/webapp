@@ -5,6 +5,7 @@ import { serializePublicAssetBundles } from "../server/public-assets";
 import type { WebAppPublicAssetOptions } from "./public-assets";
 import {
   buildWebAppBrowser,
+  type WebAppBrowserBuild,
   type WebAppBrowserBuildOptions,
   type WebAppStaticAssetOptions,
 } from "./build-browser";
@@ -31,7 +32,7 @@ export interface BuildWebAppBinaryOptions {
   outfile: string;
   target?: BunCompileTarget;
   define?: Record<string, string>;
-  web?: {
+  web?: { client: WebAppBrowserBuild } | {
     entry?: string;
     publicAssets?: WebAppPublicAssetOptions[];
     assets?: WebAppStaticAssetOptions[];
@@ -95,13 +96,13 @@ export async function buildWebAppBinary(options: BuildWebAppBinaryOptions): Prom
   const cacheDir = resolve(packageRoot, ".cache", "webapp-build", buildId);
   try {
     mkdirSync(cacheDir, { recursive: true });
-    const webEntry = resolve(dirname(resolve(options.entrypoint)), options.web?.entry ?? "./web/main.tsx");
-    const browser = await buildWebAppBrowser({
-      entry: webEntry,
+    const web = options.web;
+    const browser = web && "client" in web ? web.client : await buildWebAppBrowser({
+      entry: resolve(dirname(entrypoint), web?.entry ?? "./web/main.tsx"),
       define: options.define,
-      build: options.web?.build,
-      publicAssets: options.web?.publicAssets,
-      assets: options.web?.assets,
+      build: web?.build,
+      publicAssets: web?.publicAssets,
+      assets: web?.assets,
     });
     const assets = browser.assets.map(({ content, ...asset }) => ({
       ...asset,

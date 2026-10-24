@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, renameSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { buildWebAppBinary } from "@pablozaiden/webapp/build";
+import { buildWebAppBinary, buildWebAppClient } from "@pablozaiden/webapp/build";
 import { fetchClientArtifacts } from "./support/client-artifacts";
 
 interface CommandResult {
@@ -163,7 +163,7 @@ test("builds and manages the Kitchen Sink example as a standalone binary", async
   }
 }, 120_000);
 
-test("serves explicitly configured frontend files in hot development and the standalone binary", async () => {
+test("serves development assets and embeds the published frontend unchanged in a standalone binary", async () => {
   const directory = resolve(".cache/tests", `configured-assets-${crypto.randomUUID()}`);
   const entrypoint = join(directory, "server.ts");
   const assetDirectory = join(directory, "assets");
@@ -190,16 +190,20 @@ const app = createWebAppServer({
 await app.start();
 process.on("SIGTERM", async () => { await app.stop(true); process.exit(0); });
 `);
-    await buildWebAppBinary({
-      entrypoint,
-      outfile: binary,
-      web: {
-        entry: "./main.ts",
-        assets: [{ src: assetDirectory, path: "/webapp-assets/editor" }],
-      },
+    const clientDirectory = join(directory, "client");
+    const client = await buildWebAppClient({
+      entry: join(directory, "main.ts"),
+      outdir: clientDirectory,
+      appName: "Asset Host",
+      assets: [{ src: assetDirectory, path: "/webapp-assets/editor" }],
     });
     for (const mode of ["hot", "binary"]) {
-      if (mode === "binary") renameSync(assetDirectory, join(directory, "retired-assets"));
+      if (mode === "binary") {
+        renameSync(assetDirectory, join(directory, "retired-assets"));
+        renameSync(join(directory, "main.ts"), join(directory, "retired-main.ts"));
+        renameSync(join(directory, "main.css"), join(directory, "retired-main.css"));
+        await buildWebAppBinary({ entrypoint, outfile: binary, web: { client } });
+      }
       const port = await freePort();
       const child = Bun.spawn(mode === "hot" ? [process.execPath, "--hot", entrypoint] : [binary], {
         env: {
@@ -221,6 +225,18 @@ process.on("SIGTERM", async () => { await app.stop(true); process.exit(0); });
         const baseUrl = `http://127.0.0.1:${port}`;
         await waitForHealth(baseUrl, 10_000);
         await fetchClientArtifacts(`${baseUrl}/`);
+        const bootstrap = await fetch(`${baseUrl}/webapp-client.json`, { signal: AbortSignal.timeout(5_000) });
+        expect(await bootstrap.json()).toEqual({ mode: "integrated", publicBasePath: "/" });
+        if (mode === "binary") {
+          const document = await fetch(`${baseUrl}/`, { signal: AbortSignal.timeout(5_000) });
+          expect(await document.text()).toBe(await Bun.file(join(clientDirectory, "index.html")).text());
+          for await (const path of new Bun.Glob("**/*").scan({ cwd: clientDirectory, onlyFiles: true })) {
+            if (path === "webapp-client.json") continue;
+            const response = await fetch(new URL(path.replaceAll("\\", "/"), `${baseUrl}/`), { signal: AbortSignal.timeout(5_000) });
+            expect(response.status, path).toBe(200);
+            expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(await Bun.file(join(clientDirectory, path)).arrayBuffer()));
+          }
+        }
         for (const [path, content] of [["editor.js", worker], ["editor.js.map", sourcemap]]) {
           const response = await fetch(`${baseUrl}/webapp-assets/editor/workers/${path}`, { signal: AbortSignal.timeout(5_000) });
           expect(response.status).toBe(200);

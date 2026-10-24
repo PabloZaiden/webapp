@@ -12,7 +12,11 @@ sessions keep their existing same-origin/CSRF protections.
 
 ## Connection and login
 
-Static client builds enable remote mode before importing the application.
+One frontend artifact supports both integrated and static deployments.
+Its shared bootstrap reads directory-relative `webapp-client.json` before
+importing the application. The static configuration enables remote mode;
+the unified server supplies integrated mode with cookie authentication and
+its trusted public path prefix. No second browser compilation is needed.
 An optional distributed API URL supplies the initial default. A device-local
 choice takes precedence and is scoped to the deployed client directory.
 The connection screen works before login and when the API is unavailable.

@@ -113,16 +113,45 @@ Bun. Choose a dedicated output directory; the builder overwrites its own
 outputs but does not delete unrelated or stale files already in that directory.
 Do not publish dependencies, source trees or private data alongside it.
 
-The bootstrap calls
-`configureWebAppClient({ mode: "remote", apiBaseUrl: ... })` and configures the
-React renderer **before importing the application's entry module**. Omit
-`apiBaseUrl` to distribute no default endpoint. This is a public, nonsecret
+The shared bootstrap loads the directory-relative `webapp-client.json` and
+configures the React renderer **before importing the application's entry module**.
+Static output uses `{ "mode": "remote", "apiBaseUrl": "https://api.example.test" }`.
+Omit `apiBaseUrl` to distribute no default endpoint. This is a public, nonsecret
 runtime default, not an API credential; the client can select its endpoint at
 runtime. Application startup may call `configureWebAppClient()` without
 discarding that bootstrap configuration. Browser defines and source maps are
 also public: never place tokens, secrets or server-only environment values in
-them. The API server must separately permit the chosen client origin and
-support remote authentication; building assets does not change server policy.
+them. The API server must support remote authentication; client origins do not
+need registration.
+
+### Build once for static hosting and a unified binary
+
+Pass the result of `buildWebAppClient` directly to the binary builder:
+
+```ts
+import { buildWebAppBinary, buildWebAppClient } from "@pablozaiden/webapp/build";
+
+const client = await buildWebAppClient({
+  entry: new URL("./src/web/main.tsx", import.meta.url),
+  outdir: "./dist/client",
+  appName: "My App",
+});
+await buildWebAppBinary({
+  entrypoint: "src/index.ts",
+  outfile: "./dist/my-app",
+  web: { client },
+});
+```
+
+The binary embeds the same HTML, JavaScript, CSS, icons and runtime assets,
+without compiling the browser again or needing the output/source directory at
+runtime. Document appearance is fixed by the client build's options. Server
+`web.mode` still controls integrated versus authentication-only presentation.
+The server supplies its own nonsecret `webapp-client.json` response with
+`mode: "integrated"` and the trusted public path prefix; the artifact's static
+file instead selects remote token authentication. Only runtime configuration
+changes, not the frontend code or HTML. The configuration response is uncached;
+do not override that reserved framework route.
 
 Document options match server `web` configuration: `title`, `shortName`,
 `lang`, `themeColor`, `backgroundColor`, `icons` and `pwa`. Icon inputs are
@@ -167,10 +196,10 @@ URL still refers to the hosting origin's root and cannot be relocated.
 `publicAssets` additionally compiles explicit browser entrypoints using the
 existing `WebAppPublicAssetOptions` contract, retaining every emitted sidecar.
 
-Integrated binary entry URLs remain `/webapp-compiled/...`; static builds
-instead emit relative URLs at the client directory root. The generated PWA
-manifest link is now directory-relative in both modes, matching its existing
-relative icon, start and scope URLs.
+Static artifacts, including those embedded through `web.client`, put compiled
+scripts in `webapp-compiled/` and use directory-relative document/import URLs.
+Generated PWA manifest links, icons, start and scope URLs are directory-relative
+too.
 
 ## Docker
 
