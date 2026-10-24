@@ -1,9 +1,6 @@
 import type { ClientTicketRequest, ClientTicketResponse } from "../../contracts";
-import { getRequestOriginInfo } from "./request-origin";
 import { randomToken, sha256 } from "./crypto";
 import { AuthError, type AuthenticatedRequestState } from "./types";
-import type { RuntimeConfig } from "../runtime-config";
-import { isClientOrigin } from "../client-origins";
 
 export const CLIENT_TICKET_PARAMETER = "webapp_ticket";
 const MAX_TICKETS = 4096;
@@ -16,7 +13,7 @@ interface ClientTicket {
   token: string;
   target: string;
   kind: ClientTicketRequest["kind"];
-  origin: string;
+  origin: string | null;
   userId: string;
   sessionId: string;
   expiresAt: number;
@@ -42,7 +39,7 @@ function targetUrl(target: string): URL {
   return url;
 }
 
-export function createClientTickets(config: RuntimeConfig, verify: (token: string) => Promise<BearerAuth>) {
+export function createClientTickets(verify: (token: string) => Promise<BearerAuth>) {
   const tickets = new Map<string, ClientTicket>();
   const prepared = new WeakMap<Request, BearerAuth>();
 
@@ -56,9 +53,6 @@ export function createClientTickets(config: RuntimeConfig, verify: (token: strin
   return {
     issue(req: Request, auth: BearerAuth, input: ClientTicketRequest, token: string): ClientTicketResponse {
       const origin = req.headers.get("origin");
-      if (!origin || (origin !== getRequestOriginInfo(req, config).origin && !isClientOrigin(origin, config))) {
-        throw new AuthError("client_origin_forbidden", "A trusted client origin is required", 403);
-      }
       const target = targetUrl(input.url);
       prune();
       let count = 0;

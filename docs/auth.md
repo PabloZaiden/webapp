@@ -131,12 +131,11 @@ pre-managed records as `kind: "user"`, include both kinds in expiration cleanup 
 user deletion/reset cleanup, and preserve the owner filter used by the management
 helpers. The built-in SQLite store performs this migration automatically.
 
-API-key and device bearer requests without `Origin` skip ordinary mutation
-origin checks, because non-browser clients usually do not send it. A supplied
-`Origin` must match the API origin or an explicitly configured client origin.
-Routes with `sameOrigin: "always"` still require an allowed origin, except for
-the narrowly scoped resource capabilities described below. Cookie-authenticated
-requests never gain a cross-origin exemption.
+API-key and device bearer requests use explicit credentials and do not require
+a registered client origin, whether `Origin` is supplied or omitted. This
+applies to routes with `sameOrigin: "always"` too. Cookie-authenticated requests
+never gain a cross-origin exemption; scopes and user ownership still apply to
+every authentication mode.
 
 ### Browser sign-in with an API key
 
@@ -250,34 +249,35 @@ transitions.
 
 ## Same-origin policy
 
-Cookie/browser mutations require matching `Origin` or `Referer` by default. Use `sameOrigin: "never"` only for deliberate public/server-to-server routes; use `sameOrigin: "always"` for especially sensitive endpoints even when bearer tokens are used.
+Cookie/browser mutations require matching `Origin` or `Referer` by default.
+`sameOrigin: "always"` also checks non-mutating requests and WebSocket upgrades
+that rely on browser sessions. Explicit API keys, device bearer tokens and
+validated client tickets authenticate independently of the client's host.
+Use `sameOrigin: "never"` only for intentionally origin-independent public
+routes, not to enable token-authenticated API clients.
 
 ## Detached browser clients
 
 Remote static clients use device authorization, not third-party cookies.
-Enable `auth.deviceAuth` and explicitly configure the API server with
-`{PREFIX}_CLIENT_ORIGINS`, a comma-separated list:
+Enable `auth.deviceAuth`; neither integrated nor API-only serving requires
+registering where clients are hosted. CLI clients and separately hosted web
+clients can use the API from any origin with their own credentials.
 
-```bash
-EXAMPLE_CLIENT_ORIGINS=https://static.example.test,http://localhost:8081
-```
-
-Applications supplying `runtimeConfig` directly use
-`clientOrigins: ["https://static.example.test"]`. Entries must be absolute
-origins without credentials, paths, queries or fragments. HTTPS is required
-except for HTTP loopback/localhost development. Wildcards, `null` and `file:`
-origins are rejected at startup. Omission preserves integrated same-origin
-deployment and permits no detached browser origins. Different client paths on
-the same origin do not represent separate trust boundaries.
-
-The API answers trusted-origin preflights before authentication, and returns
-the matching `Access-Control-Allow-Origin` on successful and unsuccessful
-responses. It exposes the response's actual metadata headers, including
+The API answers valid preflights before authentication and returns
+`Access-Control-Allow-Origin: *` on successful and unsuccessful cross-origin
+responses, without `Access-Control-Allow-Credentials`. Browser clients must omit
+cookies and provide their API key or device token explicitly. It exposes actual
+response metadata headers, including
 ETag, content-disposition/content-range, passkey-required and application
-headers such as `X-Example-Partial`. It never enables credentialed CORS or
-wildcard origins. Normal route authorization, scopes and cookie CSRF checks
-remain in force; only bearer-authenticated requests may use the trusted-client
-origin exception to `sameOrigin`, including `"always"`.
+headers such as `X-Example-Partial`. CORS grants permission to read a response,
+not permission to access private data. Normal route authorization, scopes,
+ownership and cookie CSRF checks remain in force.
+
+Keep authentication enabled even for a loopback API. With authentication
+disabled, private unauthenticated reads may be accessible to arbitrary websites.
+Authentication bypasses are suitable only for isolated, disposable validation.
+Use HTTPS for public deployments and trust the host serving client code:
+script-readable client credentials are not protected from that host or XSS.
 
 The client starts `/api/auth/device` and polls `/api/auth/token` as an ordinary
 device client. The user opens the returned API-origin verification URL and
@@ -308,13 +308,15 @@ with an opaque `webapp_ticket` parameter appended. Input and output omit the
 API deployment prefix: join them to the configured API base URL, including
 that base's prefix. Absolute URLs, fragments, path traversal requiring URL
 normalization and existing ticket parameters are rejected. The endpoint requires
-a valid device bearer token and a trusted client (or API) `Origin`; cookie
-sessions and API keys cannot issue tickets.
+a valid device bearer token; cookie sessions and API keys cannot issue tickets.
+Client origins do not need prior registration. When a client supplies `Origin`,
+its ticket is bound to that observed origin; a non-browser client may omit it.
 
 - `kind: "websocket"` lasts at most 30 seconds, requires GET plus a WebSocket
-  upgrade from the issuing origin, and is single-use. Request a new ticket for
-  each reconnect. Both framework realtime and application route upgrades use
-  the same capability authentication and origin policy.
+  upgrade with the same `Origin` presence/value as issuance, and is single-use.
+  Request a new ticket for each reconnect. Both framework realtime and
+  application route upgrades use the same capability authentication and
+  observed-origin binding, not an origin allowlist.
 - `kind: "resource"` lasts at most 60 seconds and supports repeat GET/HEAD
   requests, including ranges. Requests may omit `Origin` for navigation and
   media; when present it must match the issuing origin.

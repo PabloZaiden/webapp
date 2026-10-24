@@ -24,7 +24,7 @@ import { createRouteDispatcher } from "./route-dispatch";
 import { compileRouteTable } from "./routes";
 import { errorResponse, notFound, withSecurityHeaders } from "./responses";
 import type { DelegatedDispatchOptions } from "./delegation";
-import { clientPreflight, normalizeClientOrigins, withClientCors } from "./client-origins";
+import { clientPreflight, withClientCors } from "./client-cors";
 import { authErrorResponse } from "./authentication";
 import { createLogger } from "./logger";
 import { serverForRewrittenRequest } from "./rewritten-request-server";
@@ -105,7 +105,6 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   if (config.appName !== input.appName || config.envPrefix !== input.envPrefix) {
     throw new Error("runtimeConfig appName and envPrefix must match the createWebAppServer inputs");
   }
-  config.clientOrigins = normalizeClientOrigins(config.clientOrigins);
   const authOnlyWeb = input.web !== false && input.web?.mode === "auth";
   const log = createLogger("webapp:requests");
   const routes = compileRouteTable(input.routes ?? {});
@@ -233,7 +232,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   async function handleRequest(req: Request, server?: Server<WebAppWebSocketData>): Promise<Response | undefined> {
     let response: Response | undefined;
     try {
-      response = clientPreflight(req, config);
+      response = clientPreflight(req);
       if (!response) {
         const prepared = await authentication.prepareRequest(req);
         response = await dispatchRequest(prepared, serverForRewrittenRequest(server, req, prepared));
@@ -251,7 +250,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       response.headers.set("cache-control", "private, no-store");
       response.headers.set("referrer-policy", "no-referrer");
     }
-    return withClientCors(req, config, withSecurityHeaders(response));
+    return withClientCors(req, withSecurityHeaders(response));
   }
 
   const lifecycle = createServerLifecycle({

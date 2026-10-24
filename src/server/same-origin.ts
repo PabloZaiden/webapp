@@ -3,12 +3,15 @@ import { getRequestOriginInfo } from "./auth/request-origin";
 import type { RuntimeConfig } from "./runtime-config";
 import { errorResponse } from "./responses";
 import type { SameOriginMode } from "./routes";
-import { isClientOrigin } from "./client-origins";
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export function checkSameOrigin(req: Request, config: RuntimeConfig, auth: AuthenticatedRequestState, mode: SameOriginMode = "mutations"): Response | undefined {
   if (config.sameOriginDisabled || mode === "never") {
+    return undefined;
+  }
+  // Explicit credentials do not rely on an ambient browser cookie session.
+  if (auth.kind === "api-key" || auth.kind === "bearer") {
     return undefined;
   }
   const mutating = MUTATING.has(req.method.toUpperCase());
@@ -18,16 +21,9 @@ export function checkSameOrigin(req: Request, config: RuntimeConfig, auth: Authe
   }
   const expectedOrigin = getRequestOriginInfo(req, config).origin;
   const origin = req.headers.get("origin");
-  if (auth.kind === "bearer" && auth.clientTicket?.kind === "resource" && !origin && !mutating && !websocket) {
-    return undefined;
-  }
   if (origin) {
-    const bearer = auth.kind === "api-key" || auth.kind === "bearer";
-    return origin === expectedOrigin || (bearer && isClientOrigin(origin, config))
+    return origin === expectedOrigin
       ? undefined : errorResponse(403, "same_origin_required", "Request origin is not allowed");
-  }
-  if (mode !== "always" && (auth.kind === "api-key" || auth.kind === "bearer")) {
-    return undefined;
   }
   const referer = req.headers.get("referer");
   if (referer) {

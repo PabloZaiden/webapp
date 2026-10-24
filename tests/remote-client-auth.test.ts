@@ -42,7 +42,6 @@ async function remoteFixture(authOnly = false) {
     host: "127.0.0.1", port: 0, dataDir: directory,
     logLevel: "error", logLevelFromEnv: false,
     passkeyDisabled: false, sameOriginDisabled: false,
-    clientOrigins: [CLIENT, OTHER_CLIENT],
     trustProxy: { enabled: false, headers: [], chain: "first" }, development: false,
   };
   const app = createWebAppServer({
@@ -148,7 +147,7 @@ async function remoteFixture(authOnly = false) {
 // Required workflow: a detached browser authorizes on the API origin, then uses
 // private HTTP, downloadable resources and both WebSocket transports. These real
 // listeners verify the credential/origin/capability boundary, not browser layout.
-test("detached device session uses trusted HTTP, scoped downloads and realtime/raw sockets", async () => {
+test("independently hosted device client uses private HTTP, scoped downloads and realtime/raw sockets", async () => {
   const fixture = await remoteFixture();
   try {
     const preflight = await fixture.request("/api/file", {
@@ -159,15 +158,9 @@ test("detached device session uses trusted HTTP, scoped downloads and realtime/r
       },
     });
     expect(preflight.status).toBe(204);
-    expect(preflight.headers.get("access-control-allow-origin")).toBe(CLIENT);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe("*");
     expect(preflight.headers.get("access-control-allow-headers")).toContain("authorization");
     expect(preflight.headers.has("access-control-allow-credentials")).toBe(false);
-    const deniedPreflight = await fixture.request("/api/file", {
-      method: "OPTIONS", headers: { origin: "https://untrusted.example", "access-control-request-method": "POST" },
-    });
-    expect(deniedPreflight.status).toBe(403);
-    expect(deniedPreflight.headers.has("access-control-allow-origin")).toBe(false);
-
     const credentials = await fixture.authorize();
     const authorization = `Bearer ${credentials.access_token}`;
     const config = await fixture.request("/api/config", { headers: { origin: CLIENT, authorization } });
@@ -179,10 +172,10 @@ test("detached device session uses trusted HTTP, scoped downloads and realtime/r
     expect((await anonymous.json() as WebAppConfigResponse).currentUser).toBeUndefined();
     const invalid = await fixture.request("/api/config", { headers: { origin: CLIENT, authorization: "Bearer invalid" } });
     expect(invalid.status).toBe(401);
-    expect(invalid.headers.get("access-control-allow-origin")).toBe(CLIENT);
+    expect(invalid.headers.get("access-control-allow-origin")).toBe("*");
     const missing = await fixture.request("/api/missing", { headers: { origin: CLIENT, authorization } });
     expect(missing.status).toBe(404);
-    expect(missing.headers.get("access-control-allow-origin")).toBe(CLIENT);
+    expect(missing.headers.get("access-control-allow-origin")).toBe("*");
     expect((await fixture.post("/api/file", {}, { authorization })).status).toBe(200);
     expect((await fixture.post("/api/file", {}, { cookie: fixture.cookie })).status).toBe(403);
     expect((await fixture.post("/api/auth/client-ticket", { url: "/api/file", kind: "resource" }, {

@@ -182,7 +182,7 @@ export function createAuthentication(dependencies: AuthenticationDependencies): 
     if (!user || user.disabledAt) throw new AuthError("invalid_token", "Invalid authentication token", 401);
     return { kind: "bearer", claims, user: toCurrentUserRecord(user) };
   }
-  const clientTickets = createClientTickets(config, verifyBearer);
+  const clientTickets = createClientTickets(verifyBearer);
 
   function disabledAuthOwner(): CurrentUser {
     const existing = store.getOwnerUser();

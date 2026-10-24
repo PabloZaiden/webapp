@@ -133,14 +133,15 @@ a static-client origin authorizes a device on the API origin, reads its private
 configuration/data, downloads a scoped resource and connects framework realtime
 and an application raw socket. Its public boundaries are actual HTTP and
 WebSocket listeners. Required results are bearer identity, usable private data,
-range-capable downloads and socket messages, with origin/target/session
-authorization enforced. This belongs in the compact suite because existing
+range-capable downloads and socket messages without client-host registration,
+with target/session and observed socket-origin binding enforced. This belongs
+in the compact suite because existing
 integrated auth journeys do not exercise detached browser transport admission.
 A second serving scenario preserves the API-origin auth pages without an
 application document fallback.
 
 For manual client validation, host the same exported directory at a root and a
-nested path, configure its exact origin in `{PREFIX}_CLIENT_ORIGINS`, and:
+nested path against an API with no client-host configuration, and:
 
 1. Complete device authorization in an API-origin browser tab with passkeys
    enabled; do not enable a passkey or same-origin bypass for this check.
@@ -149,8 +150,9 @@ nested path, configure its exact origin in `{PREFIX}_CLIENT_ORIGINS`, and:
 3. Open/download a protected resource and seek a protected media resource
    through short-lived resource URLs. Confirm reconnects obtain new socket
    tickets rather than reusing a consumed one.
-4. Confirm a different untrusted origin cannot read the API response, and a
-   trusted origin still cannot mutate using the API's cookie session.
+4. Confirm token-authenticated clients work from independently chosen origins,
+   private data still requires valid credentials, and an external origin cannot
+   mutate using the API's cookie session. Same-origin browser sessions still work.
 5. Revoke the device session at the API origin and confirm new API/resource/
    socket authentication fails until reauthorization.
 6. Run the API with `web.mode: "auth"` and confirm login, device approval, setup

@@ -5,6 +5,11 @@ its compiled frontend on an ordinary HTTP(S) static host and connect to a
 separate API. Static hosting does not run Bun, Node, or application endpoints.
 The API still owns users, persistence, authorization and execution.
 
+Clients do not register their hosting origin with the API. Both unified and
+API-only servers accept independently authenticated clients from any host.
+Browser API requests omit cookies and use explicit tokens; integrated browser
+sessions keep their existing same-origin/CSRF protections.
+
 ## Connection and login
 
 Static client builds enable remote mode before importing the application.
@@ -24,14 +29,18 @@ authorization link. Cancel or changing servers stops polling.
 
 Default browser credential storage uses localStorage scoped to the exact API URL
 and client deployment directory. Treat the static origin as trusted application
-code: scripts served there can access its credentials. Do not share that origin
-with untrusted uploads or applications. Refresh-token rotation is serialized
+code: tokens are not encrypted or HttpOnly, and scripts served there can access
+them. Deployment-directory keys are namespacing, not isolation from other scripts
+on the same origin. Do not share that origin with untrusted uploads or
+applications. Refresh-token rotation is serialized
 across tabs using Web Locks; use current browsers and a secure context.
 Signing out removes local credentials and revokes the remote session; revocation
 failures are shown rather than silently claiming success.
 
-Public API and client origins must use HTTPS. Plain HTTP is supported only for
-localhost development. A native wrapper must establish a supported secure origin;
+Serve the browser client and public API over HTTPS. The browser client requires a
+secure context for credential locking; HTTP localhost development is supported.
+This browser requirement is not an API client-origin allowlist. A native wrapper
+must establish a supported secure origin;
 opening the artifact as `file://` is not a supported authentication contract.
 
 ## API and resource helpers
