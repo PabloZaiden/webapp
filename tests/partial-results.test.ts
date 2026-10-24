@@ -15,8 +15,8 @@ test("partial collections retain JSON bodies and surface metadata to web and CLI
   const routes = defineRoutes({
     "/api/documents": {
       auth: "user", sameOrigin: "mutations",
-      partialResults: { header: "X-Clanky-Partial" },
-      GET: () => jsonResponse([{ id: "local" }], { headers: partial ? { "X-Clanky-Partial": "true" } : {} }),
+      partialResults: { header: "X-Example-Partial" },
+      GET: () => jsonResponse([{ id: "local" }], { headers: partial ? { "X-Example-Partial": "true" } : {} }),
       POST() { partial = false; return jsonResponse({ available: true }); },
     },
   });
@@ -70,7 +70,7 @@ test("partial collections retain JSON bodies and surface metadata to web and CLI
   };
   try {
     const web = await appJsonWithMetadata<{ id: string }[]>(`${server.url.origin}/api/documents`,
-      { signal: AbortSignal.timeout(5_000) }, { header: "X-Clanky-Partial" });
+      { signal: AbortSignal.timeout(5_000) }, { header: "X-Example-Partial" });
     expect(web).toEqual({ data: [{ id: "local" }], metadata: { partial: true } });
     expect(await run()).toMatchObject({
       code: 1, json: { status: { code: 200, ok: true }, partial: true, response: [{ id: "local" }] }, error: "",

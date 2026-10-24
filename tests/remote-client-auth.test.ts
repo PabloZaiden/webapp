@@ -59,7 +59,7 @@ async function remoteFixture(authOnly = false) {
             status: range ? 206 : 200,
             headers: {
               etag: '"document-v1"', "content-disposition": 'attachment; filename="document.txt"',
-              "x-clanky-partial": "true",
+              "x-example-partial": "true",
               ...(range ? { "content-range": "bytes 0-2/8" } : {}),
             },
           });
@@ -192,7 +192,7 @@ test("detached device session uses trusted HTTP, scoped downloads and realtime/r
     const download = await fixture.request("/api/file", { headers: { origin: CLIENT, authorization } });
     expect(await download.text()).toBe("document");
     const exposed = download.headers.get("access-control-expose-headers");
-    for (const header of ["etag", "content-disposition", "x-clanky-partial"]) expect(exposed).toContain(header);
+    for (const header of ["etag", "content-disposition", "x-example-partial"]) expect(exposed).toContain(header);
     const resource = await fixture.ticket(credentials.access_token, "/api/file?version=1", "resource");
     expect(resource.expiresAt).toBeGreaterThan(Date.now());
     const navigation = await fixture.request(resource.url);

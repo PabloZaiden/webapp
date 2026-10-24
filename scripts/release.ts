@@ -1,6 +1,6 @@
 /**
  * Publish a confirmed stable GitHub release from the remote default branch.
- * Adapted from Clanky's scripts/release.ts for webapp's npm publication workflow.
+ * Includes the package's npm publication workflow.
  */
 
 type Version = [bigint, bigint, bigint];

@@ -32,7 +32,7 @@ function EndpointForm({ endpoint, onConnected }: { endpoint?: string; onConnecte
   return (
     <form onSubmit={(event) => void submit(event)}>
       <TextField label="API server" type="url" value={value} required autoComplete="url"
-        placeholder="https://clanky.example.com" onChange={(event) => setValue(event.currentTarget.value)} />
+        placeholder="https://api.example.com" onChange={(event) => setValue(event.currentTarget.value)} />
       {error ? <p className="wapp-error" role="alert">{error}</p> : null}
       <div className="wapp-row-actions"><Button type="submit" loading={busy}>Connect</Button></div>
     </form>

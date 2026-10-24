@@ -274,7 +274,7 @@ The API answers trusted-origin preflights before authentication, and returns
 the matching `Access-Control-Allow-Origin` on successful and unsuccessful
 responses. It exposes the response's actual metadata headers, including
 ETag, content-disposition/content-range, passkey-required and application
-headers such as `X-Clanky-Partial`. It never enables credentialed CORS or
+headers such as `X-Example-Partial`. It never enables credentialed CORS or
 wildcard origins. Normal route authorization, scopes and cookie CSRF checks
 remain in force; only bearer-authenticated requests may use the trusted-client
 origin exception to `sameOrigin`, including `"always"`.
