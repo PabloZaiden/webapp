@@ -189,10 +189,15 @@ if (mode === "server") {
     assert(a && b);
     assert.equal(a.clientId, b.clientId);
     console.log(`Both independent computers use client_id=${a.clientId}`);
-    await runCli("computer-A", ["status"]);
+    const replacedSession = await fetch(`${baseUrl}/api/auth/sessions`, {
+      headers: { authorization: `${a.tokenType} ${a.accessToken}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+    assert.equal(replacedSession.status, 401);
+    await replacedSession.body?.cancel();
     await refresh("computer-A", 400);
     await refresh("computer-B", 200);
-    console.log("REPRODUCED: a second login invalidates A's refresh, while A's access token still works.");
+    console.log("CONTROL: a second login with the same client_id invalidates A's access and refresh.");
 
     await runCli("computer-C", ["auth", "--base-url", baseUrl], true);
     await refresh("computer-B", 200);
