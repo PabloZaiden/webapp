@@ -38,6 +38,16 @@ the application being built; they are not expected to exist beside this skill.
 - Treat a UI app as one Bun server that serves React, API routes, and websockets together. Use `web: false` only for API/WebSocket-only processes.
 - Do not add Vite or a standalone client dev server.
 - Use `bun --hot src/index.ts serve` for dev.
+- To publish the frontend independently and keep a unified binary, call
+  `buildWebAppClient` once and pass its returned artifact to
+  `buildWebAppBinary({ ..., web: { client } })`. Publish the entire output,
+  including `webapp-client.json`; the server overrides only that public runtime
+  configuration to select integrated cookies instead of detached device tokens.
+  See `docs/deployment.md` and `docs/remote-clients.md`.
+- Independent API clients need no registered hosting origin. Keep auth enabled;
+  remote browser requests omit cookies and use explicit tokens. Preserve cookie
+  same-origin/CSRF checks instead of disabling them. HTTP localhost is supported
+  without certificates; use HTTPS for public APIs.
 - Declare `react` and `react-dom` in the application package; they are framework peer dependencies. The default frontend entrypoint is `web/main.tsx` relative to the Bun entry file.
 - Do not create app-owned `index.html` or `site.webmanifest`; the framework generates the HTML document, PWA manifest, default SVG icons, fixed-scale viewport metadata and theme prepaint script from `createWebAppServer({ web })`.
 - The generated viewport uses fixed-scale tokens. On iPhone/iPad and other mobile browsers that honor those tokens, it prevents pinch-to-zoom while preserving scrolling; clients that ignore them are unaffected. Do not add global touch handlers, `preventDefault()` calls, or `touch-action: none` to solve zoom.
