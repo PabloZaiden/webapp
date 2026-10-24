@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { DEFAULT_LOG_LEVEL, VALID_LOG_LEVELS, type LogLevelName } from "../contracts";
+import { normalizeClientOrigins } from "./client-origins";
 
 export const TRUST_PROXY_HEADERS = ["proto", "host", "prefix"] as const;
 export type TrustProxyHeader = typeof TRUST_PROXY_HEADERS[number];
@@ -27,6 +28,8 @@ export interface RuntimeConfig {
   passkeyDisabled: boolean;
   sameOriginDisabled: boolean;
   publicBaseUrl?: string;
+  /** Explicit detached browser origins; never enables cross-origin cookie authentication. */
+  clientOrigins?: readonly string[];
   authIssuer?: string;
   trustProxy: TrustProxyConfig;
   development: false | { hmr: true; console: true };
@@ -392,6 +395,7 @@ export function readRuntimeConfig(input: {
     passkeyDisabled: isTruthyEnv(readEnv(environment, envPrefix, "DISABLE_PASSKEY")),
     sameOriginDisabled: isTruthyEnv(readEnv(environment, envPrefix, "DISABLE_SAME_ORIGIN_CHECK")),
     publicBaseUrl,
+    clientOrigins: normalizeClientOrigins(readEnv(environment, envPrefix, "CLIENT_ORIGINS")?.split(",").map((origin) => origin.trim())),
     authIssuer: readEnv(environment, envPrefix, "AUTH_ISSUER"),
     trustProxy,
     development: environment["NODE_ENV"] === "production" ? false : { hmr: true, console: true },
@@ -413,6 +417,7 @@ export function safeRuntimeConfig(config: RuntimeConfig): Record<string, unknown
     passkeyDisabled: config.passkeyDisabled,
     sameOriginDisabled: config.sameOriginDisabled,
     publicBaseUrl: config.publicBaseUrl,
+    clientOrigins: config.clientOrigins ?? [],
     authIssuer: config.authIssuer,
     trustProxy: {
       enabled: config.trustProxy.enabled,

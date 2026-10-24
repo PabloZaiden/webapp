@@ -47,6 +47,7 @@ import type { WebAppServerConfig } from "./server-types";
 import { htmlResponse, type WebDocument } from "./web-document";
 import {
   authenticationResponseSchema,
+  clientTicketRequestSchema,
   apiKeyAuthenticationRequestSchema,
   createApiKeyRequestSchema,
   createUserRequestSchema,
@@ -90,6 +91,7 @@ export interface FrameworkEndpointDependencies {
   passkeysEnabled: boolean;
   apiKeysEnabled: boolean;
   deviceAuthEnabled: boolean;
+  webMode: "app" | "auth" | "disabled";
   configResponse?: WebAppServerConfig["configResponse"];
   onLogLevelChange?: (level: LogLevelName) => void;
   serverLogs: ServerLogStorage;
@@ -113,21 +115,32 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
     passkeysEnabled,
     apiKeysEnabled,
     deviceAuthEnabled,
+    webMode,
     configResponse: extendConfigResponse,
     onLogLevelChange,
     serverLogs,
     ensureWebDocument,
   } = dependencies;
 
-  function configResponse(req: Request): WebAppConfigResponse & Record<string, unknown> {
-    const user = authentication.configUser(req);
+  async function configResponse(req: Request): Promise<Response> {
+    const auth = await authentication.authorize(req, false);
+    if (auth instanceof Response) return auth;
+    const user = authentication.currentUser(auth) ?? authentication.configUser(req);
+    const passkeyAuth = passkeyStatus(req, store, config, passkeysEnabled);
+    if (auth.kind === "bearer" || auth.kind === "api-key") {
+      passkeyAuth.authenticated = true;
+      passkeyAuth.passkeyRequired = false;
+      passkeyAuth.bootstrapRequired = false;
+      passkeyAuth.ownerPasskeySetupRequired = false;
+    }
     const base = {
       appName: config.appName,
       version,
       publicBasePath: getRequestOriginInfo(req, config).pathPrefix,
       realtime: { path: wsPath },
+      web: { mode: webMode },
       currentUser: user,
-      passkeyAuth: passkeyStatus(req, store, config, passkeysEnabled),
+      passkeyAuth,
       userManagement: {
         enabled: passkeysEnabled,
         canManageUsers: Boolean(user?.isAdmin),
@@ -142,7 +155,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
       apiKeys: { enabled: Boolean(apiKeysEnabled) },
       deviceAuth: { enabled: Boolean(deviceAuthEnabled) },
     } satisfies WebAppConfigResponse;
-    return { ...(extendConfigResponse?.(req, base) ?? {}), ...base };
+    return jsonResponse({ ...(extendConfigResponse?.(req, base) ?? {}), ...base });
   }
 
   function setupUrl(req: Request, token: string): string {
@@ -171,7 +184,15 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         return successResponse({ ok: true, version });
       }
       if (path === "/api/config" && req.method === "GET") {
-        return jsonResponse(configResponse(req));
+        return await configResponse(req);
+      }
+      if (deviceAuthEnabled && path === "/api/auth/client-ticket" && req.method === "POST") {
+        const auth = await authentication.authorize(req, true);
+        if (auth instanceof Response) return auth;
+        const body = await parseJson(req, clientTicketRequestSchema);
+        return jsonResponse(authentication.issueClientTicket(req, auth, body), {
+          headers: { "cache-control": "no-store" },
+        });
       }
       if (path === wsPath) {
         const auth = await authentication.authorize(req, true);

@@ -1,7 +1,8 @@
 import { startRegistration } from "@simplewebauthn/browser";
 import { useCallback, useState } from "react";
 import type { ApiKeySummary, CreatedApiKeyResponse, WebAppConfigResponse } from "../../contracts";
-import { appJson } from "../api-client";
+import { appJson, appPath } from "../api-client";
+import { getClientSession } from "../client-session";
 import { useAsyncOperation } from "../async-operation";
 import { Button, CodeValue, ConfirmDialog, EmptyState } from "../components";
 import { DateTimeValue } from "../date-time";
@@ -115,7 +116,9 @@ export function SecuritySection({ config, refresh }: SecuritySectionProps) {
     <>
       <SettingsFieldRow title="Passkey" description={config.passkeyAuth.passkeyConfigured ? "Configured" : "Not configured"} actions={
         <div className="wapp-row-actions">
-          {config.passkeyAuth.passkeyConfigured ? (
+          {getClientSession().enabled ? (
+            <a href={appPath("/account")} target="_blank" rel="noopener noreferrer">Manage on server</a>
+          ) : config.passkeyAuth.passkeyConfigured ? (
             <>
               <Button type="button" onClick={() => void logout()}>Logout</Button>
               <Button type="button" tone="danger" onClick={() => setConfirmDeletePasskey(true)}>Delete passkey</Button>

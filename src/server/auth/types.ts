@@ -15,7 +15,7 @@ export type AuthenticatedRequestState =
   | { kind: "delegated"; user: CurrentUser }
   | { kind: "passkey"; user: CurrentUser; passkeyId?: string }
   | { kind: "api-key"; user: CurrentUser; apiKeyId: string; scopes: string[] }
-  | { kind: "bearer"; user: CurrentUser; claims: AccessTokenClaims };
+  | { kind: "bearer"; user: CurrentUser; claims: AccessTokenClaims; clientTicket?: { kind: "websocket" | "resource"; origin: string } };
 
 export class AuthError extends Error {
   code: string;

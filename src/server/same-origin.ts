@@ -3,6 +3,7 @@ import { getRequestOriginInfo } from "./auth/request-origin";
 import type { RuntimeConfig } from "./runtime-config";
 import { errorResponse } from "./responses";
 import type { SameOriginMode } from "./routes";
+import { isClientOrigin } from "./client-origins";
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -15,13 +16,18 @@ export function checkSameOrigin(req: Request, config: RuntimeConfig, auth: Authe
   if (mode !== "always" && !mutating && !websocket) {
     return undefined;
   }
-  if (mode !== "always" && (auth.kind === "api-key" || auth.kind === "bearer")) {
-    return undefined;
-  }
   const expectedOrigin = getRequestOriginInfo(req, config).origin;
   const origin = req.headers.get("origin");
+  if (auth.kind === "bearer" && auth.clientTicket?.kind === "resource" && !origin && !mutating && !websocket) {
+    return undefined;
+  }
   if (origin) {
-    return origin === expectedOrigin ? undefined : errorResponse(403, "same_origin_required", "Request origin is not allowed");
+    const bearer = auth.kind === "api-key" || auth.kind === "bearer";
+    return origin === expectedOrigin || (bearer && isClientOrigin(origin, config))
+      ? undefined : errorResponse(403, "same_origin_required", "Request origin is not allowed");
+  }
+  if (mode !== "always" && (auth.kind === "api-key" || auth.kind === "bearer")) {
+    return undefined;
   }
   const referer = req.headers.get("referer");
   if (referer) {

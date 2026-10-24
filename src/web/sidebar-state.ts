@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SidebarNode, WebAppRoute } from "./sidebar/types";
 import { readStorage, warnStorageIssue, writeStorage } from "./storage";
+import { clientScopedStorageKey } from "./client-session";
 
 export type StoredSidebarPin = {
   id: string;
@@ -49,11 +50,11 @@ export function flattenSidebarItems(nodes: SidebarNode[]): SidebarNode[] {
 }
 
 function pinStorageKey(appName: string, explicitKey?: string): string {
-  return explicitKey ?? `webapp.${appName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.sidebar.pins`;
+  return clientScopedStorageKey(explicitKey ?? `webapp.${appName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.sidebar.pins`);
 }
 
 function sidebarCollapsedStorageKey(appName: string): string {
-  return `webapp.${appName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.sidebar.collapsed`;
+  return clientScopedStorageKey(`webapp.${appName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.sidebar.collapsed`);
 }
 
 function sidebarDesktopCollapsedStorageKey(appName: string): string {

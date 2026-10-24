@@ -23,6 +23,7 @@ export interface ServerLifecycleDependencies<TEvent = unknown> {
   ensurePublicAssetPaths: () => Promise<ReadonlySet<string>>;
   ensureWebDocument?: () => Promise<WebDocument>;
   documentProvider?: WebDocumentProvider;
+  authOnlyWeb?: boolean;
   handleRequest: (req: Request, server?: Server<WebAppWebSocketData>) => Promise<Response | undefined>;
 }
 
@@ -121,7 +122,10 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
         "/.well-known/*": dynamicHandler,
         "/device": deviceAuthEnabled ? spaDocumentRoute : dynamicHandler,
         "/setup": spaDocumentRoute,
-        "/*": spaDocumentRoute,
+        "/": spaDocumentRoute,
+        "/login": spaDocumentRoute,
+        "/account": spaDocumentRoute,
+        "/*": dependencies.authOnlyWeb ? dynamicHandler : spaDocumentRoute,
         [wsPath]: dynamicHandler,
       },
       websocket: {

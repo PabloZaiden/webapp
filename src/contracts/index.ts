@@ -126,6 +126,19 @@ export interface TokenResponse {
   scope: string;
 }
 
+export interface ClientTicketRequest {
+  /** Application-relative /api/ path and query, without a deployment prefix. */
+  url: string;
+  kind: "websocket" | "resource";
+}
+
+export interface ClientTicketResponse {
+  /** Short-lived capability URL, relative to the configured API base. */
+  url: string;
+  /** Expiration in milliseconds since the Unix epoch. */
+  expiresAt: number;
+}
+
 export interface AuthSessionSummary {
   id: string;
   clientId: string;
@@ -152,6 +165,7 @@ export interface WebAppConfigResponse {
   version: string;
   publicBasePath: string;
   realtime: { path: string };
+  web?: { mode: "app" | "auth" | "disabled" };
   currentUser?: CurrentUser;
   passkeyAuth: PasskeyAuthStatusResponse;
   userManagement: {

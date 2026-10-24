@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
-import { rmSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, renameSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { buildWebAppBinary } from "@pablozaiden/webapp/build";
+import { fetchClientArtifacts } from "./support/client-artifacts";
 
 interface CommandResult {
   exitCode: number;
@@ -22,11 +24,11 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-async function waitForHealth(baseUrl: string): Promise<void> {
-  const deadline = Date.now() + 30_000;
+async function waitForHealth(baseUrl: string, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${baseUrl}/api/health`);
+      const response = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(5_000) });
       if (response.ok) {
         await response.text();
         return;
@@ -101,6 +103,10 @@ test("builds and manages the Kitchen Sink example as a standalone binary", async
     const document = await fetch(`${baseUrl}/`);
     expect(document.status).toBe(200);
     expect(document.headers.get("content-type")).toContain("text/html");
+    await document.text();
+    const browserArtifacts = await fetchClientArtifacts(`${baseUrl}/`);
+    expect([...browserArtifacts.keys()].some((url) => url.endsWith(".js"))).toBe(true);
+    expect([...browserArtifacts.keys()].some((url) => url.endsWith(".css"))).toBe(true);
 
     const ping = await fetch(`${baseUrl}/api/public/ping`);
     expect(ping.status).toBe(200);
@@ -156,3 +162,81 @@ test("builds and manages the Kitchen Sink example as a standalone binary", async
     rmSync(dataDirectory, { recursive: true, force: true });
   }
 }, 120_000);
+
+test("serves explicitly configured frontend files in hot development and the standalone binary", async () => {
+  const directory = resolve(".cache/tests", `configured-assets-${crypto.randomUUID()}`);
+  const entrypoint = join(directory, "server.ts");
+  const assetDirectory = join(directory, "assets");
+  const binary = join(directory, process.platform === "win32" ? "asset-host.exe" : "asset-host");
+  const worker = `self.onmessage = () => self.postMessage("ready");`;
+  const sourcemap = JSON.stringify({ version: 3, sources: [], names: [], mappings: "" });
+  const runtimeDirectory = join(directory, "runtime");
+  try {
+    mkdirSync(runtimeDirectory, { recursive: true });
+    await Bun.write(join(directory, "main.ts"), `import "./main.css"; document.title = "Asset Host";`);
+    await Bun.write(join(directory, "main.css"), `body { margin: 0; }`);
+    await Bun.write(join(assetDirectory, "workers", "editor.js"), worker);
+    await Bun.write(join(assetDirectory, "workers", "editor.js.map"), sourcemap);
+    await Bun.write(entrypoint, `import { createWebAppServer, memoryWebAppStore } from "@pablozaiden/webapp/server";
+const app = createWebAppServer({
+  appName: "Asset Host",
+  envPrefix: "ASSET_HOST",
+  store: memoryWebAppStore(),
+  web: {
+    entry: new URL("./main.ts", import.meta.url),
+    assets: [{ src: new URL("./assets", import.meta.url), path: "/webapp-assets/editor" }],
+  },
+});
+await app.start();
+process.on("SIGTERM", async () => { await app.stop(true); process.exit(0); });
+`);
+    await buildWebAppBinary({
+      entrypoint,
+      outfile: binary,
+      web: {
+        entry: "./main.ts",
+        assets: [{ src: assetDirectory, path: "/webapp-assets/editor" }],
+      },
+    });
+    for (const mode of ["hot", "binary"]) {
+      if (mode === "binary") renameSync(assetDirectory, join(directory, "retired-assets"));
+      const port = await freePort();
+      const child = Bun.spawn(mode === "hot" ? [process.execPath, "--hot", entrypoint] : [binary], {
+        env: {
+          ...process.env,
+          ASSET_HOST_HOST: "127.0.0.1",
+          ASSET_HOST_PORT: String(port),
+          ASSET_HOST_DATA_DIR: join(directory, `data-${mode}`),
+          ASSET_HOST_DISABLE_PASSKEY: "true",
+          TMPDIR: runtimeDirectory,
+          TMP: runtimeDirectory,
+          TEMP: runtimeDirectory,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const stdout = new Response(child.stdout).text();
+      const stderr = new Response(child.stderr).text();
+      try {
+        const baseUrl = `http://127.0.0.1:${port}`;
+        await waitForHealth(baseUrl, 10_000);
+        await fetchClientArtifacts(`${baseUrl}/`);
+        for (const [path, content] of [["editor.js", worker], ["editor.js.map", sourcemap]]) {
+          const response = await fetch(`${baseUrl}/webapp-assets/editor/workers/${path}`, { signal: AbortSignal.timeout(5_000) });
+          expect(response.status).toBe(200);
+          expect(await response.text()).toBe(content!);
+        }
+      } catch (error) {
+        child.kill();
+        await child.exited;
+        throw new Error(`${mode} asset host failed: ${String(error)}\n${await stdout}\n${await stderr}`, { cause: error });
+      } finally {
+        child.kill();
+        await child.exited;
+        await Promise.all([stdout, stderr]);
+      }
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}, 60_000);

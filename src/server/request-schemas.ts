@@ -4,6 +4,10 @@ import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simp
 
 const nonEmptyString = z.string().min(1);
 const optionalClientId = z.string().max(200).optional();
+export const clientTicketRequestSchema = z.object({
+  url: z.string().min(1).max(16_384),
+  kind: z.enum(["websocket", "resource"]),
+}).strict();
 const authenticatorTransport = z.enum(["ble", "cable", "hybrid", "internal", "nfc", "smart-card", "usb"]);
 const clientExtensionResults = z.object({
   appid: z.boolean().optional(),

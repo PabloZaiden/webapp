@@ -1,5 +1,9 @@
 import { fetchAppRequest } from "./network-failures";
 import { readResponseMetadata, type PartialResultMetadata, type WebAppResponseMetadata } from "../contracts/response-metadata";
+import {
+  clientAccessToken, configureRemoteClient, getClientSession,
+  type WebAppRemoteClientOptions,
+} from "./client-session";
 
 export class WebAppApiError extends Error {
   status: number;
@@ -40,11 +44,14 @@ export function configureWebAppClient(options: {
   apiBaseUrl?: string | null;
   wsBaseUrl?: string | null;
   partialResults?: PartialResultMetadata;
+  mode?: "integrated" | "remote";
+  remote?: WebAppRemoteClientOptions;
 } = {}): void {
-  setWebAppPublicBasePath(options.publicBasePath);
-  configuredApiBaseUrl = normalizeOptionalBaseUrl(options.apiBaseUrl);
-  configuredWebSocketBaseUrl = normalizeOptionalBaseUrl(options.wsBaseUrl);
-  configuredPartialResults = options.partialResults;
+  if ("publicBasePath" in options) setWebAppPublicBasePath(options.publicBasePath);
+  if ("apiBaseUrl" in options) configuredApiBaseUrl = normalizeOptionalBaseUrl(options.apiBaseUrl);
+  if ("wsBaseUrl" in options) configuredWebSocketBaseUrl = normalizeOptionalBaseUrl(options.wsBaseUrl);
+  if ("partialResults" in options) configuredPartialResults = options.partialResults;
+  if (options.mode === "remote" || options.remote) configureRemoteClient(configuredApiBaseUrl, options.remote);
 }
 
 export function setWebAppPublicBasePath(basePath?: string | null): void {
@@ -87,8 +94,9 @@ export function isWebAppPublicBasePath(value: unknown): value is string {
 
 export function appPath(path: string): string {
   if (isAbsolutePath(path)) return path;
-  if (configuredApiBaseUrl) {
-    return buildAbsoluteUrl(configuredApiBaseUrl, path);
+  const baseUrl = apiBaseUrl();
+  if (baseUrl) {
+    return buildAbsoluteUrl(baseUrl, path);
   }
 
   const normalizedPath = path.replace(/^\/+/, "");
@@ -108,7 +116,7 @@ export function appPagePath(path: string): string {
 }
 
 export function appWebSocketUrl(path = "/api/ws"): string {
-  const configuredWsBaseUrl = configuredWebSocketBaseUrl ?? configuredApiBaseUrl;
+  const configuredWsBaseUrl = getClientSession().enabled ? apiBaseUrl() : configuredWebSocketBaseUrl ?? configuredApiBaseUrl;
   const url = new URL(configuredWsBaseUrl ? buildAbsoluteUrl(configuredWsBaseUrl, path) : appAbsoluteUrl(path));
   if (url.protocol === "http:") {
     url.protocol = "ws:";
@@ -120,7 +128,80 @@ export function appWebSocketUrl(path = "/api/ws"): string {
 
 export async function appRequest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const request = new Request(typeof input === "string" ? appPath(input) : input, init);
-  return await fetchAppRequest(request);
+  if (!getClientSession().enabled) return await fetchAppRequest(request);
+  assertSelectedApiUrl(new URL(request.url));
+  const retry = request.clone();
+  const accessToken = await clientAccessToken();
+  const send = async (source: Request, token: string) => {
+    const headers = new Headers(source.headers);
+    headers.set("authorization", `Bearer ${token}`);
+    return await fetchAppRequest(new Request(source, { headers, credentials: "omit", redirect: "error" }));
+  };
+  const response = await send(request, accessToken);
+  if (response.status !== 401) return response;
+  let failure: unknown;
+  try {
+    failure = await response.clone().json();
+  } catch {
+    // Non-authentication 401 responses belong to the caller and must not replay a mutation.
+    return response;
+  }
+  if (typeof failure !== "object" || failure === null || !("error" in failure)
+    || !["invalid_token", "authentication_required"].includes(String(failure.error))) return response;
+  const token = await clientAccessToken(accessToken);
+  await response.body?.cancel();
+  return await send(retry, token);
+}
+
+export interface WebAppResourceUrl {
+  url: string;
+  expiresAt: number | null;
+}
+
+export async function appResourceUrl(
+  path: string,
+  kind: "resource" | "websocket" = "resource",
+  options: { signal?: AbortSignal } = {},
+): Promise<WebAppResourceUrl> {
+  const url = new URL(kind === "websocket" ? appWebSocketUrl(path) : appPath(path));
+  if (!getClientSession().enabled) return { url: url.toString(), expiresAt: null };
+  if (url.protocol === "wss:") url.protocol = "https:";
+  if (url.protocol === "ws:") url.protocol = "http:";
+  const base = assertSelectedApiUrl(url);
+  const target = `/${url.pathname.slice(base.pathname.replace(/\/$/, "").length).replace(/^\/+/, "")}${url.search}`;
+  const response = await appJson<unknown>("/api/auth/client-ticket", {
+    method: "POST", body: JSON.stringify({ url: target, kind }), signal: options.signal,
+  });
+  if (!response || typeof response !== "object" || !("url" in response) || !("expiresAt" in response)
+    || typeof response.url !== "string" || typeof response.expiresAt !== "number"
+    || !Number.isFinite(response.expiresAt) || response.expiresAt <= Date.now()) {
+    throw new Error("The server returned an invalid client resource ticket.");
+  }
+  const resource = new URL(buildAbsoluteUrl(base.toString(), response.url));
+  assertSelectedApiUrl(resource);
+  if (kind === "websocket") resource.protocol = resource.protocol === "https:" ? "wss:" : "ws:";
+  return { url: resource.toString(), expiresAt: response.expiresAt };
+}
+
+export async function appWebSocketConnection(path = "/api/ws", options: { signal?: AbortSignal } = {}): Promise<WebSocket> {
+  const resource = await appResourceUrl(path, "websocket", options);
+  options.signal?.throwIfAborted();
+  return new WebSocket(resource.url);
+}
+
+function apiBaseUrl(): string | undefined {
+  const session = getClientSession();
+  if (!session.enabled) return configuredApiBaseUrl;
+  if (!session.endpoint) throw new Error("Choose an API server first.");
+  return session.endpoint;
+}
+
+function assertSelectedApiUrl(url: URL): URL {
+  const base = new URL(`${apiBaseUrl()}/`);
+  if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) {
+    throw new Error("Refusing to send server credentials to a different API endpoint.");
+  }
+  return base;
 }
 
 export async function appFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -188,8 +269,7 @@ function normalizePublicBasePath(rawBasePath?: string | null): string {
 }
 
 function buildAbsoluteUrl(baseUrl: string, path: string): string {
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  return new URL(normalizedPath, `${baseUrl}/`).toString();
+  return new URL(path.replace(/^\/+/, ""), `${baseUrl.replace(/\/+$/, "")}/`).toString();
 }
 
 function getDocumentBaseUrl(): URL {

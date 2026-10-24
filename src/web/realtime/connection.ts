@@ -3,6 +3,7 @@ import {
   type RealtimeClientMessage, type RealtimeInterest,
 } from "../../contracts/realtime";
 import { createLogger } from "../logger";
+import { appWebSocketConnection } from "../api-client";
 
 export type RealtimeStatus = "connecting" | "open" | "closed";
 export interface RealtimeActivation { generation: number }
@@ -36,6 +37,7 @@ export class RealtimeRuntime {
   private listening = false;
   private blocked = false;
   private idleCloseScheduled = false;
+  private connectionRequest?: AbortController;
 
   constructor(private readonly url: string) {}
 
@@ -52,7 +54,7 @@ export class RealtimeRuntime {
     this.invoke(subscription, () => subscription.onStatus?.("connecting"));
     this.listen();
     if (this.socket?.readyState === WebSocket.OPEN) this.activate(id, subscription);
-    else if (!this.socket && this.retry === undefined) this.connect();
+    else if (!this.socket && !this.connectionRequest && this.retry === undefined) void this.connect();
     return () => {
       if (!this.subscriptions.delete(id)) return;
       clearTimeout(subscription.acknowledgement);
@@ -120,16 +122,24 @@ export class RealtimeRuntime {
     this.send({ type: "subscribe", subscriptionId: id, generation, interest: subscription.interest });
   }
 
-  private connect(): void {
-    if (this.stopped || !this.subscriptions.size) return;
+  private async connect(): Promise<void> {
+    if (this.stopped || !this.subscriptions.size || this.connectionRequest) return;
+    const request = new AbortController();
+    this.connectionRequest = request;
     for (const subscription of this.subscriptions.values()) {
       this.invoke(subscription, () => subscription.onStatus?.("connecting"));
     }
     let socket: WebSocket;
     try {
-      socket = new WebSocket(this.url);
+      socket = await appWebSocketConnection(this.url, { signal: request.signal });
     } catch (error) {
-      this.fail(error, false);
+      if (!request.signal.aborted) this.fail(error);
+      return;
+    } finally {
+      if (this.connectionRequest === request) this.connectionRequest = undefined;
+    }
+    if (this.stopped || !this.subscriptions.size || request.signal.aborted) {
+      socket.close();
       return;
     }
     this.socket = socket;
@@ -190,6 +200,8 @@ export class RealtimeRuntime {
   }
 
   private retire(): void {
+    this.connectionRequest?.abort();
+    this.connectionRequest = undefined;
     clearTimeout(this.heartbeat);
     clearTimeout(this.deadline);
     this.heartbeat = undefined;
@@ -221,7 +233,7 @@ export class RealtimeRuntime {
     if (this.stopped || !this.subscriptions.size || this.retry !== undefined) return;
     this.retry = setTimeout(() => {
       this.retry = undefined;
-      this.connect();
+      void this.connect();
     }, Math.min(250 * 2 ** this.retries++, 10_000));
   }
 
@@ -234,7 +246,7 @@ export class RealtimeRuntime {
     clearTimeout(this.retry);
     this.retry = undefined;
     this.retire();
-    this.connect();
+    void this.connect();
   };
   private pageShow = (event: PageTransitionEvent): void => { if (event.persisted) this.reconnect(); };
 
