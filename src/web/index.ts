@@ -12,6 +12,13 @@ export * from "./render";
 export * from "./motion";
 export { supportsViewTransitions } from "./routing";
 export * from "./api-client";
+export { initializeWebAppClient } from "./client-bootstrap";
+export {
+  clientScopedStorageKey, getClientSession, getClientStorageScope, logoutClient,
+  type WebAppClientSession, type WebAppRemoteClientOptions,
+} from "./client-session";
+export type { WebAppClientCredentials, WebAppClientCredentialStore } from "./client-credentials";
+export { ResourceImage } from "./resource-image";
 export * from "./sidebar/types";
 export * from "./realtime/useRealtime";
 export { useToast } from "./toast";

@@ -1,10 +1,11 @@
-import type { CurrentUser } from "../contracts";
+import type { ClientTicketRequest, ClientTicketResponse, CurrentUser } from "../contracts";
 import { authenticateApiKey, assertScopes } from "./auth/api-keys";
 import {
   getPasskeySessionUser,
   isPasskeyAuthRequired,
 } from "./auth/passkeys";
 import { verifyAccessToken } from "./auth/device-auth";
+import { createClientTickets } from "./auth/client-tickets";
 import { createUserRecord } from "./auth/users";
 import type { WebAppStore } from "./auth/store";
 import { AuthError, type AuthenticatedRequestState } from "./auth/types";
@@ -18,10 +19,14 @@ export interface AuthenticationDependencies {
   passkeysEnabled: boolean;
   apiKeysEnabled: boolean;
   deviceAuthEnabled: boolean;
+  realtimePath: string;
 }
 
 export interface Authentication {
   authorize(req: Request, required: boolean): Promise<AuthenticatedRequestState | Response>;
+  prepareRequest(req: Request): Promise<Request>;
+  issueClientTicket(req: Request, auth: AuthenticatedRequestState, input: ClientTicketRequest): ClientTicketResponse;
+  clearClientTickets(): void;
   configUser(req: Request): CurrentUser | undefined;
   currentUser(auth: AuthenticatedRequestState): CurrentUser | undefined;
   requireUser(auth: AuthenticatedRequestState): CurrentUser;
@@ -171,6 +176,14 @@ export function authErrorResponse(error: unknown): Response {
 
 export function createAuthentication(dependencies: AuthenticationDependencies): Authentication {
   const { store, config, passkeysEnabled, apiKeysEnabled, deviceAuthEnabled } = dependencies;
+  async function verifyBearer(token: string): Promise<Extract<AuthenticatedRequestState, { kind: "bearer" }>> {
+    if (!deviceAuthEnabled) throw new AuthError("invalid_token", "Device authentication is disabled", 401);
+    const claims = await verifyAccessToken(store, config, token);
+    const user = store.getUserById(claims.sub);
+    if (!user || user.disabledAt) throw new AuthError("invalid_token", "Invalid authentication token", 401);
+    return { kind: "bearer", claims, user: toCurrentUserRecord(user) };
+  }
+  const clientTickets = createClientTickets(verifyBearer, dependencies.realtimePath);
 
   function disabledAuthOwner(): CurrentUser {
     const existing = store.getOwnerUser();
@@ -183,25 +196,13 @@ export function createAuthentication(dependencies: AuthenticationDependencies): 
   }
 
   async function authorize(req: Request, required: boolean): Promise<AuthenticatedRequestState | Response> {
+    const ticket = clientTickets.authentication(req);
+    if (ticket) return ticket;
     const token = bearerToken(req);
     if (token) {
       if (deviceAuthEnabled) {
         try {
-          const claims = await verifyAccessToken(store, config, token);
-          const user = store.getUserById(claims.sub);
-          if (user && !user.disabledAt) {
-            return {
-              kind: "bearer",
-              claims,
-              user: {
-                id: user.id,
-                username: user.username,
-                role: user.role,
-                isOwner: user.role === "owner",
-                isAdmin: user.role === "owner" || user.role === "admin",
-              },
-            };
-          }
+          return await verifyBearer(token);
         } catch {
           // Fall through to API keys.
         }
@@ -251,6 +252,15 @@ export function createAuthentication(dependencies: AuthenticationDependencies): 
 
   return {
     authorize,
+    prepareRequest: clientTickets.prepare,
+    issueClientTicket(req, auth, input) {
+      const token = bearerToken(req);
+      if (auth.kind !== "bearer" || auth.clientTicket || !token) {
+        throw new AuthError("bearer_required", "A device access token is required", 401);
+      }
+      return clientTickets.issue(req, auth, input, token);
+    },
+    clearClientTickets: clientTickets.clear,
     configUser,
     currentUser,
     requireUser,

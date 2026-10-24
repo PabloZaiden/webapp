@@ -22,8 +22,14 @@ import { createWebDocumentProvider, htmlResponse } from "./web-document";
 import { createPublicRouteDispatcher } from "./public-route-dispatch";
 import { createRouteDispatcher } from "./route-dispatch";
 import { compileRouteTable } from "./routes";
-import { notFound, withSecurityHeaders } from "./responses";
+import { errorResponse, notFound, withSecurityHeaders } from "./responses";
 import type { DelegatedDispatchOptions } from "./delegation";
+import { clientPreflight, withClientCors } from "./client-cors";
+import { authErrorResponse } from "./authentication";
+import { createLogger } from "./logger";
+import { serverForRewrittenRequest } from "./rewritten-request-server";
+import { CLIENT_TICKET_PARAMETER } from "./auth/client-tickets";
+import { AuthError } from "./auth/types";
 
 export const MAX_SERVER_IDLE_TIMEOUT_SECONDS = 255;
 export const DEFAULT_SERVER_IDLE_TIMEOUT_SECONDS = MAX_SERVER_IDLE_TIMEOUT_SECONDS;
@@ -99,6 +105,8 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   if (config.appName !== input.appName || config.envPrefix !== input.envPrefix) {
     throw new Error("runtimeConfig appName and envPrefix must match the createWebAppServer inputs");
   }
+  const authOnlyWeb = input.web !== false && input.web?.mode === "auth";
+  const log = createLogger("webapp:requests");
   const routes = compileRouteTable(input.routes ?? {});
   const store = input.store ?? sqliteWebAppStore({ dataDir: config.dataDir });
   store.initialize();
@@ -140,6 +148,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     passkeysEnabled,
     apiKeysEnabled,
     deviceAuthEnabled,
+    realtimePath: wsPath,
   });
   const frameworkEndpoints = createFrameworkEndpointHandler({
     config,
@@ -150,6 +159,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     passkeysEnabled,
     apiKeysEnabled,
     deviceAuthEnabled,
+    webMode: input.web === false ? "disabled" : authOnlyWeb ? "auth" : "app",
     configResponse: input.configResponse,
     onLogLevelChange: input.logLevel?.onChange,
     serverLogs,
@@ -184,7 +194,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     return result.matched ? result.response : withSecurityHeaders(notFound());
   }
 
-  async function handleRequest(req: Request, server?: Server<WebAppWebSocketData>): Promise<Response | undefined> {
+  async function dispatchRequest(req: Request, server?: Server<WebAppWebSocketData>): Promise<Response | undefined> {
     if (input.requestFilter && !await input.requestFilter(req)) {
       return withSecurityHeaders(notFound());
     }
@@ -214,7 +224,34 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     if (!ensureWebDocument) {
       return withSecurityHeaders(notFound());
     }
+    if (authOnlyWeb && !["/", "/login", "/setup", "/device", "/account"].includes(url.pathname)) {
+      return withSecurityHeaders(notFound());
+    }
     return htmlResponse(await ensureWebDocument(), req);
+  }
+
+  async function handleRequest(req: Request, server?: Server<WebAppWebSocketData>): Promise<Response | undefined> {
+    let response: Response | undefined;
+    try {
+      response = clientPreflight(req);
+      if (!response) {
+        const prepared = await authentication.prepareRequest(req);
+        response = await dispatchRequest(prepared, serverForRewrittenRequest(server, req, prepared));
+      }
+    } catch (error) {
+      if (error instanceof AuthError) {
+        response = authErrorResponse(error);
+      } else {
+        log.error("Unhandled request error", { error: String(error) });
+        response = errorResponse(500, "request_failed", "Request failed");
+      }
+    }
+    if (!response) return undefined;
+    if (new URL(req.url).searchParams.has(CLIENT_TICKET_PARAMETER)) {
+      response.headers.set("cache-control", "private, no-store");
+      response.headers.set("referrer-policy", "no-referrer");
+    }
+    return withClientCors(req, withSecurityHeaders(response));
   }
 
   const lifecycle = createServerLifecycle({
@@ -230,6 +267,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       afterStop: async (server) => {
         const errors: unknown[] = [];
         realtime.dispose();
+        authentication.clearClientTickets();
         try {
           await input.lifecycle?.afterStop?.(server);
         } catch (error) {
@@ -255,6 +293,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     ensurePublicAssetPaths: publicRouteDispatcher.ensurePublicAssetPaths,
     ensureWebDocument,
     documentProvider,
+    authOnlyWeb,
     handleRequest,
   });
 
@@ -266,6 +305,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
       errors.push(error);
     }
     realtime.dispose();
+    authentication.clearClientTickets();
     try {
       resetServerLogStorage();
     } catch (error) {

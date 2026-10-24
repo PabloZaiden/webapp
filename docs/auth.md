@@ -131,7 +131,11 @@ pre-managed records as `kind: "user"`, include both kinds in expiration cleanup 
 user deletion/reset cleanup, and preserve the owner filter used by the management
 helpers. The built-in SQLite store performs this migration automatically.
 
-Same-origin checks are skipped for API-key and device bearer requests unless a route sets `sameOrigin: "always"`, because non-browser clients usually do not send `Origin`.
+API-key and device bearer requests use explicit credentials and do not require
+a registered client origin, whether `Origin` is supplied or omitted. This
+applies to routes with `sameOrigin: "always"` too. Cookie-authenticated requests
+never gain a cross-origin exemption; scopes and user ownership still apply to
+every authentication mode.
 
 ### Browser sign-in with an API key
 
@@ -200,8 +204,9 @@ user and `client_id`. The composable CLI defaults to
 `<commandName>-cli-<hostname>`, using the operating system hostname, so computers
 with different hostnames remain signed in independently without a manual
 `--client-id`. Reauthenticating with the same client ID replaces that client's
-previous session. Its already-issued access token can still work until its
-10-minute expiration.
+previous session. Access-token authentication checks that its issuing session
+is still active, so revocation, refresh rotation and replacement invalidate the
+previous session's access tokens as well.
 Listing device sessions also revokes duplicate active entries with the same
 `client_id`; it is not a read-only operation.
 
@@ -242,9 +247,102 @@ rotation, signing-key get-or-create, and account disabling. Callers must not
 compose the read-only lookup methods with low-level writes to implement these
 transitions.
 
+Custom stores must also implement `getRefreshSession(id, userId)` as a keyed,
+owner-constrained lookup. Bearer verification uses this record to check expiry,
+revocation, client and scope without enumerating retained session history.
+
 ## Same-origin policy
 
-Cookie/browser mutations require matching `Origin` or `Referer` by default. Use `sameOrigin: "never"` only for deliberate public/server-to-server routes; use `sameOrigin: "always"` for especially sensitive endpoints even when bearer tokens are used.
+Cookie/browser mutations require matching `Origin` or `Referer` by default.
+`sameOrigin: "always"` also checks non-mutating requests and WebSocket upgrades
+that rely on browser sessions. Explicit API keys, device bearer tokens and
+validated client tickets authenticate independently of the client's host.
+Use `sameOrigin: "never"` only for intentionally origin-independent public
+routes, not to enable token-authenticated API clients.
+
+## Detached browser clients
+
+Remote static clients use device authorization, not third-party cookies.
+Enable `auth.deviceAuth`; neither integrated nor API-only serving requires
+registering where clients are hosted. CLI clients and separately hosted web
+clients can use the API from any origin with their own credentials.
+
+The API answers valid preflights before authentication and returns
+`Access-Control-Allow-Origin: *` on successful and unsuccessful cross-origin
+responses, without `Access-Control-Allow-Credentials`. Browser clients must omit
+cookies and provide their API key or device token explicitly. It exposes actual
+response metadata headers, including
+ETag, content-disposition/content-range, passkey-required and application
+headers such as `X-Example-Partial`. CORS grants permission to read a response,
+not permission to access private data. Normal route authorization, scopes,
+ownership and cookie CSRF checks remain in force.
+
+Keep authentication enabled even for a loopback API. With authentication
+disabled, private unauthenticated reads may be accessible to arbitrary websites.
+Authentication bypasses are suitable only for isolated, disposable validation.
+Use HTTPS for public deployments and trust the host serving client code:
+script-readable client credentials are not protected from that host or XSS.
+
+The client starts `/api/auth/device` and polls `/api/auth/token` as an ordinary
+device client. The user opens the returned API-origin verification URL and
+authenticates/approves there using the API's normal passkey flow. The resulting
+device tokens stay in that client's endpoint-specific credential storage.
+`GET /api/config` recognizes bearer identity and reports its `currentUser`,
+permissions and authenticated passkey-gate state; invalid bearer credentials
+return 401 instead of silently bootstrapping a different cookie identity.
+
+### Browser socket and resource capabilities
+
+Browser WebSockets, image/media elements and downloads cannot attach an
+Authorization header. Exchange a device access token for a narrowly scoped
+capability instead:
+
+```http
+POST /api/auth/client-ticket
+Origin: https://static.example.test
+Authorization: Bearer <device-access-token>
+Content-Type: application/json
+
+{"url":"/api/files/report?format=text","kind":"resource"}
+```
+
+The JSON response has `{url: string, expiresAt: number}`. `expiresAt` is Unix
+epoch milliseconds. `url` is the requested application-relative path/query
+with an opaque `webapp_ticket` parameter appended. Input and output omit the
+API deployment prefix: join them to the configured API base URL, including
+that base's prefix. Absolute URLs, fragments, path traversal requiring URL
+normalization and existing ticket parameters are rejected. The endpoint requires
+a valid device bearer token; cookie sessions and API keys cannot issue tickets.
+Targets must be under `/api/`, or be the configured `realtime.path` for a
+WebSocket ticket. A custom realtime path does not enable general resource
+tickets outside the API.
+Client origins do not need prior registration. When a client supplies `Origin`,
+its ticket is bound to that observed origin; a non-browser client may omit it.
+
+- `kind: "websocket"` lasts at most 30 seconds, requires GET plus a WebSocket
+  upgrade with the same `Origin` presence/value as issuance, and is single-use.
+  Request a new ticket for each reconnect. Both framework realtime and
+  application route upgrades use the same capability authentication and
+  observed-origin binding, not an origin allowlist.
+- `kind: "resource"` lasts at most 60 seconds and supports repeat GET/HEAD
+  requests, including ranges. Requests may omit `Origin` for navigation and
+  media; when present it must match the issuing origin.
+
+Both kinds are bound to the exact target path/query, user and device session.
+Every redemption revalidates the access token, active session and current user;
+ordinary route scopes and ownership checks still apply. Revoked, replaced,
+expired or rotated sessions cannot redeem existing tickets. Authentication
+removes the ticket before handlers, query validators and socket upgrades see
+the request. Resource responses use `private, no-store` and `no-referrer`.
+The capability is not a refresh/access token, but is still sensitive until it
+expires: do not persist or share it, and avoid recording it in proxy logs.
+
+Tickets are process-local, expire lazily on the next issue/redemption, and are
+cleared on server stop. Issuance is bounded to 128 outstanding tickets per
+session and 4,096 per server; capacity exhaustion returns 429
+`client_ticket_limit`. Sticky routing is required when an external load
+balancer distributes one API deployment across several processes. Existing
+cookie and explicit-header bearer clients need no tickets.
 
 ## Reverse-proxy request trust
 

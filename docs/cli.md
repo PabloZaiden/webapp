@@ -323,7 +323,7 @@ Aggregated collections can declare `partialResults: { header: "X-App-Partial" }`
 on the route or selected operation. Return the usual JSON body, including a
 plain array, and set that header to `true` when an authorized source could not
 be read. `X-WebApp-Partial` is the default when no header is declared; a product
-can declare, for example, `X-Clanky-Partial` without changing framework code.
+can declare, for example, `X-Example-Partial` without changing framework code.
 
 The API CLI preserves the body in its ordinary structured envelope:
 

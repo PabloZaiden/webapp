@@ -2,23 +2,28 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type {
-  PublicRouteDefinition,
-  WebAppDocumentConfig,
-  WebAppIconConfig,
-  WebAppPwaConfig,
-} from "./server-types";
+import type { PublicRouteDefinition, WebAppDocumentConfig } from "./server-types";
 import { findPackageRoot, resolveReactDomClient } from "../package-resolution";
-import { MOBILE_MEDIA_QUERY, MOBILE_STATE_ATTRIBUTE } from "../web/mobile";
-import { DEFAULT_THEME_PREFERENCE } from "../contracts";
+import { collectWebAppStaticAssets, readWebAppStaticAssets, type WebAppStaticAssetFile } from "../static-assets";
+import {
+  generateWebAppDocumentAssets,
+  generateWebAppHtml,
+  iconConfig,
+  pathExtension,
+  pwaEnabled,
+  resolveDocumentAsset,
+} from "../web-document";
 import { notFound, withSecurityHeaders } from "./responses";
 import type { RuntimeConfig } from "./runtime-config";
+import { WEB_APP_CLIENT_CONFIG_PATH, type WebAppClientBootstrap } from "../contracts/client-bootstrap";
+import { getRequestOriginInfo } from "./auth/request-origin";
 import {
   assertUniquePublicAssetPaths,
   decodePublicAssetBody,
   normalizePublicAssetPath,
   publicAssetKind,
   type WebAppPublicAssetKind,
+  type WebAppPublicAssetArtifact,
 } from "./public-asset-manifest";
 
 type HtmlBundleIndex = { index: string };
@@ -27,6 +32,7 @@ interface WebDocumentResolution {
   entryFile?: string;
   packageRoot: string;
   reactDomClientPath?: string;
+  staticAssets?: WebAppStaticAssetFile[];
 }
 
 export interface WebDocument {
@@ -60,9 +66,6 @@ type CompiledClient = {
 };
 
 const DEFAULT_WEB_ENTRY = "./web/main.tsx";
-const DEFAULT_THEME_COLOR = "#111827";
-const DEFAULT_BACKGROUND_COLOR = "#ffffff";
-const WEBAPP_DOCUMENT_CACHE_PREFIX = "webapp-document-";
 const documentCacheDirs = new Set<string>();
 let documentCacheCleanupRegistered = false;
 
@@ -72,19 +75,14 @@ function cleanupDocumentCacheDir(cacheDir: string): void {
 }
 
 function cleanupDocumentCacheDirs(): void {
-  for (const cacheDir of Array.from(documentCacheDirs)) {
-    cleanupDocumentCacheDir(cacheDir);
-  }
-}
-
-function safeCachePathSegment(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "app";
+  for (const cacheDir of Array.from(documentCacheDirs)) cleanupDocumentCacheDir(cacheDir);
 }
 
 function createDocumentCacheDir(envPrefix: string): string {
-  const root = join(tmpdir(), "webapp", safeCachePathSegment(envPrefix));
+  const segment = envPrefix.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "app";
+  const root = join(tmpdir(), "webapp", segment);
   mkdirSync(root, { recursive: true });
-  const cacheDir = realpathSync(mkdtempSync(join(root, WEBAPP_DOCUMENT_CACHE_PREFIX)));
+  const cacheDir = realpathSync(mkdtempSync(join(root, "webapp-document-")));
   documentCacheDirs.add(cacheDir);
   if (!documentCacheCleanupRegistered) {
     documentCacheCleanupRegistered = true;
@@ -102,23 +100,15 @@ function isHtmlBundleIndex(index: unknown): index is HtmlBundleIndex {
 }
 
 function requestLooksLikeNavigation(req?: Request): boolean {
-  if (!req) {
-    return true;
-  }
-  const url = new URL(req.url);
-  const lastSegment = url.pathname.split("/").pop() ?? "";
-  const hasFileExtension = /\.[A-Za-z0-9]+$/.test(lastSegment);
-  if (hasFileExtension) {
-    return false;
-  }
+  if (!req) return true;
+  const lastSegment = new URL(req.url).pathname.split("/").pop() ?? "";
+  if (/\.[A-Za-z0-9]+$/.test(lastSegment)) return false;
   const accept = req.headers.get("accept");
   return !accept || accept.includes("text/html") || accept.includes("*/*");
 }
 
 export async function htmlResponse(document: WebDocument, req?: Request): Promise<Response> {
-  if (!requestLooksLikeNavigation(req)) {
-    return withSecurityHeaders(notFound());
-  }
+  if (!requestLooksLikeNavigation(req)) return withSecurityHeaders(notFound());
   return withSecurityHeaders(new Response(document.html, { headers: { "content-type": "text/html; charset=utf-8" } }));
 }
 
@@ -126,74 +116,20 @@ function hasOwnPublicRoute(publicRoutes: Record<string, PublicRouteDefinition>, 
   return Object.prototype.hasOwnProperty.call(publicRoutes, path);
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function escapeAttribute(value: string): string {
-  return escapeHtml(value).replace(/'/g, "&#39;");
-}
-
-function normalizePublicPath(path: string): string {
-  const trimmed = path.trim();
-  if (!trimmed) return "/";
-  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-}
-
 function toWebPath(path: string): string {
   return path.split(sep).join("/");
 }
 
-function localFileUrlPath(url: URL, label: string): string {
-  if (url.protocol !== "file:") {
-    throw new Error(`${label} must be a local file path or file: URL; received ${url.protocol} URL`);
-  }
-  return fileURLToPath(url);
-}
-
-function resolveMaybeUrlString(value: string, label: string): string | undefined {
-  if (!/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value)) {
-    return undefined;
-  }
-  return localFileUrlPath(new URL(value), label);
-}
-
 function resolveWebEntry(entry: string | URL | undefined): string {
-  if (entry instanceof URL) {
-    return localFileUrlPath(entry, "web.entry");
-  }
   const value = entry ?? DEFAULT_WEB_ENTRY;
-  const urlPath = resolveMaybeUrlString(value, "web.entry");
-  if (urlPath) {
-    return urlPath;
+  if (value instanceof URL || /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value)) {
+    const url = value instanceof URL ? value : new URL(value);
+    if (url.protocol !== "file:") {
+      throw new Error(`web.entry must be a local file path or file: URL; received ${url.protocol} URL`);
+    }
+    return fileURLToPath(url);
   }
-  if (isAbsolute(value)) {
-    return value;
-  }
-  const mainDir = dirname(resolve(Bun.main || process.argv[1] || "."));
-  return resolve(mainDir, value);
-}
-
-function resolveWebAsset(src: string | URL, packageRoot: string): string {
-  if (src instanceof URL) {
-    return localFileUrlPath(src, "web.icons src");
-  }
-  const urlPath = resolveMaybeUrlString(src, "web.icons src");
-  if (urlPath) {
-    return urlPath;
-  }
-  if (isAbsolute(src)) {
-    return src;
-  }
-  return resolve(packageRoot, src);
-}
-
-async function copyWebAsset(src: string, dest: string): Promise<void> {
-  await Bun.write(dest, Bun.file(src));
+  return isAbsolute(value) ? value : resolve(dirname(resolve(Bun.main || process.argv[1] || ".")), value);
 }
 
 function webEntryPublicPath(entryFile: string, packageRoot: string): string {
@@ -201,111 +137,13 @@ function webEntryPublicPath(entryFile: string, packageRoot: string): string {
   if (relativeEntry.startsWith("..") || isAbsolute(relativeEntry)) {
     throw new Error(`web.entry must resolve inside the app package root: ${packageRoot}`);
   }
-  return normalizePublicPath(toWebPath(relativeEntry));
-}
-
-function initialsForAppName(appName: string): string {
-  const words = appName.match(/[A-Za-z0-9]+/g) ?? [];
-  const initials = words.slice(0, 2).map((word) => word[0]?.toUpperCase()).join("");
-  return initials || "W";
-}
-
-function generatedIcon(appName: string, themeColor: string, backgroundColor: string): string {
-  const initials = escapeHtml(initialsForAppName(appName));
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="${escapeAttribute(appName)}">
-  <rect width="512" height="512" rx="112" fill="${escapeAttribute(themeColor)}"/>
-  <circle cx="256" cy="256" r="178" fill="${escapeAttribute(backgroundColor)}" opacity="0.14"/>
-  <text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle" fill="${escapeAttribute(backgroundColor)}" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="176" font-weight="800">${initials}</text>
-</svg>
-`;
-}
-
-function pathExtension(path: string): string {
-  const pathname = path.includes("://") ? new URL(path).pathname : path;
-  const match = pathname.match(/\.([A-Za-z0-9]+)$/);
-  return match ? `.${match[1]}` : "";
-}
-
-function contentTypeForIcon(path: string, explicit?: string): string {
-  if (explicit) return explicit;
-  const ext = pathExtension(path).toLowerCase();
-  if (ext === ".svg") return "image/svg+xml";
-  if (ext === ".png") return "image/png";
-  if (ext === ".ico") return "image/x-icon";
-  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
-  return "application/octet-stream";
-}
-
-function themeBootScript(themeColor: string | undefined): string {
-  const themeColorUpdate = themeColor
-    ? `
-  const metaThemeColor = document.querySelector('meta[name="theme-color"]');
-  if (metaThemeColor instanceof HTMLMetaElement) metaThemeColor.content = resolved === "dark" ? ${JSON.stringify(themeColor)} : ${JSON.stringify(DEFAULT_BACKGROUND_COLOR)};`
-    : "";
-  return `(() => {
-  const key = "webapp.theme";
-  const root = document.documentElement;
-  let stored = null;
-  try {
-    const storage = window.localStorage;
-    if (storage && typeof storage.getItem === "function") {
-      stored = storage.getItem(key);
-    }
-  } catch {
-    stored = null;
-  }
-  const preference = stored === "light" || stored === "dark" || stored === "system" ? stored : ${JSON.stringify(DEFAULT_THEME_PREFERENCE)};
-  const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const resolved = preference === "system" ? (systemDark ? "dark" : "light") : preference;
-  root.classList.toggle("dark", resolved === "dark");
-  root.style.colorScheme = resolved;
-  root.dataset.theme = preference;
-  root.dataset.resolvedTheme = resolved;
-${themeColorUpdate}
-})();`;
-}
-
-function mobileStateBootScript(): string {
-  return `(() => {
-  const root = document.documentElement;
-  const query = window.matchMedia(${JSON.stringify(MOBILE_MEDIA_QUERY)});
-  root.toggleAttribute(${JSON.stringify(MOBILE_STATE_ATTRIBUTE)}, query.matches);
-})();`;
-}
-
-function pwaEnabled(web: WebAppDocumentConfig): boolean {
-  return typeof web.pwa === "object" ? web.pwa.enabled !== false : web.pwa !== false;
-}
-
-function pwaConfig(web: WebAppDocumentConfig): WebAppPwaConfig {
-  return typeof web.pwa === "object" ? web.pwa : {};
-}
-
-function generatedManifest(config: RuntimeConfig, web: WebAppDocumentConfig, backgroundColor: string, icons: WebAppIconConfig[]): string {
-  const pwa = pwaConfig(web);
-  return JSON.stringify({
-    name: config.appName,
-    short_name: web.shortName ?? config.appName,
-    start_url: pwa.startUrl ?? "./",
-    scope: pwa.scope ?? "./",
-    display: pwa.display ?? "standalone",
-    background_color: backgroundColor,
-    ...(web.themeColor ? { theme_color: web.themeColor } : {}),
-    icons,
-  }, null, 2);
-}
-
-function iconConfig(value: string | URL | WebAppIconConfig | undefined): WebAppIconConfig | undefined {
-  if (!value) return undefined;
-  return typeof value === "object" && !(value instanceof URL) && "src" in value ? value : { src: value };
+  return `/${toWebPath(relativeEntry)}`;
 }
 
 function compiledClient(): CompiledClient | undefined {
   const value = (globalThis as { [key: symbol]: unknown })[Symbol.for("webapp.compiledClient")];
   if (value === undefined) return undefined;
-  if (typeof value !== "object" || value === null) {
-    throw new Error("Invalid compiled client manifest");
-  }
+  if (typeof value !== "object" || value === null) throw new Error("Invalid compiled client manifest");
   const candidate = value as { packageRoot?: unknown; assets?: unknown };
   if (typeof candidate.packageRoot !== "string" || !candidate.packageRoot || !Array.isArray(candidate.assets)) {
     throw new Error("Invalid compiled client manifest metadata");
@@ -325,16 +163,12 @@ function compiledClient(): CompiledClient | undefined {
       || !contentType.trim()
       || (roleValue !== "script" && roleValue !== "style" && roleValue !== "asset")
       || typeof body !== "string"
-    ) {
-      throw new Error(`Invalid compiled client asset metadata at assets[${index}]`);
-    }
+    ) throw new Error(`Invalid compiled client asset metadata at assets[${index}]`);
     const role: CompiledClientAsset["role"] = roleValue;
-    const normalizedPath = normalizePublicAssetPath(path);
-    if (normalizedPath !== path) {
+    if (normalizePublicAssetPath(path) !== path) {
       throw new Error(`Compiled client asset path is not normalized at assets[${index}]: ${path}`);
     }
-    const rawKind = record["kind"];
-    const kind = rawKind === undefined ? "asset" : publicAssetKind(record, path);
+    const kind = record["kind"] === undefined ? "asset" : publicAssetKind(record, path);
     const scriptOrderValue = record["scriptOrder"];
     let scriptOrder: number | undefined;
     if (scriptOrderValue !== undefined) {
@@ -344,10 +178,7 @@ function compiledClient(): CompiledClient | undefined {
       scriptOrder = scriptOrderValue;
     }
     return {
-      path,
-      contentType,
-      kind,
-      role,
+      path, contentType, kind, role,
       ...(scriptOrder === undefined ? {} : { scriptOrder }),
       content: decodePublicAssetBody(body, `compiledClient.assets[${index}].body`),
     };
@@ -356,61 +187,42 @@ function compiledClient(): CompiledClient | undefined {
   return { packageRoot: candidate.packageRoot, assets };
 }
 
-function generatedHtml(
+function assetRoutes(
   config: RuntimeConfig,
-  web: WebAppDocumentConfig,
-  relativeEntry: string | undefined,
-  relativePrelude: string | undefined,
-  themeColor: string | undefined,
-  faviconPath: string,
-  appleTouchPath: string,
-  compiledAssets?: CompiledClientAsset[],
-): string {
-  const title = escapeHtml(web.title ?? config.appName);
-  const shortName = escapeAttribute(web.shortName ?? config.appName);
-  const htmlFaviconPath = faviconPath.replace(/^\//, "./");
-  const htmlAppleTouchPath = appleTouchPath.replace(/^\//, "./");
-  const themeMetaTag = themeColor ? `    <meta name="theme-color" content="${escapeAttribute(themeColor)}" />\n` : "";
-  const styleTags = compiledAssets?.filter((asset) => asset.role === "style").map((asset) => `    <link rel="stylesheet" href="${escapeAttribute(asset.path)}" />`).join("\n") ?? "";
-  const scriptTags = compiledAssets
-    ? compiledAssets
-        .filter((asset) => asset.role === "script")
-        .sort((left, right) => (left.scriptOrder ?? 0) - (right.scriptOrder ?? 0))
-        .map((asset) => `    <script type="module" src="${escapeAttribute(asset.path)}"></script>`)
-        .join("\n")
-    : `    <script type="module" src="${escapeAttribute(relativePrelude ?? "")}"></script>
-    <script type="module" src="${escapeAttribute(relativeEntry ?? "")}"></script>`;
-  const manifestTags = pwaEnabled(web)
-    ? `    <link rel="icon" href="${escapeAttribute(htmlFaviconPath)}" />
-    <link rel="apple-touch-icon" href="${escapeAttribute(htmlAppleTouchPath)}" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="${shortName}" />
-    <script>(() => {
-      const manifest = document.createElement("link");
-      manifest.rel = "manifest";
-      manifest.href = "/site.webmanifest";
-      document.head.appendChild(manifest);
-    })();</script>
-`
-    : "";
-  return `<!doctype html>
-<html lang="${escapeAttribute(web.lang ?? "en")}">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-${themeMetaTag}\
-${manifestTags}    <title>${title}</title>
-    <script>${mobileStateBootScript()}</script>
-    <script>${themeBootScript(themeColor)}</script>
-${styleTags}
-  </head>
-  <body>
-    <div id="root"></div>
-${scriptTags}
-  </body>
-</html>
-`;
+  artifacts: WebAppPublicAssetArtifact[],
+): Record<string, PublicRouteDefinition> {
+  assertUniquePublicAssetPaths(artifacts.map((asset) => asset.path), "web document assets");
+  const routes: Record<string, PublicRouteDefinition> = {};
+  for (const artifact of artifacts) {
+    routes[artifact.path] = {
+      headers: { "content-type": artifact.contentType },
+      GET: () => artifact.content.slice(),
+    };
+  }
+  routes[WEB_APP_CLIENT_CONFIG_PATH] = {
+    GET: (req) => Response.json({
+      mode: "integrated",
+      publicBasePath: getRequestOriginInfo(req, config).pathPrefix,
+    } satisfies WebAppClientBootstrap, { headers: { "cache-control": "no-store" } }),
+  };
+  return routes;
+}
+
+function prebuiltDocument(compiled: CompiledClient, config: RuntimeConfig, cacheDir: string): WebDocument | undefined {
+  const html = compiled.assets.find((asset) => asset.path === "/index.html");
+  if (!html) return undefined;
+  const icon = compiled.assets.find((asset) => asset.path === "/webapp-icon.svg");
+  if (!icon) throw new Error("Prebuilt client document is missing its default icon.");
+  const manifest = compiled.assets.find((asset) => asset.path === "/site.webmanifest");
+  const decoder = new TextDecoder();
+  return {
+    entryPublicPath: "",
+    cacheDir,
+    html: decoder.decode(html.content),
+    icon: decoder.decode(icon.content),
+    manifest: manifest ? decoder.decode(manifest.content) : "",
+    generatedPublicRoutes: assetRoutes(config, compiled.assets),
+  };
 }
 
 async function createWebDocument(
@@ -421,133 +233,74 @@ async function createWebDocument(
   const web = webInput ?? {};
   const compiled = compiledClient();
   const entryFile = compiled ? undefined : resolution.entryFile;
-  const iconThemeColor = web.themeColor ?? DEFAULT_THEME_COLOR;
-  const backgroundColor = web.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
   const packageRoot = resolution.packageRoot;
   const publicEntry = entryFile ? webEntryPublicPath(entryFile, packageRoot) : "";
   const cacheDir = createDocumentCacheDir(config.envPrefix);
-  const htmlPath = resolve(cacheDir, `${config.envPrefix.toLowerCase()}-index.html`);
-  const icon = generatedIcon(config.appName, iconThemeColor, backgroundColor);
-  const favicon = iconConfig(web.icons?.favicon);
-  const appleTouch = iconConfig(web.icons?.appleTouch) ?? favicon;
-  const manifestIconConfigs = web.icons?.manifest?.length ? web.icons.manifest : undefined;
-  const manifestIcons = manifestIconConfigs
-    ? manifestIconConfigs.map((manifestIcon, index) => {
-        const srcPath = resolveWebAsset(manifestIcon.src, packageRoot);
-        const ext = pathExtension(srcPath) || ".png";
-        return {
-          src: `./webapp-icon-${index + 1}${ext}`,
-          sizes: manifestIcon.sizes ?? "any",
-          type: contentTypeForIcon(srcPath, manifestIcon.type),
-          purpose: manifestIcon.purpose ?? "any maskable",
-        };
-      })
-    : [{ src: "./webapp-icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" }];
-  const manifest = pwaEnabled(web) ? generatedManifest(config, web, backgroundColor, manifestIcons) : "";
-  writeFileSync(resolve(cacheDir, "webapp-icon.svg"), icon);
-  if (manifest) {
-    writeFileSync(resolve(cacheDir, "site.webmanifest"), manifest);
-  }
-  const preludePath = resolve(cacheDir, "webapp-prelude.ts");
-  if (!compiled) {
-    const reactDomClientPath = resolution.reactDomClientPath;
-    if (!reactDomClientPath) {
-      throw new Error("Native web document resolution is missing the resolved react-dom/client module.");
+  try {
+    const prebuilt = compiled ? prebuiltDocument(compiled, config, cacheDir) : undefined;
+    if (prebuilt) return prebuilt;
+    const htmlPath = resolve(cacheDir, `${config.envPrefix.toLowerCase()}-index.html`);
+    const documentAssets = await generateWebAppDocumentAssets(config.appName, web, packageRoot);
+    for (const artifact of documentAssets.artifacts) {
+      await Bun.write(resolve(cacheDir, artifact.path.slice(1)), artifact.content);
     }
-    const frameworkWebPath = toWebPath(fileURLToPath(new URL("../web/index.ts", import.meta.url)));
-    writeFileSync(preludePath, `import { createRoot } from ${JSON.stringify(toWebPath(reactDomClientPath))};
+    const preludePath = resolve(cacheDir, "webapp-prelude.ts");
+    if (!compiled) {
+      if (!resolution.reactDomClientPath) {
+        throw new Error("Native web document resolution is missing the resolved react-dom/client module.");
+      }
+      const frameworkWebPath = toWebPath(fileURLToPath(new URL("../web/index.ts", import.meta.url)));
+      writeFileSync(preludePath, `import { createRoot } from ${JSON.stringify(toWebPath(resolution.reactDomClientPath))};
 import { configureWebAppRenderer } from ${JSON.stringify(frameworkWebPath)};
-
 configureWebAppRenderer(createRoot);
 `);
-  }
-  const relativeEntry = entryFile ? toWebPath(relative(cacheDir, entryFile)) : undefined;
-  const relativePrelude = entryFile ? toWebPath(relative(cacheDir, preludePath)) : undefined;
-  const faviconPath = favicon ? `/webapp-favicon${pathExtension(resolveWebAsset(favicon.src, packageRoot)) || ".png"}` : "/webapp-icon.svg";
-  const appleTouchPath = appleTouch ? `/webapp-apple-touch-icon${pathExtension(resolveWebAsset(appleTouch.src, packageRoot)) || ".png"}` : faviconPath;
-  if (favicon) {
-    await copyWebAsset(resolveWebAsset(favicon.src, packageRoot), resolve(cacheDir, faviconPath.slice(1)));
-  }
-  if (appleTouch) {
-    await copyWebAsset(resolveWebAsset(appleTouch.src, packageRoot), resolve(cacheDir, appleTouchPath.slice(1)));
-  }
-  if (manifestIconConfigs) {
-    for (const [index, manifestIcon] of manifestIconConfigs.entries()) {
-      const manifestIconFile = resolveWebAsset(manifestIcon.src, packageRoot);
-      const ext = pathExtension(manifestIconFile) || ".png";
-      await copyWebAsset(manifestIconFile, resolve(cacheDir, `webapp-icon-${index + 1}${ext}`));
     }
-  }
-  const compiledAssets = compiled?.assets;
-  writeFileSync(htmlPath, generatedHtml(config, web, relativeEntry, relativePrelude, web.themeColor, faviconPath, appleTouchPath, compiledAssets));
-  const bundle = compiledAssets ? undefined : (await import(`${pathToFileURL(htmlPath).href}?v=${Date.now()}-${Math.random()}`)).default;
-  if (!compiledAssets && !isHtmlBundleIndex(bundle)) {
-    throw new Error("Generated web document did not produce a Bun HTMLBundle");
-  }
-  const html = bundle ? await Bun.file(bundle.index).text() : await Bun.file(htmlPath).text();
-  const generatedPublicRoutes: Record<string, PublicRouteDefinition> = {
-    "/webapp-icon.svg": {
-      headers: { "content-type": "image/svg+xml; charset=utf-8" },
-      GET: icon,
-    },
-  };
-  if (compiledAssets) {
-    for (const asset of compiledAssets) {
-      generatedPublicRoutes[asset.path] = {
-        headers: { "content-type": asset.contentType },
-        GET: () => asset.content.slice(),
-      };
-    }
-  }
-  if (favicon) {
-    const faviconFile = resolveWebAsset(favicon.src, packageRoot);
-    generatedPublicRoutes[faviconPath] = {
-      headers: { "content-type": contentTypeForIcon(faviconFile, favicon.type) },
-      GET: () => Bun.file(faviconFile),
-    };
-  }
-  if (appleTouch) {
-    const appleTouchFile = resolveWebAsset(appleTouch.src, packageRoot);
-    generatedPublicRoutes[appleTouchPath] = {
-      headers: { "content-type": contentTypeForIcon(appleTouchFile, appleTouch.type) },
-      GET: () => Bun.file(appleTouchFile),
-    };
-  }
-  if (manifestIconConfigs) {
-    manifestIconConfigs.forEach((manifestIcon, index) => {
-      const manifestIconFile = resolveWebAsset(manifestIcon.src, packageRoot);
-      const ext = pathExtension(manifestIconFile) || ".png";
-      generatedPublicRoutes[`/webapp-icon-${index + 1}${ext}`] = {
-        headers: { "content-type": contentTypeForIcon(manifestIconFile, manifestIcon.type) },
-        GET: () => Bun.file(manifestIconFile),
-      };
+    const scripts = compiled
+      ? compiled.assets.filter((asset) => asset.role === "script")
+          .sort((left, right) => (left.scriptOrder ?? 0) - (right.scriptOrder ?? 0))
+          .map((asset) => asset.path)
+      : [toWebPath(relative(cacheDir, preludePath)), toWebPath(relative(cacheDir, entryFile!))];
+    const sourceHtml = generateWebAppHtml({
+      appName: config.appName,
+      web,
+      ...documentAssets,
+      scripts,
+      nativeBundle: !compiled,
+      styles: compiled?.assets.filter((asset) => asset.role === "style").map((asset) => asset.path),
     });
-  }
-  if (pwaEnabled(web)) {
-    generatedPublicRoutes["/site.webmanifest"] = {
-      headers: { "content-type": "application/manifest+json; charset=utf-8" },
-      GET: manifest,
+    writeFileSync(htmlPath, sourceHtml);
+    const bundle = compiled ? undefined : (await import(`${pathToFileURL(htmlPath).href}?v=${crypto.randomUUID()}`)).default;
+    if (!compiled && !isHtmlBundleIndex(bundle)) {
+      throw new Error("Generated web document did not produce a Bun HTMLBundle");
+    }
+    const html = bundle ? await Bun.file(bundle.index).text() : sourceHtml;
+    const staticAssets = await readWebAppStaticAssets(resolution.staticAssets ?? []);
+    const artifacts = [...documentAssets.artifacts, ...(compiled?.assets ?? []), ...staticAssets];
+    return {
+      bundle,
+      entryPublicPath: publicEntry,
+      cacheDir,
+      html,
+      manifest: documentAssets.manifest,
+      icon: documentAssets.icon,
+      generatedPublicRoutes: assetRoutes(config, artifacts),
     };
-    generatedPublicRoutes["/manifest.webmanifest"] = {
-      headers: { "content-type": "application/manifest+json; charset=utf-8" },
-      GET: manifest,
-    };
-    return { bundle, entryPublicPath: publicEntry, cacheDir, html, manifest, icon, generatedPublicRoutes };
+  } catch (error) {
+    cleanupDocumentCacheDir(cacheDir);
+    throw error;
   }
-  return { bundle, entryPublicPath: publicEntry, cacheDir, html, manifest: "", icon, generatedPublicRoutes };
 }
 
 function resolveWebDocumentResolution(web: WebAppDocumentConfig | undefined): WebDocumentResolution {
   const compiled = compiledClient();
-  if (compiled) {
-    return { packageRoot: compiled.packageRoot };
-  }
-  const webEntryFile = resolveWebEntry(web?.entry);
-  const packageRoot = findPackageRoot(dirname(webEntryFile));
+  if (compiled) return { packageRoot: compiled.packageRoot };
+  const entryFile = resolveWebEntry(web?.entry);
+  const packageRoot = findPackageRoot(dirname(entryFile));
   return {
-    entryFile: webEntryFile,
+    entryFile,
     packageRoot,
-    reactDomClientPath: resolveReactDomClient(packageRoot, webEntryFile),
+    reactDomClientPath: resolveReactDomClient(packageRoot, entryFile),
+    staticAssets: collectWebAppStaticAssets(web?.assets ?? [], packageRoot),
   };
 }
 
@@ -557,34 +310,30 @@ export function createWebDocumentProvider(
   publicRoutes: Record<string, PublicRouteDefinition>,
 ): WebDocumentProvider {
   const resolution = resolveWebDocumentResolution(webInput);
-  const configuredFavicon = iconConfig(webInput?.icons?.favicon);
-  const configuredAppleTouch = iconConfig(webInput?.icons?.appleTouch) ?? configuredFavicon;
-  const configuredManifestIcons = webInput?.icons?.manifest ?? [];
-  const compiled = compiledClient();
-  const webEntryFile = resolution.entryFile;
-  const webPackageRoot = resolution.packageRoot;
+  const favicon = iconConfig(webInput?.icons?.favicon);
+  const appleTouch = iconConfig(webInput?.icons?.appleTouch) ?? favicon;
+  const iconPath = (src: string | URL): string => pathExtension(resolveDocumentAsset(src, resolution.packageRoot)) || ".png";
   const generatedRoutePaths = new Set([
-    ...(webEntryFile ? [webEntryPublicPath(webEntryFile, webPackageRoot)] : []),
-    ...(compiled?.assets.map((asset) => asset.path) ?? []),
+    WEB_APP_CLIENT_CONFIG_PATH,
+    ...(resolution.entryFile ? [webEntryPublicPath(resolution.entryFile, resolution.packageRoot)] : []),
+    ...(compiledClient()?.assets.map((asset) => asset.path) ?? []),
+    ...(resolution.staticAssets?.map((asset) => asset.path) ?? []),
     "/webapp-icon.svg",
-    ...(configuredFavicon ? [`/webapp-favicon${pathExtension(resolveWebAsset(configuredFavicon.src, webPackageRoot)) || ".png"}`] : []),
-    ...(configuredAppleTouch ? [`/webapp-apple-touch-icon${pathExtension(resolveWebAsset(configuredAppleTouch.src, webPackageRoot)) || ".png"}`] : []),
-    ...configuredManifestIcons.map((manifestIcon, index) => `/webapp-icon-${index + 1}${pathExtension(resolveWebAsset(manifestIcon.src, webPackageRoot)) || ".png"}`),
+    ...(favicon ? [`/webapp-favicon${iconPath(favicon.src)}`] : []),
+    ...(appleTouch ? [`/webapp-apple-touch-icon${iconPath(appleTouch.src)}`] : []),
+    ...(webInput?.icons?.manifest ?? []).map((icon, index) => `/webapp-icon-${index + 1}${iconPath(icon.src)}`),
     ...(pwaEnabled(webInput ?? {}) ? ["/site.webmanifest", "/manifest.webmanifest"] : []),
   ]);
   let documentPromise: Promise<WebDocument> | undefined;
-
   return {
     generatedRoutePaths,
     async ensure(): Promise<WebDocument> {
       documentPromise ??= createWebDocument(config, webInput, resolution).then((document) => {
-        for (const path of Object.keys(document.generatedPublicRoutes)) {
+        for (const path of [...Object.keys(document.generatedPublicRoutes), document.entryPublicPath].filter(Boolean)) {
           if (hasOwnPublicRoute(publicRoutes, path)) {
+            cleanupDocumentCacheDir(document.cacheDir);
             throw new Error(`publicRoutes cannot override framework-owned web route: ${path}`);
           }
-        }
-        if (document.entryPublicPath && hasOwnPublicRoute(publicRoutes, document.entryPublicPath)) {
-          throw new Error(`publicRoutes cannot override framework-owned web route: ${document.entryPublicPath}`);
         }
         return document;
       });

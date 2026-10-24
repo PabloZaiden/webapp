@@ -342,12 +342,21 @@ export async function verifyAccessToken(store: WebAppStore, config: RuntimeConfi
     audience: `${config.envPrefix.toLowerCase()}-api`,
   });
   const payload = result.payload;
+  const userId = payload.sub ?? "";
+  const sessionId = typeof payload["sid"] === "string" ? payload["sid"] : "";
+  const session = store.getRefreshSession(sessionId, userId);
+  if (
+    !session || session.revokedAt || isExpired(session.expiresAt)
+    || session.clientId !== payload["clientId"] || session.scope !== payload["scope"]
+  ) {
+    throw new AuthError("invalid_token", "Authentication session is no longer active", 401);
+  }
   return {
-    sub: payload.sub ?? "",
+    sub: userId,
     username: typeof payload["username"] === "string" ? payload["username"] : undefined,
     role: typeof payload["role"] === "string" ? payload["role"] : undefined,
     jti: payload.jti ?? "",
-    sid: String(payload["sid"] ?? ""),
+    sid: sessionId,
     clientId: String(payload["clientId"] ?? ""),
     scope: String(payload["scope"] ?? ""),
   };

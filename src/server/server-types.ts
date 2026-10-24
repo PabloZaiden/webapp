@@ -5,6 +5,7 @@ import type { WebAppStore } from "./auth/store";
 import type { RuntimeConfig } from "./runtime-config";
 import type { RouteTable, WebAppRouteMiddleware } from "./routes";
 import type { DelegatedDispatchOptions } from "./delegation";
+import type { WebAppStaticAssetOptions } from "../static-assets";
 
 export const WEBAPP_SOCKET_HANDLER = "webappSocketHandler";
 
@@ -104,6 +105,9 @@ export interface WebAppServer<TEvent = unknown> {
 }
 
 export interface WebAppDocumentConfig {
+  /** Serve only server-origin authentication pages, not an application SPA fallback. */
+  mode?: "app" | "auth";
+  assets?: WebAppStaticAssetOptions[];
   entry?: string | URL;
   title?: string;
   shortName?: string;

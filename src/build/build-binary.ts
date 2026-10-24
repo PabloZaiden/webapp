@@ -1,21 +1,14 @@
-import type { BunPlugin } from "bun";
-import tailwindPlugin from "bun-plugin-tailwind";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, extname, resolve } from "node:path";
-import { findPackageRoot, resolveReactDomClient } from "../package-resolution";
+import { dirname, resolve } from "node:path";
+import { findPackageRoot } from "../package-resolution";
+import { serializePublicAssetBundles } from "../server/public-assets";
+import type { WebAppPublicAssetOptions } from "./public-assets";
 import {
-  compileWebAppPublicAsset,
-  serializePublicAssetBundles,
-  type WebAppPublicAssetOptions,
-} from "../server/public-assets";
-import {
-  assertUniquePublicAssetPaths,
-  buildOutputRelativePath,
-  contentTypeForPublicAssetPath,
-  normalizePublicAssetPath,
-  publicAssetKindForBuildArtifact,
-  type WebAppPublicAssetBundle,
-} from "../server/public-asset-manifest";
+  buildWebAppBrowser,
+  type WebAppBrowserBuild,
+  type WebAppBrowserBuildOptions,
+  type WebAppStaticAssetOptions,
+} from "./build-browser";
 
 export const BUN_COMPILE_TARGETS = [
   "bun-linux-x64",
@@ -39,14 +32,11 @@ export interface BuildWebAppBinaryOptions {
   outfile: string;
   target?: BunCompileTarget;
   define?: Record<string, string>;
-  web?: {
+  web?: { client: WebAppBrowserBuild } | {
     entry?: string;
     publicAssets?: WebAppPublicAssetOptions[];
-    build?: {
-      plugins?: BunPlugin[];
-      define?: Record<string, string>;
-      disableDefaultPlugins?: boolean;
-    };
+    assets?: WebAppStaticAssetOptions[];
+    build?: WebAppBrowserBuildOptions;
   };
 }
 
@@ -101,77 +91,26 @@ export async function buildWebAppBinary(options: BuildWebAppBinaryOptions): Prom
   }
   const entrypoint = resolve(options.entrypoint);
   const packageRoot = findPackageRoot(dirname(entrypoint));
-  const reactDomClientPath = resolveReactDomClient(packageRoot, entrypoint);
   mkdirSync(dirname(options.outfile), { recursive: true });
   const buildId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const cacheDir = resolve(packageRoot, ".cache", "webapp-build", buildId);
   try {
     mkdirSync(cacheDir, { recursive: true });
-    const webEntry = resolve(dirname(resolve(options.entrypoint)), options.web?.entry ?? "./web/main.tsx");
-    const rendererEntry = resolve(cacheDir, "webapp-renderer-prelude.ts");
-    const clientEntry = resolve(cacheDir, "webapp-client-entry.ts");
-    const browserOutDir = resolve(cacheDir, "browser");
-    writeFileSync(rendererEntry, `import { createRoot } from ${JSON.stringify(reactDomClientPath.replaceAll("\\", "/"))};
-import { configureWebAppRenderer } from "@pablozaiden/webapp/web";
-
-configureWebAppRenderer(createRoot);
-`);
-    writeFileSync(clientEntry, `import ${JSON.stringify(webEntry)};
-`);
-    const browserPlugins = [
-      ...(options.web?.build?.plugins ?? []),
-      ...(options.web?.build?.disableDefaultPlugins ? [] : [tailwindPlugin]),
-    ];
-    const browserBuild = await Bun.build({
-      entrypoints: [rendererEntry, clientEntry],
-      outdir: browserOutDir,
-      target: "browser",
-      format: "esm",
-      splitting: true,
-      publicPath: "/webapp-compiled/",
-      minify: true,
-      sourcemap: "external",
-      define: { ...options.define, ...options.web?.build?.define },
-      plugins: browserPlugins,
+    const web = options.web;
+    const browser = web && "client" in web ? web.client : await buildWebAppBrowser({
+      entry: resolve(dirname(entrypoint), web?.entry ?? "./web/main.tsx"),
+      define: options.define,
+      build: web?.build,
+      publicAssets: web?.publicAssets,
+      assets: web?.assets,
     });
-    if (!browserBuild.success) {
-      for (const log of browserBuild.logs) {
-        console.error(log);
-      }
-      throw new Error("Browser build failed");
-    }
-    const publicAssetBundles: WebAppPublicAssetBundle[] = [];
-    for (const publicAsset of options.web?.publicAssets ?? []) {
-      const bundle = await compileWebAppPublicAsset({
-        ...publicAsset,
-        define: { ...options.define, ...publicAsset.define },
-      });
-      publicAssetBundles.push(bundle);
-    }
-    const assets = await Promise.all(browserBuild.outputs.map(async (output) => {
-        const relativePath = buildOutputRelativePath(browserOutDir, output);
-        const ext = extname(relativePath).toLowerCase();
-        const kind = publicAssetKindForBuildArtifact(output);
-        const fileName = basename(output.path);
-        const publicPath = normalizePublicAssetPath(`/webapp-compiled/${relativePath}`);
-        const scriptKind = [".js", ".mjs", ".cjs"].includes(ext) ? compiledScriptKind(fileName) : undefined;
-        return {
-          path: publicPath,
-          contentType: contentTypeForPublicAssetPath(publicPath, kind),
-          kind,
-          role: ext === ".css" ? "style" : scriptKind ? "script" : "asset",
-          ...(scriptKind ? { scriptOrder: scriptKind === "renderer" ? 0 : 1 } : {}),
-          body: Buffer.from(await output.arrayBuffer()).toString("base64"),
-        };
-      }));
-    assertUniquePublicAssetPaths(assets.map((asset) => asset.path), "compiled browser outputs");
-    assertUniquePublicAssetPaths([
-      ...assets.map((asset) => asset.path),
-      ...publicAssetBundles.flatMap((bundle) => bundle.artifacts.map((artifact) => artifact.path)),
-    ], "compiled webapp assets");
+    const assets = browser.assets.map(({ content, ...asset }) => ({
+      ...asset,
+      body: Buffer.from(content).toString("base64"),
+    }));
     const compiledAssetsModule = resolve(cacheDir, "compiled-webapp-assets.ts");
     writeFileSync(compiledAssetsModule, `globalThis[Symbol.for("webapp.compiledClient")] = ${JSON.stringify({ packageRoot, assets })};
-globalThis[Symbol.for("webapp.compiledPublicAssets")] = ${JSON.stringify(serializePublicAssetBundles(publicAssetBundles))};
+globalThis[Symbol.for("webapp.compiledPublicAssets")] = ${JSON.stringify(serializePublicAssetBundles(browser.publicAssetBundles))};
 `);
     const compiledEntrypoint = resolve(cacheDir, "entrypoint.ts");
     writeFileSync(compiledEntrypoint, `import "./compiled-webapp-assets";
@@ -197,10 +136,4 @@ import ${JSON.stringify(entrypoint)};
   } finally {
     rmSync(cacheDir, { recursive: true, force: true });
   }
-}
-
-function compiledScriptKind(fileName: string): "renderer" | "client" | undefined {
-  if (/^webapp-renderer-prelude(?:[-.][\w-]+)?\.(?:mjs|js)$/.test(fileName)) return "renderer";
-  if (/^webapp-client-entry(?:[-.][\w-]+)?\.(?:mjs|js)$/.test(fileName)) return "client";
-  return undefined;
 }

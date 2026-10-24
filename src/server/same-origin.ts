@@ -10,18 +10,20 @@ export function checkSameOrigin(req: Request, config: RuntimeConfig, auth: Authe
   if (config.sameOriginDisabled || mode === "never") {
     return undefined;
   }
+  // Explicit credentials do not rely on an ambient browser cookie session.
+  if (auth.kind === "api-key" || auth.kind === "bearer") {
+    return undefined;
+  }
   const mutating = MUTATING.has(req.method.toUpperCase());
   const websocket = req.headers.get("upgrade")?.toLowerCase() === "websocket";
   if (mode !== "always" && !mutating && !websocket) {
     return undefined;
   }
-  if (mode !== "always" && (auth.kind === "api-key" || auth.kind === "bearer")) {
-    return undefined;
-  }
   const expectedOrigin = getRequestOriginInfo(req, config).origin;
   const origin = req.headers.get("origin");
   if (origin) {
-    return origin === expectedOrigin ? undefined : errorResponse(403, "same_origin_required", "Request origin is not allowed");
+    return origin === expectedOrigin
+      ? undefined : errorResponse(403, "same_origin_required", "Request origin is not allowed");
   }
   const referer = req.headers.get("referer");
   if (referer) {

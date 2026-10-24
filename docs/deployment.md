@@ -72,6 +72,137 @@ MY_APP_PORT=3300 ./dist/my-app serve
 
 Keep server and CLI modes in the same binary. App-specific commands and framework-backed commands should be subcommands of that binary rather than separate executables.
 
+## Static browser client
+
+`buildWebAppClient` produces a complete browser-only directory using the same
+browser bundler and document, icon and PWA generators as the integrated
+application:
+
+```ts
+import { buildWebAppClient } from "@pablozaiden/webapp/build";
+
+await buildWebAppClient({
+  entry: new URL("./src/web/main.tsx", import.meta.url),
+  outdir: "./dist/client",
+  appName: "My App",
+  title: "My App",
+  apiBaseUrl: "https://api.example.test",
+  define: { WEBAPP_VERSION: JSON.stringify("1.0.0") },
+  icons: { favicon: new URL("./assets/icon.svg", import.meta.url) },
+  assets: [{
+    src: "node_modules/monaco-editor/min/vs",
+    path: "/webapp-assets/monaco/vs",
+  }],
+});
+```
+
+Upload the **entire directory** to any ordinary HTTP(S) static host. The exact
+same bytes work at `/` and a nested directory such as `/tools/my-app/`; no
+base-path rebuild, application server, host-specific configuration, SPA
+fallback or rewrite rule is needed. Keep the trailing directory slash or open
+`index.html` directly, and use the framework's hash-based navigation rather
+than requesting client-side routes as server paths. Localhost HTTP is useful
+for development; public deployments should use HTTPS. Opening `file://` is
+not a supported native packaging strategy.
+
+The output contains `index.html`, the remote-client bootstrap, application
+scripts, lazy/shared chunks, CSS, emitted fonts/file-loader assets, external
+source maps, generated/configured icons, PWA manifests, configured public-asset
+bundles and copied asset directories. Small assets may be embedded in CSS by
+Bun. Choose a dedicated output directory; the builder overwrites its own
+outputs but does not delete unrelated or stale files already in that directory.
+Do not publish dependencies, source trees or private data alongside it.
+URL-encoded asset names are decoded for their filesystem destinations, with
+containment and decoded-name collision checks before writing output files.
+
+The shared bootstrap loads the directory-relative `webapp-client.json` and
+configures the React renderer **before importing the application's entry module**.
+Static output uses `{ "mode": "remote", "apiBaseUrl": "https://api.example.test" }`.
+Omit `apiBaseUrl` to distribute no default endpoint. This is a public, nonsecret
+runtime default, not an API credential; the client can select its endpoint at
+runtime. Application startup may call `configureWebAppClient()` without
+discarding that bootstrap configuration. Browser defines and source maps are
+also public: never place tokens, secrets or server-only environment values in
+them. The API server must support remote authentication; client origins do not
+need registration.
+
+### Build once for static hosting and a unified binary
+
+Pass the result of `buildWebAppClient` directly to the binary builder:
+
+```ts
+import { buildWebAppBinary, buildWebAppClient } from "@pablozaiden/webapp/build";
+
+const client = await buildWebAppClient({
+  entry: new URL("./src/web/main.tsx", import.meta.url),
+  outdir: "./dist/client",
+  appName: "My App",
+});
+await buildWebAppBinary({
+  entrypoint: "src/index.ts",
+  outfile: "./dist/my-app",
+  web: { client },
+});
+```
+
+The binary embeds the same HTML, JavaScript, CSS, icons and runtime assets,
+without compiling the browser again or needing the output/source directory at
+runtime. Document appearance is fixed by the client build's options. Server
+`web.mode` still controls integrated versus authentication-only presentation.
+The server supplies its own nonsecret `webapp-client.json` response with
+`mode: "integrated"` and the trusted public path prefix; the artifact's static
+file instead selects remote token authentication. Only runtime configuration
+changes, not the frontend code or HTML. The configuration response is uncached;
+do not override that reserved framework route.
+
+Document options match server `web` configuration: `title`, `shortName`,
+`lang`, `themeColor`, `backgroundColor`, `icons` and `pwa`. Icon inputs are
+local files and are copied to generated public names. Keep explicit PWA
+`startUrl` and `scope` relative if overriding their relocatable `./` defaults.
+`build.plugins`, `build.define` and `build.disableDefaultPlugins` have the
+same behavior as binary `web.build`; top-level `define` is merged with the
+browser-specific defines. String `entry` resolves from the working directory;
+file URLs avoid ambiguity when a build script lives elsewhere.
+
+### Explicit runtime assets
+
+`assets` accepts `{ src: string | URL, path: string }` entries. A source file
+is copied to that destination; a directory's contents are copied recursively,
+including workers, source maps and other files. Destinations are public URL
+paths rooted in the **client directory**, not the hosting origin. Duplicate
+paths, including collisions with generated documents/assets, fail the build.
+Source strings resolve from the application package root. Only explicitly
+selected files/directories are published; never select a directory containing
+private data.
+
+Configure the same entries in server `web.assets` for Bun development and in
+binary-builder `web.assets` for embedding. The development document provider
+serves those files at the configured public paths; the compiled binary serves
+the embedded bytes without reading the source directories. For example:
+
+```ts
+const assets = [{
+  src: new URL("./node_modules/monaco-editor/min/vs", import.meta.url),
+  path: "/webapp-assets/monaco/vs",
+}];
+// createWebAppServer({ ..., web: { assets } })
+// buildWebAppBinary({ ..., web: { assets } })
+// buildWebAppClient({ ..., assets })
+```
+
+Copied files are not rewritten. Configure third-party loaders relative to the
+client document, for example
+`new URL("./webapp-assets/monaco/vs", document.baseURI).href`, and keep their
+internal worker/font/import paths relative. A caller-authored `/assets/...`
+URL still refers to the hosting origin's root and cannot be relocated.
+`publicAssets` additionally compiles explicit browser entrypoints using the
+existing `WebAppPublicAssetOptions` contract, retaining every emitted sidecar.
+
+Static artifacts, including those embedded through `web.client`, put compiled
+scripts in `webapp-compiled/` and use directory-relative document/import URLs.
+Generated PWA manifest links, icons, start and scope URLs are directory-relative
+too.
+
 ## Docker
 
 The example Dockerfiles copy a Bun-compiled Linux binary into a runtime image. They intentionally require `APP_BINARY`; there is no architecture-specific default. Build the binary for the container architecture first, then pass both the Docker platform and matching binary path:

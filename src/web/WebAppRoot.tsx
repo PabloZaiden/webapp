@@ -16,6 +16,8 @@ import { UnsavedChangesProvider } from "./unsaved-changes";
 import { WebAppConfigProvider, useWebAppConfig } from "./webapp-config";
 import { setLogLevel } from "./logger";
 import { useReducedMotion } from "./motion";
+import { getClientSession, invalidateClientSession } from "./client-session";
+import { ServerAccountScreen } from "./server-account";
 
 const EMPTY_SIDEBAR_TABS: SidebarTab[] = [];
 
@@ -317,7 +319,10 @@ function WebAppRootContent({
   }), [focusSidebarSearch, openSidebar, selectTab]);
 
   if (error && !config) {
-    return <main className="wapp-auth-screen"><Panel title="Unable to load app" description={error.message} actions={<Button onClick={() => void refresh()}>Retry</Button>} /></main>;
+    return <main className="wapp-auth-screen"><Panel title="Unable to load app" description={error.message} actions={<>
+      {getClientSession().enabled ? <Button onClick={invalidateClientSession}>Change server</Button> : null}
+      <Button onClick={() => void refresh()}>Retry</Button>
+    </>} /></main>;
   }
   if (!config) {
     return <main className="wapp-auth-screen">Loading...</main>;
@@ -331,6 +336,14 @@ function WebAppRootContent({
   }
   if (config.deviceAuth.enabled && currentPagePath === normalizePagePath(appPagePath("/device"))) {
     return <DeviceVerificationScreen />;
+  }
+  if (!getClientSession().enabled) {
+    if (currentPagePath === normalizePagePath(appPagePath("/account"))) {
+      return <ServerAccountScreen config={config} refresh={refresh} />;
+    }
+    if (config.web?.mode === "auth") {
+      return <main className="wapp-auth-screen"><Panel title={config.appName} description="API-only server" /></main>;
+    }
   }
 
   const effectiveVersion = version ?? config.version;

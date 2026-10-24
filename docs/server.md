@@ -24,6 +24,41 @@ recently inserted audit events. Use it only when this loss is intentional or
 the application can reconstruct the required state; it is not a cache in
 front of SQLite.
 
+## API and authentication-only serving
+
+Integrated UI/API serving remains the default. `web: false` disables all
+framework documents and their assets, but retains the normal API and
+WebSocket routes; it does not disable authentication or change worker/domain
+behavior.
+
+For a remote-client API that must retain API-origin device approval and passkey
+setup, use `web: { mode: "auth", entry: ... }`. This mode serves the supplied
+document at `/`, `/login`, `/device`, `/setup` and `/account`, plus its configured/generated
+public assets, without an application SPA fallback on other paths. Supply a
+minimal authentication entry, or have the common renderer honor
+`GET /api/config`'s `web.mode: "auth"` by rendering authentication/device/setup
+screens without the application shell. `"app"` is the normal integrated mode;
+`"disabled"` describes `web: false`. The mode is presentation/serving policy,
+not a replacement for private route authorization.
+
+`/account` is the API-origin account/security page for passkey and device-session
+management. Detached clients must open it on the API origin so WebAuthn uses the
+correct relying party, rather than attempting passkey management on the static
+host. The common renderer supplies those framework sections without an
+application shell. The document route is available in integrated mode too.
+
+Both native documents and compiled binaries register the React renderer before
+the application entry runs. In an ordinary compiled binary, changing the mode
+reuses that embedded browser bootstrap; a runtime `web.entry` does not select
+another compiled client. Keep the common entry and have its renderer honor
+`config.web.mode`, rather than referring to an auth-only source file that is
+not embedded in the executable.
+
+For origin configuration and safe resource/socket capabilities, see
+[Detached browser clients](auth.md#detached-browser-clients). API-origin
+passkeys still require an appropriate HTTPS/public-origin and reverse-proxy
+configuration; a detached static host does not become the passkey RP origin.
+
 ## Private local state
 
 The server export provides `ensurePrivateDirectory`,

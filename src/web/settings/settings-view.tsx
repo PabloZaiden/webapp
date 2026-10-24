@@ -10,6 +10,7 @@ import { ShutdownSection } from "./shutdown-section";
 import { UserManagement } from "./user-management";
 import { SettingsSectionContent } from "./settings-section";
 import { SettingsLayout } from "./settings-layout";
+import { RemoteClientSettings } from "../remote-client";
 
 export type { SettingsAction, SettingsRow, SettingsSection } from "../root-types";
 
@@ -51,6 +52,7 @@ export function SettingsView({ config, refresh, customSections, route, navigate 
     <SettingsLayout categories={Array.from(categories, ([id, title]) => ({ id, title }))} category={selected} onCategoryChange={select}>
       <div key={selected}>
         {error ? <p className="wapp-error" role="alert">{error}</p> : null}
+        {selected === "general" ? <RemoteClientSettings /> : null}
         {["general", "account", "administration"].includes(selected) ? <AccountSection config={config} refresh={refresh} setError={setError} category={selected} /> : null}
         {selected === "account" ? <FormSection title="Security">
           <SecuritySection config={config} refresh={refresh} setError={setError} />

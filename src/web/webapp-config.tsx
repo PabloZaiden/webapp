@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { VALID_LOG_LEVELS, type WebAppConfigResponse } from "../contracts";
 import { appJson, isWebAppPublicBasePath, onAuthRequired, setWebAppPublicBasePath } from "./api-client";
 import { setRealtimeIdentity } from "./realtime/shared";
+import { getClientSession } from "./client-session";
 
 export interface WebAppConfigState {
   config?: WebAppConfigResponse;
@@ -104,7 +105,7 @@ export function WebAppConfigProvider({ children }: { children: ReactNode }) {
       if (requestId !== requestIdRef.current) {
         return;
       }
-      setWebAppPublicBasePath(response.publicBasePath);
+      if (!getClientSession().enabled) setWebAppPublicBasePath(response.publicBasePath);
       setRealtimeIdentity(response.currentUser?.id, response.realtime.path);
       setConfig(response);
     } catch (value) {

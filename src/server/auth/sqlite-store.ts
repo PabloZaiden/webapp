@@ -1014,6 +1014,10 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(record.id, record.userId, record.familyId, record.clientId, record.scope, record.refreshTokenHash, record.createdAt, record.updatedAt, record.expiresAt, record.lastUsedAt ?? null, record.revokedAt ?? null);
     },
+    getRefreshSession: (id, userId) => {
+      const row = db.query("SELECT * FROM webapp_refresh_sessions WHERE id = ? AND user_id = ?").get(id, userId) as Row | null;
+      return row ? mapRefresh(row) : undefined;
+    },
     getRefreshSessionByHash: (refreshTokenHash) => {
       const row = db.query("SELECT * FROM webapp_refresh_sessions WHERE refresh_token_hash = ?").get(refreshTokenHash) as Row | null;
       return row ? mapRefresh(row) : undefined;

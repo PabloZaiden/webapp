@@ -96,7 +96,7 @@ Run this checklist before releasing a framework app or cutting a checkpoint.
 6. Refresh with `/api/auth/refresh` and confirm a new refresh token is returned.
 7. Reuse the old refresh token and confirm `invalid_grant`.
 8. Reuse the consumed device code and confirm `invalid_grant`.
-9. Revoke the active device session from Settings and confirm refresh fails.
+9. Revoke the active device session from Settings and confirm refresh, access-token authentication and outstanding client tickets fail.
 10. Create a new authorization request after an older request expires and confirm expired device requests are cleaned up without removing active requests.
 
 ## CLI session invalidation reproduction
@@ -119,12 +119,46 @@ The current behavior is reproduced when all of these assertions hold:
 
 1. Computer A can use its access token and refresh successfully after the server process restarts against the same data directory; its listed refresh session still has more than 29 days remaining.
 2. Computer B authenticates independently using the same explicit `client_id` as A, reproducing the shared default used by older CLI versions.
-3. A's still-unexpired access token works, but its next refresh returns HTTP `400` with `invalid_grant` because the refresh session was revoked.
+3. A's still-unexpired access token is rejected because its session was revoked, and its next refresh returns HTTP `400` with `invalid_grant`.
 4. B can refresh successfully. Authenticating computer C with the hostname-based default leaves both B and C able to refresh.
 
 The script exits successfully only when it observes the current invalidation
 and both controls. It is a diagnostic reproducer, not a regression test
 asserting that simultaneous default-client sessions should fail permanently.
+
+## Detached browser API boundary
+
+`tests/remote-client-auth.test.ts` specifies one required deployment workflow:
+a static-client origin authorizes a device on the API origin, reads its private
+configuration/data, downloads a scoped resource and connects framework realtime
+and an application raw socket. Its public boundaries are actual HTTP and
+WebSocket listeners. Required results are bearer identity, usable private data,
+range-capable downloads and socket messages without client-host registration,
+with target/session and observed socket-origin binding enforced. This belongs
+in the compact suite because existing
+integrated auth journeys do not exercise detached browser transport admission.
+A second serving scenario preserves the API-origin auth pages without an
+application document fallback.
+
+For manual client validation, host the same exported directory at a root and a
+nested path against an API with no client-host configuration, and:
+
+1. Complete device authorization in an API-origin browser tab with passkeys
+   enabled; do not enable a passkey or same-origin bypass for this check.
+2. Confirm private API reads/mutations, settings, realtime and an application
+   socket work without API-origin cookies in the static client's requests.
+3. Open/download a protected resource and seek a protected media resource
+   through short-lived resource URLs. Confirm reconnects obtain new socket
+   tickets rather than reusing a consumed one.
+4. Confirm token-authenticated clients work from independently chosen origins,
+   private data still requires valid credentials, and an external origin cannot
+   mutate using the API's cookie session. Same-origin browser sessions still work.
+5. Revoke the device session at the API origin and confirm new API/resource/
+   socket authentication fails until reauthorization.
+6. Run the API with `web.mode: "auth"` and confirm login, device approval, setup
+   and `/account` security/session management remain available while the
+   application shell is omitted. Open `/account` on the API origin, not the
+   static client's origin, when managing passkeys.
 
 ## Atomic credential transitions
 
