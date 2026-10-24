@@ -247,6 +247,10 @@ rotation, signing-key get-or-create, and account disabling. Callers must not
 compose the read-only lookup methods with low-level writes to implement these
 transitions.
 
+Custom stores must also implement `getRefreshSession(id, userId)` as a keyed,
+owner-constrained lookup. Bearer verification uses this record to check expiry,
+revocation, client and scope without enumerating retained session history.
+
 ## Same-origin policy
 
 Cookie/browser mutations require matching `Origin` or `Referer` by default.
@@ -309,6 +313,9 @@ API deployment prefix: join them to the configured API base URL, including
 that base's prefix. Absolute URLs, fragments, path traversal requiring URL
 normalization and existing ticket parameters are rejected. The endpoint requires
 a valid device bearer token; cookie sessions and API keys cannot issue tickets.
+Targets must be under `/api/`, or be the configured `realtime.path` for a
+WebSocket ticket. A custom realtime path does not enable general resource
+tickets outside the API.
 Client origins do not need prior registration. When a client supplies `Origin`,
 its ticket is bound to that observed origin; a non-browser client may omit it.
 

@@ -148,6 +148,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     passkeysEnabled,
     apiKeysEnabled,
     deviceAuthEnabled,
+    realtimePath: wsPath,
   });
   const frameworkEndpoints = createFrameworkEndpointHandler({
     config,

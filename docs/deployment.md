@@ -112,6 +112,8 @@ bundles and copied asset directories. Small assets may be embedded in CSS by
 Bun. Choose a dedicated output directory; the builder overwrites its own
 outputs but does not delete unrelated or stale files already in that directory.
 Do not publish dependencies, source trees or private data alongside it.
+URL-encoded asset names are decoded for their filesystem destinations, with
+containment and decoded-name collision checks before writing output files.
 
 The shared bootstrap loads the directory-relative `webapp-client.json` and
 configures the React renderer **before importing the application's entry module**.

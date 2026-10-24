@@ -344,7 +344,7 @@ export async function verifyAccessToken(store: WebAppStore, config: RuntimeConfi
   const payload = result.payload;
   const userId = payload.sub ?? "";
   const sessionId = typeof payload["sid"] === "string" ? payload["sid"] : "";
-  const session = store.listRefreshSessions(userId).find((record) => record.id === sessionId);
+  const session = store.getRefreshSession(sessionId, userId);
   if (
     !session || session.revokedAt || isExpired(session.expiresAt)
     || session.clientId !== payload["clientId"] || session.scope !== payload["scope"]

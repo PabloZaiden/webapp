@@ -19,17 +19,18 @@ interface ClientTicket {
   expiresAt: number;
 }
 
-function targetUrl(target: string): URL {
+function targetUrl(target: string, kind: ClientTicketRequest["kind"], realtimePath: string): URL {
   if (
-    !target.startsWith("/api/") || target.length > 16_384
+    !target.startsWith("/") || target.startsWith("//") || target.length > 16_384
     || /[\\#\u0000-\u0020\u007f]/.test(target)
     || /%(?![a-f\d]{2})/i.test(target)
   ) {
-    throw new AuthError("invalid_ticket_target", "Ticket target must be an application-relative /api/ URL", 400);
+    throw new AuthError("invalid_ticket_target", "Ticket target must be an application-relative API or realtime URL", 400);
   }
   const url = new URL(target, "https://ticket.invalid");
   if (
-    url.origin !== "https://ticket.invalid" || !url.pathname.startsWith("/api/")
+    url.origin !== "https://ticket.invalid"
+    || !(url.pathname.startsWith("/api/") || (kind === "websocket" && url.pathname === realtimePath))
     || url.pathname + url.search !== target
     || /%00/i.test(url.pathname)
     || url.searchParams.has(CLIENT_TICKET_PARAMETER)
@@ -39,7 +40,7 @@ function targetUrl(target: string): URL {
   return url;
 }
 
-export function createClientTickets(verify: (token: string) => Promise<BearerAuth>) {
+export function createClientTickets(verify: (token: string) => Promise<BearerAuth>, realtimePath: string) {
   const tickets = new Map<string, ClientTicket>();
   const prepared = new WeakMap<Request, BearerAuth>();
 
@@ -53,7 +54,7 @@ export function createClientTickets(verify: (token: string) => Promise<BearerAut
   return {
     issue(req: Request, auth: BearerAuth, input: ClientTicketRequest, token: string): ClientTicketResponse {
       const origin = req.headers.get("origin");
-      const target = targetUrl(input.url);
+      const target = targetUrl(input.url, input.kind, realtimePath);
       prune();
       let count = 0;
       for (const ticket of tickets.values()) {

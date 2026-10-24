@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { WebAppDocumentConfig } from "../server/server-types";
-import { assertUniquePublicAssetPaths } from "../server/public-asset-manifest";
+import { assertUniquePublicAssetPaths, normalizePublicAssetPath } from "../server/public-asset-manifest";
 import { generateWebAppDocumentAssets, generateWebAppHtml } from "../web-document";
 import { WEB_APP_CLIENT_CONFIG_PATH, type WebAppClientBootstrap } from "../contracts/client-bootstrap";
 import { buildWebAppBrowser, localBuildPath, type WebAppBrowserBuild, type WebAppBrowserBuildOptions, type WebAppBrowserAsset, type WebAppStaticAssetOptions } from "./build-browser";
@@ -56,9 +56,20 @@ export async function buildWebAppClient(options: BuildWebAppClientOptions): Prom
   const artifacts = [...assets, ...browser.publicAssetBundles.flatMap((bundle) => bundle.artifacts)];
   assertUniquePublicAssetPaths(artifacts.map((asset) => asset.path), "static client output");
   const outdir = resolve(options.outdir);
+  const outputs = artifacts.map((artifact) => {
+    const decodedPath = decodeURIComponent(normalizePublicAssetPath(artifact.path));
+    const destination = resolve(outdir, decodedPath.slice(1));
+    const localPath = relative(outdir, destination);
+    if (!localPath || localPath === ".." || localPath.startsWith(`..${sep}`)
+      || isAbsolute(localPath) || decodedPath.includes("\0")) {
+      throw new Error(`Static client asset must resolve to a file inside the output directory: ${artifact.path}`);
+    }
+    return { artifact, destination };
+  });
+  assertUniquePublicAssetPaths(outputs.map(({ destination }) => destination), "decoded static client output");
   mkdirSync(outdir, { recursive: true });
-  for (const artifact of artifacts) {
-    await Bun.write(resolve(outdir, artifact.path.slice(1)), artifact.content);
+  for (const { artifact, destination } of outputs) {
+    await Bun.write(destination, artifact.content);
   }
   return { ...browser, assets };
 }

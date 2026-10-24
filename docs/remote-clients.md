@@ -29,7 +29,9 @@ third-party cookies. The client opens the API's authorization page; the user
 signs in with that server's passkey and approves the displayed code. The client
 polls the existing device-token endpoint and receives its own revocable session.
 If the browser blocks the new window, the connection screen retains a direct
-authorization link. Cancel or changing servers stops polling.
+authorization link. Cancel stops polling and pending credential-lock admission;
+credentials written during cancellation are removed instead of signing in.
+Changing servers also stops polling.
 
 Default browser credential storage uses localStorage scoped to the exact API URL
 and client deployment directory. Treat the static origin as trusted application
@@ -79,6 +81,8 @@ Use `ResourceImage` for private API images and the async helpers for direct
 resources and sockets. Resource capabilities are short-lived and target-bound;
 WebSocket capabilities are single-use. Neither helper puts access or refresh
 tokens into URLs. Honor `expiresAt` when retaining a media URL.
+The realtime connection deadline includes ticket acquisition, not only opening
+the socket.
 
 Keep application-owned private browser storage separate with
 `clientScopedStorageKey(key)`. Integrated mode preserves existing keys; remote

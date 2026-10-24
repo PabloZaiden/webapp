@@ -188,6 +188,7 @@ export interface WebAppStore {
   getOrCreateSigningKey(candidate: SigningKeyRecord): SigningKeyRecord;
 
   saveRefreshSession(record: RefreshSessionRecord): void;
+  getRefreshSession(id: string, userId: string): RefreshSessionRecord | undefined;
   getRefreshSessionByHash(refreshTokenHash: string): RefreshSessionRecord | undefined;
   listRefreshSessions(userId?: string): RefreshSessionRecord[];
   rotateRefreshSession(oldHash: string, next: RefreshSessionRecord, nowIso: string, clientId?: string): RefreshSessionRotationResult;

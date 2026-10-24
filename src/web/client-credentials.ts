@@ -34,11 +34,11 @@ export function clientStorageKey(name: string): string {
   return `webapp.client:${encodeURIComponent(directory)}:${name}`;
 }
 
-export async function withClientCredentialLock<T>(baseUrl: string, operation: () => Promise<T>): Promise<T> {
+export async function withClientCredentialLock<T>(baseUrl: string, operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!navigator.locks) {
     throw new Error("Persistent sign-in requires a secure browser context with Web Locks support.");
   }
-  return await navigator.locks.request(clientStorageKey(`credentials-lock:${baseUrl}`), operation);
+  return await navigator.locks.request(clientStorageKey(`credentials-lock:${baseUrl}`), { signal }, operation);
 }
 
 export function credentialsKey(baseUrl: string): string {

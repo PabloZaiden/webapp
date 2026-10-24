@@ -824,6 +824,10 @@ export function memoryWebAppStore(): WebAppStore {
       assertRefreshSessionCanBeSaved(record);
       commitRefreshSession(record);
     },
+    getRefreshSession(id: string, userId: string): RefreshSessionRecord | undefined {
+      const record = refreshSessionsById.get(id);
+      return record?.userId === userId ? clone(record) : undefined;
+    },
     getRefreshSessionByHash(refreshTokenHash: string): RefreshSessionRecord | undefined {
       const id = refreshSessionIdByHash.get(refreshTokenHash);
       const record = id ? refreshSessionsById.get(id) : undefined;

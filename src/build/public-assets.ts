@@ -1,5 +1,6 @@
 import type { BunPlugin } from "bun";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -38,9 +39,7 @@ export async function compileWebAppPublicAsset(options: WebAppPublicAssetOptions
     throw new Error(`Public asset content type must not be empty for ${path}`);
   }
   const entrypoint = resolveEntrypoint(options.entrypoint);
-  const cacheRoot = resolve(".cache", "webapp-public-assets");
-  mkdirSync(cacheRoot, { recursive: true });
-  const outputDirectory = mkdtempSync(join(cacheRoot, "build-"));
+  const outputDirectory = mkdtempSync(join(tmpdir(), "webapp-public-"));
   try {
     const result = await Bun.build({
       entrypoints: [entrypoint],

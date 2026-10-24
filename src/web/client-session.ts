@@ -150,15 +150,17 @@ export async function loginClient(onVerification: (info: { url: string; code: st
     controller.signal.throwIfAborted();
     if (state.generation !== generation) throw new Error("The selected server changed during authorization.");
     await withClientCredentialLock(endpoint, async () => {
+      controller.signal.throwIfAborted();
       if (state.generation !== generation) throw new Error("The selected server changed during authorization.");
       await store.write(next);
-      if (state.generation !== generation) {
+      if (controller.signal.aborted || state.generation !== generation) {
         await store.remove(endpoint);
+        controller.signal.throwIfAborted();
         throw new Error("The selected server changed during authorization.");
       }
       credentials = next;
       update({ authenticated: true, generation: generation + 1, error: undefined });
-    });
+    }, controller.signal);
   } finally {
     if (login === controller) login = undefined;
   }

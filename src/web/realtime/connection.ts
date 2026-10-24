@@ -130,6 +130,7 @@ export class RealtimeRuntime {
       this.invoke(subscription, () => subscription.onStatus?.("connecting"));
     }
     let socket: WebSocket;
+    this.deadline = setTimeout(() => this.fail(new Error("Realtime connection timed out")), DEADLINE_MS);
     try {
       socket = await appWebSocketConnection(this.url, { signal: request.signal });
     } catch (error) {
@@ -143,7 +144,6 @@ export class RealtimeRuntime {
       return;
     }
     this.socket = socket;
-    this.deadline = setTimeout(() => this.fail(new Error("Realtime connection timed out")), DEADLINE_MS);
     socket.onopen = () => {
       if (this.socket !== socket) return;
       clearTimeout(this.deadline);
