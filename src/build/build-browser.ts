@@ -87,7 +87,8 @@ await import(${JSON.stringify(entry)});
     }
     const assets: WebAppBrowserAsset[] = await Promise.all(result.outputs.map(async (output) => {
       const relativePath = buildOutputRelativePath(outdir, output);
-      const path = normalizePublicAssetPath(`/webapp-compiled/${relativePath}`);
+      // Bun file-loader values resolve against the document, so keep outputs beside index.html.
+      const path = normalizePublicAssetPath(`/${relativePath}`);
       const kind = publicAssetKindForBuildArtifact(output);
       const name = basename(output.path);
       const scriptOrder = name === "webapp-renderer-prelude.js" ? 0 : undefined;
