@@ -176,7 +176,8 @@ export async function appRequest(input: RequestInfo | URL, init?: RequestInit): 
     if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) {
       throw new Error("An external client request must address the application's logical API.");
     }
-    return await external.request(request);
+    url.pathname = `/${url.pathname.slice(base.pathname.length)}`;
+    return await external.request(new Request(url, request));
   }
   if (!getClientSession().enabled) return await fetchAppRequest(request);
   assertSelectedApiUrl(new URL(request.url));
