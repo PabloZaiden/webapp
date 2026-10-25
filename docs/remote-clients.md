@@ -12,6 +12,13 @@ version or app-specific configuration fields. External sessions have
 `external` state and no `config`; that absence is intentional, not a reason to
 construct server defaults or invent a user.
 
+Pass `version` to `buildWebAppClient` to include the static client's own build
+identity in `webapp-client.json`. The framework displays it in the sidebar
+and Settings / About, independently of the connected server's version or
+external transport. Preserve that field if adapting the bootstrap between
+remote and external modes. Without a static version, the existing explicit
+`WebAppRoot.version` / server-config fallback remains available.
+
 Clients do not register their hosting origin with the API. Both unified and
 API-only servers accept independently authenticated clients from any host.
 Browser API requests omit cookies and use explicit tokens; integrated browser

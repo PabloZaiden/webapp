@@ -30,6 +30,7 @@ let configuredApiBaseUrl: string | undefined;
 let configuredWebSocketBaseUrl: string | undefined;
 let configuredPartialResults: PartialResultMetadata | undefined;
 let configuredMode: "integrated" | "remote" | "external" = "integrated";
+let configuredClientVersion: string | undefined;
 let externalClient: WebAppExternalClient | undefined;
 const ABSOLUTE_URL_PATTERN = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
 
@@ -52,6 +53,7 @@ export function configureWebAppClient(options: {
   mode?: "integrated" | "remote" | "external";
   remote?: WebAppRemoteClientOptions;
   external?: WebAppExternalClient;
+  version?: string;
 } = {}): void {
   const mode = options.mode ?? (options.external ? "external" : options.remote ? "remote" : configuredMode);
   if (mode === "external" && (getClientSession().enabled || options.remote
@@ -65,6 +67,10 @@ export function configureWebAppClient(options: {
     throw new TypeError("Reload the application before changing client modes.");
   }
   configuredMode = mode;
+  if (options.version !== undefined) {
+    if (!options.version.trim()) throw new TypeError("Client version must not be empty.");
+    configuredClientVersion = options.version;
+  }
   if (mode === "external") {
     configuredApiBaseUrl = undefined;
     configuredWebSocketBaseUrl = undefined;
@@ -84,6 +90,10 @@ export function configureWebAppClient(options: {
 
 export function getWebAppClientMode(): "integrated" | "remote" | "external" {
   return configuredMode;
+}
+
+export function getWebAppClientVersion(): string | undefined {
+  return configuredClientVersion;
 }
 
 export function getWebAppExternalClient(): WebAppExternalClient | undefined {

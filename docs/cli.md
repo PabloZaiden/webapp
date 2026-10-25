@@ -366,7 +366,14 @@ createWebAppCli({
 });
 ```
 
-`update --check` checks the latest stable release. `update --pre-release`
+`update` and `update --check` follow the installed build's channel: versions
+containing `-main-` use the rolling `latest` release, and other builds use
+stable. Use `update --channel latest` to opt in or `update --channel stable`
+to return to stable, including a downgrade from a main snapshot. Add `--check`
+to inspect a channel without installing it. Channel selection cannot be
+combined with `--version` or `--pre-release`.
+
+`update --pre-release`
 selects a published prerelease only when its version is newer than the latest
 stable release; otherwise, it selects the stable release. Combine it with
 `--check` to inspect that selection without replacing the binary.

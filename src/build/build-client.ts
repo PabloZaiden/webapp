@@ -11,6 +11,8 @@ export interface BuildWebAppClientOptions extends Omit<WebAppDocumentConfig, "en
   entry: string | URL;
   outdir: string;
   appName: string;
+  /** Version of this static client, independent of a connected API server. */
+  version?: string;
   /** Public, nonsecret default. Users can choose another endpoint at runtime. */
   apiBaseUrl?: string;
   /** External applications configure their own session and transport before rendering. */
@@ -41,8 +43,10 @@ export async function buildWebAppClient(options: BuildWebAppClientOptions): Prom
       .map((asset) => asset.path),
     styles: browser.assets.filter((asset) => asset.role === "style").map((asset) => asset.path),
   });
-  const bootstrap: WebAppClientBootstrap = options.clientMode === "external" ? { mode: "external" } : {
+  const version = options.version === undefined ? {} : { version: options.version };
+  const bootstrap: WebAppClientBootstrap = options.clientMode === "external" ? { mode: "external", ...version } : {
     mode: "remote",
+    ...version,
     ...(options.apiBaseUrl === undefined ? {} : { apiBaseUrl: options.apiBaseUrl }),
   };
   const assets: WebAppBrowserAsset[] = [

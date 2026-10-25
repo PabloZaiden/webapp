@@ -10,9 +10,11 @@ export const webAppClientBootstrapSchema = z.discriminatedUnion("mode", [
   z.object({
     mode: z.literal("remote"),
     apiBaseUrl: z.string().optional(),
+    version: z.string().min(1).optional(),
   }).strict(),
   z.object({
     mode: z.literal("external"),
+    version: z.string().min(1).optional(),
   }).strict(),
 ]);
 

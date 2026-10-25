@@ -22,6 +22,7 @@ function parseUpdateArgs(
   let checkOnly = false;
   let preRelease = false;
   let version: string | undefined;
+  let channel: UpdateCommandOptions["channel"];
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
@@ -37,6 +38,17 @@ function parseUpdateArgs(
         return { exitCode: 1, error: "--pre-release may only be specified once" };
       }
       preRelease = true;
+      continue;
+    }
+    if (arg === "--channel" || arg.startsWith("--channel=")) {
+      if (channel !== undefined) {
+        return { exitCode: 1, error: "--channel may only be specified once" };
+      }
+      const value = arg === "--channel" ? args[++index] : arg.slice("--channel=".length);
+      if (value !== "stable" && value !== "latest") {
+        return { exitCode: 1, error: "--channel requires stable or latest" };
+      }
+      channel = value;
       continue;
     }
     if (arg === "--version") {
@@ -68,15 +80,18 @@ function parseUpdateArgs(
   if (checkOnly && version !== undefined) {
     return { exitCode: 1, error: "Cannot combine --check with --version" };
   }
-  return { checkOnly, version, preRelease };
+  if (channel && (version !== undefined || preRelease)) {
+    return { exitCode: 1, error: "Cannot combine --channel with --version or --pre-release" };
+  }
+  return { checkOnly, version, preRelease, channel };
 }
 
 export function updateCommand<TAppContext>(
   dependencies: UpdateCommandDependencies<TAppContext>,
 ): WebAppCliCommandDefinition<TAppContext> {
   return {
-    description: "Check for or install stable or prerelease application release binaries.",
-    usage: "update [--check] [--pre-release] [--version VERSION]",
+    description: "Check for or install application binaries, following the installed release channel.",
+    usage: "update [--check] [--channel stable|latest | --pre-release | --version VERSION]",
     handler: async ({ args }) => {
       const command = parseUpdateArgs(args);
       if ("exitCode" in command) return command;
