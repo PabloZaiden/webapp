@@ -1,6 +1,5 @@
 /**
  * Publish a confirmed stable GitHub release from the remote default branch.
- * Includes the package's npm publication workflow.
  */
 
 type Version = [bigint, bigint, bigint];
@@ -132,7 +131,7 @@ async function release(): Promise<void> {
   console.log(`\nTag and title: ${tag}`);
   console.log(`Source: ${branch} (${commit})`);
   console.log("Description: GitHub-generated release notes.");
-  console.log("Publishing creates a version tag that triggers the npm release workflow.");
+  console.log("Publishing creates a GitHub release and version tag; no npm publication.");
   const confirmation = prompt(`Publish ${tag}? Type yes to confirm:`);
   if (confirmation?.trim().toLowerCase() !== "yes") {
     console.log("Release cancelled.");

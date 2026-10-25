@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo
 import type { WebAppConfigResponse } from "../contracts";
 import { AppShell } from "./app-shell";
 import { DeviceVerificationScreen, PasskeyAuthScreen, UserSetupScreen } from "./auth-screens";
-import { appPagePath } from "./api-client";
+import { appPagePath, getWebAppClientVersion } from "./api-client";
 import { Button, EmptyState, Panel } from "./components";
 import { useMobileBreakpoint, useMobileSidebarSwipe, useMobileViewportHeight } from "./mobile-hooks";
 import { routeToHash, supportsElementViewTransitions, useRoute } from "./routing";
@@ -350,7 +350,7 @@ function WebAppRootContent({
     }
   }
 
-  const effectiveVersion = version ?? config?.version ?? "";
+  const effectiveVersion = getWebAppClientVersion() ?? version ?? config?.version ?? "";
   let view: ReactNode;
   if (route.view === "settings") {
     view = <SettingsView config={config} external={external} appName={appName} version={effectiveVersion} refresh={refresh} customSections={settings?.sections ?? []} route={route} navigate={navigate} />;

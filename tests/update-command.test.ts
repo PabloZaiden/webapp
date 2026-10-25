@@ -91,6 +91,27 @@ function createUpdaterCli(responses: Response[]): {
 }
 
 describe("update CLI", () => {
+  test("checks the explicitly selected latest channel", async () => {
+    const version = "1.2.4-main-2026-10-25-18-01-abcdef1";
+    const assetName = updaterAssetName(version);
+    const { cli, output, urls } = createUpdaterCli([
+      Response.json({
+        tag_name: "latest", draft: false, prerelease: true,
+        assets: [assetName, "release.json"].map(name => ({
+          name, browser_download_url: `https://downloads.example/${name}`,
+        })),
+      }),
+      Response.json({
+        schemaVersion: 1, channel: "latest", version,
+        revision: "abcdef1234567890123456789012345678901234",
+      }),
+    ]);
+    const result = await cli.execute(["update", "--check", "--channel", "latest"]);
+    expect(result.exitCode).toBe(0);
+    expect(output.join("")).toContain(version);
+    expect(urls[0]).toBe("https://api.github.com/repos/pablozaiden/link/releases/tags/latest");
+  });
+
   test("checks a newer prerelease when requested", async () => {
     const { cli, output } = createUpdaterCli([
       stableReleaseResponse("v1.2.3"),

@@ -4,7 +4,8 @@ Use these templates for applications built with `@pablozaiden/webapp`. They foll
 
 1. Pull requests install, typecheck, build, test and smoke-test the Bun dev server.
 2. Pushes to `main` publish a `main` Docker image to GHCR.
-3. Published GitHub releases upload standalone binaries.
+3. Pushes to `main` replace rolling `latest` binaries; published GitHub releases
+   upload versioned standalone binaries.
 4. Published GitHub releases publish semver Docker images to GHCR.
 
 Replace these placeholders before committing:
@@ -362,28 +363,46 @@ It delegates cross-platform binary builds to the reusable binary release workflo
 name: Binary Release
 
 on:
+  push:
+    branches: [main]
   release:
     types: [published]
 
 jobs:
   binaries:
-    uses: pablozaiden/installer/.github/workflows/reusable-binary-release.yml@d65a93c1af0d7ce62524d6ccdfee44d0f6ceac4e
+    if: github.event_name != 'release' || github.event.release.tag_name != 'latest'
+    uses: pablozaiden/installer/.github/workflows/reusable-binary-release.yml@bd5fa6697c003e620d8d7b92734aea506f31e3fa
     permissions:
       contents: write
     with:
+      release_channel: ${{ github.event_name == 'push' && 'latest' || 'stable' }}
       prebuild_command: bun run typecheck && bun run build
+      targets: |
+        [
+          {"os":"ubuntu-latest","target":"linux-x64","bun_target":"bun-linux-x64"},
+          {"os":"ubuntu-latest","target":"linux-arm64","bun_target":"bun-linux-arm64"},
+          {"os":"macos-latest","target":"darwin-x64","bun_target":"bun-darwin-x64"},
+          {"os":"macos-latest","target":"darwin-arm64","bun_target":"bun-darwin-arm64"}
+        ]
       binaries: |
         [
           {
             "name": "my-app",
             "asset_prefix": "my-app",
-            "build_command": "bun src/build.ts --target=$BUN_TARGET",
+            "build_command": "WEBAPP_VERSION=$VERSION bun src/build.ts --target=$BUN_TARGET",
             "output_path": "dist/my-app-$RELEASE_TARGET"
           }
         ]
 ```
 
 If `bun run build` already builds a local default binary and your `src/build.ts` supports `--target`, keep both commands in `prebuild_command` to typecheck and validate the app before producing release assets.
+
+Main builds replace the single prerelease tagged `latest`, without affecting
+GitHub's latest stable release. Each build embeds a unique version; installers
+and the shared updater use `release.json` to resolve its binaries and checksums.
+New installs remain stable by default; latest installs retain their channel
+for subsequent CLI updates. See installer's
+[release channel contract](https://github.com/PabloZaiden/installer/blob/main/docs/release-channels.md).
 
 ## Docker release workflow
 

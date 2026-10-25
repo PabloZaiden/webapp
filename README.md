@@ -72,7 +72,7 @@ fades, while structural primitives such as `Collapsible` animate their layout.
 Use `layout="contents"` when animated children should participate directly in
 the surrounding layout rather than through the list wrapper.
 
-See `docs/getting-started.md` for the minimum app shape and `examples/notes-todo` for a realistic app. Use `docs/github-actions.md` when adding CI, Docker and release workflows to an app built with the framework. Release/publishing details for this package are in `docs/release.md`.
+See `docs/getting-started.md` for the minimum app shape and `examples/notes-todo` for a realistic app. Use `docs/github-actions.md` when adding CI, Docker and release workflows to an app built with the framework. GitHub dependency and release details for this package are in `docs/release.md`.
 
 CLI API callers can use a stored device session or the stateless
 `${PREFIX}_BASE_URL` and `${PREFIX}_API_KEY` environment pair; see
