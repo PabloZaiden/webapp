@@ -28,7 +28,11 @@ export { useTheme } from "./theme";
 export type { ResolvedTheme, WebAppThemeState } from "./theme";
 export { useLogLevel } from "./log-level";
 export type { WebAppLogLevelState } from "./log-level";
-export { useCurrentUser } from "./webapp-config";
+export { useCurrentUser, useExternalClientSession } from "./webapp-config";
+export type {
+  WebAppDuplex, WebAppDuplexHandlers, WebAppExternalClient, WebAppExternalSession,
+  WebAppSaveResourceOptions,
+} from "./external-client";
 export { createLogger, getLogLevel, log } from "./logger";
 export { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 export type { ThemePreference } from "../contracts";

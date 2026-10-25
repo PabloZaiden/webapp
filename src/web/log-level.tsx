@@ -11,12 +11,12 @@ export interface WebAppLogLevelState {
 }
 
 export function useLogLevel(): WebAppLogLevelState {
-  const { config, loading, error, refresh } = useWebAppConfig("useLogLevel");
+  const { config, external, loading, error, refresh } = useWebAppConfig("useLogLevel");
   return useMemo(() => ({
-    level: config?.logLevel.level,
-    fromEnv: config?.logLevel.fromEnv,
+    level: config?.logLevel.level ?? external?.logLevel,
+    fromEnv: config?.logLevel.fromEnv ?? (external ? false : undefined),
     loading,
     error,
     retry: refresh,
-  }), [config?.logLevel.fromEnv, config?.logLevel.level, error, loading, refresh]);
+  }), [config?.logLevel.fromEnv, config?.logLevel.level, external, error, loading, refresh]);
 }

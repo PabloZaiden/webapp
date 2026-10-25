@@ -8,6 +8,17 @@ Hooks wait for `WebAppRoot` to identify the authenticated user before opening
 the shared transport; domain hooks may be declared above that root without
 creating a redundant bootstrap connection.
 
+An [external client](remote-clients.md#external-sessions-and-transports) supplies
+a `RealtimeSource` instead of using the native socket runtime. Existing hooks
+keep their interest, status, activation and refresh semantics. The source owns
+subscription acknowledgement and recovery; call `onSubscribed` after each
+acknowledged activation, including recovery after a gap, so consumers refetch
+authoritative state. Recoverable interruptions report status, while rejected
+subscriptions and invalid frames report errors. `dispose()` must retire all of
+that source's subscriptions/listeners; it must not dispose unrelated
+application-owned connections. The framework does not add a second reconnect
+loop around the external source.
+
 The server advertises its `realtime.path` through `/api/config`; the shared
 runtime uses that configured endpoint, including custom paths outside `/api`.
 Do not configure endpoints separately on individual hooks.

@@ -1,19 +1,12 @@
 import {
   realtimeClientMessageSchema, realtimeServerMessageSchema,
-  type RealtimeClientMessage, type RealtimeInterest,
+  type RealtimeClientMessage,
 } from "../../contracts/realtime";
 import { createLogger } from "../logger";
 import { appWebSocketConnection } from "../api-client";
+import type { RealtimeSource, RealtimeSubscriber } from "./source";
 
-export type RealtimeStatus = "connecting" | "open" | "closed";
-export interface RealtimeActivation { generation: number }
-export interface RealtimeSubscriber<TEvent = unknown> {
-  interest: RealtimeInterest;
-  onEvent: (event: TEvent) => void;
-  onSubscribed?: (activation: RealtimeActivation) => void | Promise<void>;
-  onStatus?: (status: RealtimeStatus) => void;
-  onError?: (error: Error) => void;
-}
+export type { RealtimeActivation, RealtimeSource, RealtimeStatus, RealtimeSubscriber } from "./source";
 interface Subscription extends RealtimeSubscriber {
   generation: number;
   active: boolean;
@@ -26,7 +19,7 @@ const HEARTBEAT_MS = 15_000;
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
 
 /** A runtime owns one transport and all of its subscriptions, heartbeat and retries. */
-export class RealtimeRuntime {
+export class RealtimeRuntime implements RealtimeSource {
   private subscriptions = new Map<string, Subscription>();
   private socket?: WebSocket;
   private retry?: ReturnType<typeof setTimeout>;

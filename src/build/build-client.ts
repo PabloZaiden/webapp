@@ -13,6 +13,8 @@ export interface BuildWebAppClientOptions extends Omit<WebAppDocumentConfig, "en
   appName: string;
   /** Public, nonsecret default. Users can choose another endpoint at runtime. */
   apiBaseUrl?: string;
+  /** External applications configure their own session and transport before rendering. */
+  clientMode?: "remote" | "external";
   define?: Record<string, string>;
   build?: WebAppBrowserBuildOptions;
   publicAssets?: WebAppPublicAssetOptions[];
@@ -21,6 +23,9 @@ export interface BuildWebAppClientOptions extends Omit<WebAppDocumentConfig, "en
 
 /** Build a complete browser-only directory, relocatable without a base-path rebuild. */
 export async function buildWebAppClient(options: BuildWebAppClientOptions): Promise<WebAppBrowserBuild> {
+  if (options.clientMode === "external" && options.apiBaseUrl !== undefined) {
+    throw new TypeError("An external client build cannot specify an API server.");
+  }
   const browser = await buildWebAppBrowser({
     ...options,
     entry: localBuildPath(options.entry),
@@ -36,7 +41,7 @@ export async function buildWebAppClient(options: BuildWebAppClientOptions): Prom
       .map((asset) => asset.path),
     styles: browser.assets.filter((asset) => asset.role === "style").map((asset) => asset.path),
   });
-  const bootstrap: WebAppClientBootstrap = {
+  const bootstrap: WebAppClientBootstrap = options.clientMode === "external" ? { mode: "external" } : {
     mode: "remote",
     ...(options.apiBaseUrl === undefined ? {} : { apiBaseUrl: options.apiBaseUrl }),
   };

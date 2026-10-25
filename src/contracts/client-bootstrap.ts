@@ -11,6 +11,9 @@ export const webAppClientBootstrapSchema = z.discriminatedUnion("mode", [
     mode: z.literal("remote"),
     apiBaseUrl: z.string().optional(),
   }).strict(),
+  z.object({
+    mode: z.literal("external"),
+  }).strict(),
 ]);
 
 export type WebAppClientBootstrap = z.infer<typeof webAppClientBootstrapSchema>;
