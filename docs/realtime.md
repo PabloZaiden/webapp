@@ -111,6 +111,12 @@ the old query lifecycle and resets data to the current `initialData` (or
 `undefined`); reconnect preserves previous data. `refresh` and `mutate` are
 stable callbacks. Omitting `realtime`, setting it to `false`, or disabling it
 creates an ordinary query without an application subscription.
+Set `enabled: false` on the query itself to prevent both initial reads and
+subscriptions when the operation is unavailable. This is distinct from
+`realtime.enabled: false`, which still loads an ordinary query. A disabled
+query is not loading, does not manufacture data, and its inactive controller
+rejects mutations. Enabling it activates the normal authoritative lifecycle;
+disabling an active query cancels its reads and pending mutations.
 Ordinary queries do not wait for realtime identity and can load and refresh
 on public pages or outside `WebAppRoot`. Session changes still cancel their
 old lifecycle and reset the query's displayed data.
