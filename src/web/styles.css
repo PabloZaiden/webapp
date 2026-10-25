@@ -3296,7 +3296,7 @@ select.wapp-input,
     margin-left: auto;
   }
 
-  :root[data-wapp-mobile] .wapp-settings-field-inline:has(> .wapp-settings-field-control > :is(.wapp-checkbox-field, input[type="checkbox"])) {
+  :root[data-wapp-mobile] .wapp-settings-field-inline:has(> .wapp-settings-field-control > :is(.wapp-checkbox-field, input[type="checkbox"], select.wapp-input:not(.wapp-input-full))) {
     display: grid;
   }
 
