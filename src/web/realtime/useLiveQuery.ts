@@ -4,17 +4,18 @@ import { useRealtime, type ResourceRealtimeEvent, type UseRealtimeOptions } from
 import { useRealtimeSession } from "./shared";
 
 export function useLiveQuery<TData, TEvent = ResourceRealtimeEvent>({
-  load, initialData, deps = [], realtime,
+  load, initialData, deps = [], realtime, enabled = true,
 }: {
   load: (signal: AbortSignal, previous?: TData) => Promise<TData>;
   initialData?: TData;
+  enabled?: boolean;
   deps?: readonly unknown[];
   realtime?: false | UseRealtimeOptions<TEvent>;
 }) {
   const [state, setState] = useState<LiveQueryState<TData>>({ data: initialData, loading: initialData === undefined });
   const latest = useRef({ load, realtime });
   latest.current = { load, realtime };
-  const realtimeEnabled = Boolean(realtime && realtime.enabled !== false);
+  const realtimeEnabled = enabled && Boolean(realtime && realtime.enabled !== false);
   const session = useRealtimeSession();
   const owner = useRef<ReturnType<typeof createLiveQueryController<TData>> | null>(null);
   owner.current ??= createLiveQueryController<TData>({
@@ -36,6 +37,7 @@ export function useLiveQuery<TData, TEvent = ResourceRealtimeEvent>({
       // Query identity changed: never reconcile another route's data into this projection.
       controller.reset(initial.current);
     }
+    if (!enabled) return () => controller.deactivate();
     if (realtimeEnabled && !session.ready) return () => controller.deactivate();
     controller.prepare();
     if (!realtimeEnabled || subscribed.current) {
@@ -43,7 +45,7 @@ export function useLiveQuery<TData, TEvent = ResourceRealtimeEvent>({
     }
     reset.current = true;
     return () => controller.deactivate();
-  }, [controller, realtimeEnabled, session, ...deps]);
+  }, [controller, enabled, realtimeEnabled, session, ...deps]);
   const connection = useRealtime<TEvent>({
     ...(realtime || {}),
     enabled: realtimeEnabled,
@@ -71,5 +73,5 @@ export function useLiveQuery<TData, TEvent = ResourceRealtimeEvent>({
       }
     },
   });
-  return { ...state, error: state.error ?? connection.error, refresh: controller.invalidate, mutate: controller.mutate, realtimeStatus: connection.status, lastEvent: connection.lastEvent };
+  return { ...state, loading: enabled && state.loading, error: state.error ?? connection.error, refresh: controller.invalidate, mutate: controller.mutate, realtimeStatus: connection.status, lastEvent: connection.lastEvent };
 }

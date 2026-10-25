@@ -15,7 +15,7 @@ export type { UseVersionedRealtimeOptions } from "./useVersionedRealtime";
 export { createVersionedSyncController, RealtimeResyncRequiredError } from "./versioned-sync";
 export type { VersionedSnapshot, RealtimeDeltaVersion, VersionedSyncState, VersionedSyncOptions } from "./versioned-sync";
 export { createRealtimeRuntime, RealtimeRuntime } from "./connection";
-export type { RealtimeSubscriber } from "./connection";
+export type { RealtimeSource, RealtimeSubscriber } from "./connection";
 export { createLiveQueryController } from "./query-controller";
 export type { LiveQueryState, LiveQueryControllerOptions } from "./query-controller";
 

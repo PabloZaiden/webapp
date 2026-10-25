@@ -1,7 +1,10 @@
 import { fetchAppRequest } from "./network-failures";
 import { readResponseMetadata, type PartialResultMetadata, type WebAppResponseMetadata } from "../contracts/response-metadata";
+import type { WebAppDuplex, WebAppExternalClient, WebAppResourceUrl, WebAppSaveResourceOptions } from "./external-client";
+import { validateExternalSession } from "./external-client";
+import { nativeWebAppDuplex } from "./native-duplex";
 import {
-  clientAccessToken, configureRemoteClient, getClientSession,
+  clientAccessToken, configureExternalClientStorageScope, configureRemoteClient, getClientSession,
   type WebAppRemoteClientOptions,
 } from "./client-session";
 
@@ -26,6 +29,8 @@ let configuredPublicBasePath: string | undefined;
 let configuredApiBaseUrl: string | undefined;
 let configuredWebSocketBaseUrl: string | undefined;
 let configuredPartialResults: PartialResultMetadata | undefined;
+let configuredMode: "integrated" | "remote" | "external" = "integrated";
+let externalClient: WebAppExternalClient | undefined;
 const ABSOLUTE_URL_PATTERN = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
 
 export function onAuthRequired(listener: AuthRequiredListener): () => void {
@@ -44,14 +49,47 @@ export function configureWebAppClient(options: {
   apiBaseUrl?: string | null;
   wsBaseUrl?: string | null;
   partialResults?: PartialResultMetadata;
-  mode?: "integrated" | "remote";
+  mode?: "integrated" | "remote" | "external";
   remote?: WebAppRemoteClientOptions;
+  external?: WebAppExternalClient;
 } = {}): void {
+  const mode = options.mode ?? (options.external ? "external" : options.remote ? "remote" : configuredMode);
+  if (mode === "external" && (getClientSession().enabled || options.remote
+    || options.apiBaseUrl || options.wsBaseUrl)) {
+    throw new TypeError("An external client cannot also use an API server or remote server credentials.");
+  }
+  if (options.external && mode !== "external") {
+    throw new TypeError("An external transport requires external client mode.");
+  }
+  if (configuredMode === "external" && mode !== "external") {
+    throw new TypeError("Reload the application before changing client modes.");
+  }
+  configuredMode = mode;
+  if (mode === "external") {
+    configuredApiBaseUrl = undefined;
+    configuredWebSocketBaseUrl = undefined;
+  }
+  if (options.external) {
+    const client = options.external;
+    validateExternalSession(client.session.getSnapshot());
+    externalClient = client;
+    configureExternalClientStorageScope(() => `external:${validateExternalSession(client.session.getSnapshot()).scope}`);
+  }
   if ("publicBasePath" in options) setWebAppPublicBasePath(options.publicBasePath);
   if ("apiBaseUrl" in options) configuredApiBaseUrl = normalizeOptionalBaseUrl(options.apiBaseUrl);
   if ("wsBaseUrl" in options) configuredWebSocketBaseUrl = normalizeOptionalBaseUrl(options.wsBaseUrl);
   if ("partialResults" in options) configuredPartialResults = options.partialResults;
   if (options.mode === "remote" || options.remote) configureRemoteClient(configuredApiBaseUrl, options.remote);
+}
+
+export function getWebAppClientMode(): "integrated" | "remote" | "external" {
+  return configuredMode;
+}
+
+export function getWebAppExternalClient(): WebAppExternalClient | undefined {
+  if (configuredMode !== "external") return undefined;
+  if (!externalClient) throw new Error("Configure the external client runtime before rendering or making requests.");
+  return externalClient;
 }
 
 export function setWebAppPublicBasePath(basePath?: string | null): void {
@@ -116,6 +154,9 @@ export function appPagePath(path: string): string {
 }
 
 export function appWebSocketUrl(path = "/api/ws"): string {
+  if (configuredMode === "external") {
+    throw new Error("An external client does not have native API WebSocket URLs. Use appDuplexConnection.");
+  }
   const configuredWsBaseUrl = getClientSession().enabled ? apiBaseUrl() : configuredWebSocketBaseUrl ?? configuredApiBaseUrl;
   const url = new URL(configuredWsBaseUrl ? buildAbsoluteUrl(configuredWsBaseUrl, path) : appAbsoluteUrl(path));
   if (url.protocol === "http:") {
@@ -128,6 +169,15 @@ export function appWebSocketUrl(path = "/api/ws"): string {
 
 export async function appRequest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const request = new Request(typeof input === "string" ? appPath(input) : input, init);
+  const external = getWebAppExternalClient();
+  if (external) {
+    const base = getPublicBaseUrl();
+    const url = new URL(request.url);
+    if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) {
+      throw new Error("An external client request must address the application's logical API.");
+    }
+    return await external.request(request);
+  }
   if (!getClientSession().enabled) return await fetchAppRequest(request);
   assertSelectedApiUrl(new URL(request.url));
   const retry = request.clone();
@@ -153,16 +203,20 @@ export async function appRequest(input: RequestInfo | URL, init?: RequestInit): 
   return await send(retry, token);
 }
 
-export interface WebAppResourceUrl {
-  url: string;
-  expiresAt: number | null;
-}
+export type { WebAppResourceUrl } from "./external-client";
 
 export async function appResourceUrl(
   path: string,
   kind: "resource" | "websocket" = "resource",
   options: { signal?: AbortSignal } = {},
 ): Promise<WebAppResourceUrl> {
+  const external = getWebAppExternalClient();
+  if (external) {
+    if (kind !== "resource" || !external.resourceUrl) {
+      throw new Error("This client does not provide a browser URL for this resource.");
+    }
+    return await external.resourceUrl(path, options);
+  }
   const url = new URL(kind === "websocket" ? appWebSocketUrl(path) : appPath(path));
   if (!getClientSession().enabled) return { url: url.toString(), expiresAt: null };
   if (url.protocol === "wss:") url.protocol = "https:";
@@ -184,11 +238,38 @@ export async function appResourceUrl(
 }
 
 export async function appWebSocketConnection(path = "/api/ws", options: { signal?: AbortSignal } = {}): Promise<WebSocket> {
+  if (getWebAppExternalClient()) {
+    throw new Error("An external client provides message channels, not native WebSockets. Use appDuplexConnection.");
+  }
   const resource = await appResourceUrl(path, "websocket", options);
   options.signal?.throwIfAborted();
   return new WebSocket(resource.url);
 }
 
+export async function appDuplexConnection(path: string, options: { signal?: AbortSignal } = {}): Promise<WebAppDuplex> {
+  const external = getWebAppExternalClient();
+  if (external) return await external.connect(path, options);
+  return nativeWebAppDuplex(await appWebSocketConnection(path, options), options.signal);
+}
+
+export async function appSaveResource(path: string, options: WebAppSaveResourceOptions): Promise<void> {
+  const external = getWebAppExternalClient();
+  if (external) {
+    if (!external.saveResource) throw new Error("This client does not support saving resources.");
+    await external.saveResource(path, options);
+    return;
+  }
+  const resource = await appResourceUrl(path, "resource", options);
+  try {
+    options.signal?.throwIfAborted();
+    const link = document.createElement("a");
+    link.href = resource.url;
+    link.download = options.suggestedName;
+    link.click();
+  } finally {
+    resource.dispose?.();
+  }
+}
 function apiBaseUrl(): string | undefined {
   const session = getClientSession();
   if (!session.enabled) return configuredApiBaseUrl;

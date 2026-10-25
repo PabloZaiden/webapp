@@ -1,4 +1,5 @@
-import type { RealtimeKind } from "../../contracts/realtime";
+import type { RealtimeKind, RealtimePublication, RealtimeTarget } from "../../contracts/realtime";
+export type { RealtimePublication, RealtimeTarget } from "../../contracts/realtime";
 
 export interface WebSocketData {
   userId?: string;
@@ -10,19 +11,6 @@ export interface RealtimeTransport {
   send(payload: string): number | void;
   close(code?: number, reason?: string): void;
   getBufferedAmount(): number;
-}
-
-export type RealtimeTarget = {
-  resource?: string;
-  id?: string;
-  scope?: string;
-  userId?: string;
-} & Record<string, string | undefined>;
-
-export interface RealtimePublication<TEvent = unknown> {
-  event: TEvent;
-  target: Readonly<RealtimeTarget>;
-  kind: RealtimeKind;
 }
 
 export interface RealtimeConnectionOptions<TEvent> {

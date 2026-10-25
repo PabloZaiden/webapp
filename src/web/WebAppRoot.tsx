@@ -18,6 +18,7 @@ import { setLogLevel } from "./logger";
 import { useReducedMotion } from "./motion";
 import { getClientSession, invalidateClientSession } from "./client-session";
 import { ServerAccountScreen } from "./server-account";
+import type { WebAppExternalSession } from "./external-client";
 
 const EMPTY_SIDEBAR_TABS: SidebarTab[] = [];
 
@@ -92,12 +93,14 @@ function WebAppRootContent({
   settings,
   version,
   config,
+  external,
   loading,
   error,
   refresh,
   controllerRef,
 }: WebAppRootProps & {
   config?: WebAppConfigResponse;
+  external?: WebAppExternalSession;
   loading: boolean;
   error?: Error;
   refresh: () => Promise<void>;
@@ -182,7 +185,7 @@ function WebAppRootContent({
     () => allBaseItems.filter((node) => node.pinnable && node.route),
     [allBaseItems],
   );
-  const frameworkReady = Boolean(config) && !loading && !error;
+  const frameworkReady = Boolean(config || external?.ready) && !loading && !error;
   const pinningSnapshotReady = pinningEnabled
     && frameworkReady
     && baseSnapshots.every((snapshot) => snapshot.ready);
@@ -291,7 +294,7 @@ function WebAppRootContent({
       setSidebarSearchFocusRequested(false);
       return;
     }
-    if (!config) {
+    if (!frameworkReady) {
       return;
     }
     const input = sidebarSearchInputRef.current;
@@ -302,6 +305,7 @@ function WebAppRootContent({
     setSidebarSearchFocusRequested(false);
   }, [
     config,
+    frameworkReady,
     error,
     sidebarCollapsed,
     sidebarOpen,
@@ -324,20 +328,20 @@ function WebAppRootContent({
       <Button onClick={() => void refresh()}>Retry</Button>
     </>} /></main>;
   }
-  if (!config) {
+  if (!config && !external?.ready) {
     return <main className="wapp-auth-screen">Loading...</main>;
   }
   const currentPagePath = normalizePagePath(window.location.pathname);
-  if (currentPagePath === normalizePagePath(appPagePath("/setup"))) {
+  if (config && currentPagePath === normalizePagePath(appPagePath("/setup"))) {
     return <UserSetupScreen refresh={refresh} />;
   }
-  if (config.passkeyAuth.enabled && (config.passkeyAuth.bootstrapRequired || config.passkeyAuth.ownerPasskeySetupRequired || (!config.passkeyAuth.passkeyDisabled && config.passkeyAuth.passkeyRequired && !config.passkeyAuth.authenticated))) {
+  if (config && config.passkeyAuth.enabled && (config.passkeyAuth.bootstrapRequired || config.passkeyAuth.ownerPasskeySetupRequired || (!config.passkeyAuth.passkeyDisabled && config.passkeyAuth.passkeyRequired && !config.passkeyAuth.authenticated))) {
     return <PasskeyAuthScreen status={config.passkeyAuth} apiKeysEnabled={config.apiKeys.enabled} refresh={refresh} />;
   }
-  if (config.deviceAuth.enabled && currentPagePath === normalizePagePath(appPagePath("/device"))) {
+  if (config?.deviceAuth.enabled && currentPagePath === normalizePagePath(appPagePath("/device"))) {
     return <DeviceVerificationScreen />;
   }
-  if (!getClientSession().enabled) {
+  if (config && !getClientSession().enabled) {
     if (currentPagePath === normalizePagePath(appPagePath("/account"))) {
       return <ServerAccountScreen config={config} refresh={refresh} />;
     }
@@ -346,10 +350,10 @@ function WebAppRootContent({
     }
   }
 
-  const effectiveVersion = version ?? config.version;
+  const effectiveVersion = version ?? config?.version ?? "";
   let view: ReactNode;
   if (route.view === "settings") {
-    view = <SettingsView config={config} refresh={refresh} customSections={settings?.sections ?? []} route={route} navigate={navigate} />;
+    view = <SettingsView config={config} external={external} appName={appName} version={effectiveVersion} refresh={refresh} customSections={settings?.sections ?? []} route={route} navigate={navigate} />;
   } else {
     const registeredView = routes[route.view];
     view = typeof registeredView === "function"
@@ -419,17 +423,18 @@ function WebAppRootWithConfig({
 }: WebAppRootProps & {
   controllerRef: ForwardedRef<WebAppRootController>;
 }) {
-  const { config, error, loading, refresh } = useWebAppConfig();
+  const { config, external, error, loading, refresh } = useWebAppConfig();
+  const logLevel = config?.logLevel.level ?? external?.logLevel;
 
   useEffect(() => {
-    if (config) {
-      setLogLevel(config.logLevel.level);
+    if (logLevel) {
+      setLogLevel(logLevel);
     }
-  }, [config?.logLevel.level]);
+  }, [logLevel]);
 
   return (
     <ThemeProvider userId={config?.currentUser?.id}>
-      <WebAppRootContent {...props} config={config} loading={loading} error={error} refresh={refresh} controllerRef={controllerRef} />
+      <WebAppRootContent key={external?.scope} {...props} config={config} external={external} loading={loading} error={error} refresh={refresh} controllerRef={controllerRef} />
     </ThemeProvider>
   );
 }

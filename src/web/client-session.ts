@@ -26,6 +26,7 @@ let nativeOpen: WebAppRemoteClientOptions["openAuthorizationUrl"];
 let hydration: Promise<void> | undefined;
 let refresh: Promise<string> | undefined;
 let login: AbortController | undefined;
+let externalStorageScope: (() => string) | undefined;
 const listeners = new Set<() => void>();
 
 function update(change: Partial<WebAppClientSession>): void {
@@ -89,7 +90,13 @@ export function subscribeClientSession(listener: () => void): () => void {
 }
 
 export function getClientStorageScope(): string {
+  if (externalStorageScope) return externalStorageScope();
   return state.enabled ? `${state.endpoint ?? ""}:${credentials?.clientId ?? ""}` : "";
+}
+
+export function configureExternalClientStorageScope(scope: () => string): void {
+  if (state.enabled) throw new Error("A remote API session cannot also use an external client profile.");
+  externalStorageScope = scope;
 }
 
 export function clientScopedStorageKey(key: string): string {

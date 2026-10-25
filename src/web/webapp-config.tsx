@@ -1,11 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { VALID_LOG_LEVELS, type WebAppConfigResponse } from "../contracts";
-import { appJson, isWebAppPublicBasePath, onAuthRequired, setWebAppPublicBasePath } from "./api-client";
-import { setRealtimeIdentity } from "./realtime/shared";
+import { appJson, getWebAppExternalClient, isWebAppPublicBasePath, onAuthRequired, setWebAppPublicBasePath } from "./api-client";
+import { setExternalRealtimeSource, setRealtimeIdentity } from "./realtime/shared";
 import { getClientSession } from "./client-session";
+import { validateExternalSession, type WebAppExternalClient, type WebAppExternalSession } from "./external-client";
 
 export interface WebAppConfigState {
   config?: WebAppConfigResponse;
+  external?: WebAppExternalSession;
   loading: boolean;
   error?: Error;
   refresh: () => Promise<void>;
@@ -84,7 +86,7 @@ export function useCurrentUser(): WebAppConfigResponse["currentUser"] {
   return useWebAppConfig("useCurrentUser").config?.currentUser;
 }
 
-export function WebAppConfigProvider({ children }: { children: ReactNode }) {
+function ServerWebAppConfigProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<WebAppConfigResponse>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error>();
@@ -143,4 +145,45 @@ export function WebAppConfigProvider({ children }: { children: ReactNode }) {
   }), [config, error, loading, refresh]);
 
   return <WebAppConfigContext.Provider value={state}>{children}</WebAppConfigContext.Provider>;
+}
+
+function useExternalSessionSnapshot(client: WebAppExternalClient): WebAppExternalSession;
+function useExternalSessionSnapshot(client?: WebAppExternalClient): WebAppExternalSession | undefined;
+function useExternalSessionSnapshot(client?: WebAppExternalClient): WebAppExternalSession | undefined {
+  const subscribe = useCallback((listener: () => void) => client?.session.subscribe(listener) ?? (() => {}), [client]);
+  const snapshot = useCallback(() => client ? validateExternalSession(client.session.getSnapshot()) : undefined, [client]);
+  return useSyncExternalStore(subscribe, snapshot, snapshot);
+}
+
+function ExternalWebAppConfigProvider({ client, children }: { client: WebAppExternalClient; children: ReactNode }) {
+  const external = useExternalSessionSnapshot(client);
+  const refresh = useCallback(async () => { await client.session.refresh(); }, [client]);
+  // Configure the new context before remounted children subscribe in passive effects.
+  useLayoutEffect(() => {
+    setExternalRealtimeSource(external.ready && !external.error ? {
+      identity: external.scope,
+      generation: external.generation,
+      create: () => client.createRealtimeSource(),
+    } : undefined);
+    return () => { setExternalRealtimeSource(undefined); };
+  }, [client, external.error, external.generation, external.ready, external.scope]);
+  const state = useMemo<WebAppConfigState>(() => ({
+    external,
+    loading: !external.ready,
+    error: external.error,
+    refresh,
+  }), [external, refresh]);
+  return <WebAppConfigContext.Provider value={state}>{children}</WebAppConfigContext.Provider>;
+}
+
+export function WebAppConfigProvider({ children }: { children: ReactNode }) {
+  const client = getWebAppExternalClient();
+  return client
+    ? <ExternalWebAppConfigProvider client={client}>{children}</ExternalWebAppConfigProvider>
+    : <ServerWebAppConfigProvider>{children}</ServerWebAppConfigProvider>;
+}
+
+/** External state is local presentation state and does not imply a server role. */
+export function useExternalClientSession(): WebAppExternalSession | undefined {
+  return useExternalSessionSnapshot(getWebAppExternalClient());
 }

@@ -8,6 +8,23 @@ Hooks wait for `WebAppRoot` to identify the authenticated user before opening
 the shared transport; domain hooks may be declared above that root without
 creating a redundant bootstrap connection.
 
+An [external client](remote-clients.md#external-sessions-and-transports) supplies
+a `RealtimeSource` instead of using the native socket runtime. Existing hooks
+keep their interest, status, activation and refresh semantics. The source owns
+subscription acknowledgement and recovery; call `onSubscribed` after each
+acknowledged activation, including recovery after a gap, so consumers refetch
+authoritative state. Recoverable interruptions report status, while rejected
+subscriptions and invalid frames report errors. `dispose()` must retire all of
+that source's subscriptions/listeners; it must not dispose unrelated
+application-owned connections. The framework does not add a second reconnect
+loop around the external source.
+
+Portable adapters import `RealtimeInterest`, `RealtimeTarget`,
+`RealtimePublication`, and resource-event types from
+`@pablozaiden/webapp/contracts`. These are the same canonical contracts used by
+the server bus; sharing classification or target mapping does not require
+importing the server runtime.
+
 The server advertises its `realtime.path` through `/api/config`; the shared
 runtime uses that configured endpoint, including custom paths outside `/api`.
 Do not configure endpoints separately on individual hooks.
@@ -94,6 +111,12 @@ the old query lifecycle and resets data to the current `initialData` (or
 `undefined`); reconnect preserves previous data. `refresh` and `mutate` are
 stable callbacks. Omitting `realtime`, setting it to `false`, or disabling it
 creates an ordinary query without an application subscription.
+Set `enabled: false` on the query itself to prevent both initial reads and
+subscriptions when the operation is unavailable. This is distinct from
+`realtime.enabled: false`, which still loads an ordinary query. A disabled
+query is not loading, does not manufacture data, and its inactive controller
+rejects mutations. Enabling it activates the normal authoritative lifecycle;
+disabling an active query cancels its reads and pending mutations.
 Ordinary queries do not wait for realtime identity and can load and refresh
 on public pages or outside `WebAppRoot`. Session changes still cancel their
 old lifecycle and reset the query's displayed data.

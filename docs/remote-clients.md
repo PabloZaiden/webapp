@@ -5,6 +5,13 @@ its compiled frontend on an ordinary HTTP(S) static host and connect to a
 separate API. Static hosting does not run Bun, Node, or application endpoints.
 The API still owns users, persistence, authorization and execution.
 
+Components inside `WebAppRoot` can read `useWebAppConfig()` to reuse the current
+framework configuration, loading/error state and refresh capability. Do not
+issue another `/api/config` or health request merely to obtain the current app
+version or app-specific configuration fields. External sessions have
+`external` state and no `config`; that absence is intentional, not a reason to
+construct server defaults or invent a user.
+
 Clients do not register their hosting origin with the API. Both unified and
 API-only servers accept independently authenticated clients from any host.
 Browser API requests omit cookies and use explicit tokens; integrated browser
@@ -92,6 +99,61 @@ can remain local to the device.
 Repeated `configureWebAppClient({})` calls preserve bootstrap configuration.
 Configure only the values intentionally being changed. The normal integrated
 entry point requires no remote-mode configuration.
+
+## External sessions and transports
+
+Applications that do not have their own API server can use external mode.
+Build with `buildWebAppClient({ ..., clientMode: "external" })`, or set the
+deployment's `webapp-client.json` to `{"mode":"external"}`. The compiled frontend
+is unchanged. Before rendering, configure a real application-owned runtime:
+
+```ts
+configureWebAppClient({ mode: "external", external: applicationClient });
+```
+
+`WebAppExternalClient` supplies a session store, `request(Request)`,
+`createRealtimeSource()`, and `connect(path, options)`. Optional `resourceUrl`
+and `saveResource` capabilities support browser resources and downloads.
+The framework does not fetch `/api/config`, invent a current user, grant an
+owner role, or contact a default API in this mode. Applications must omit
+unsupported server operations, including initial hook requests, rather than
+returning fake successful endpoints.
+
+Session `getSnapshot()` must return a stable object until state changes;
+`subscribe()` returns an unsubscribe callback. Supply a nonempty local profile
+`scope`, a nonnegative `generation`, `ready`, optional `error`, and `logLevel`.
+The scope namespaces framework private browser storage; changing it remounts the
+shell so the selected profile's sidebar preferences are loaded before writing.
+Advance the generation when the session identity or its authoritative data
+context changes, not for
+every progress update. `refresh()` must surface initialization/recovery failures.
+`useExternalClientSession()` subscribes to this presentation state, including
+for resource consumers outside `WebAppRoot`;
+`useCurrentUser()` remains undefined. This local state never authorizes remote
+operations.
+
+The ordinary shell, routing, sidebar, appearance and app settings remain
+available. Appearance is device-local. Server account, security, sessions,
+administration and maintenance settings are absent. Only user-scoped custom
+sections/rows are eligible; applications must use those for device/client
+preferences, not to imply a remote user's role.
+
+Use `appDuplexConnection()` for raw message transports. Its `WebAppDuplex`
+contract has `ready`, bounded `bufferedAmount`, `subscribe`, asynchronous `send`
+and `close`; it is not a WebSocket impersonation. Native modes adapt their real
+WebSocket to this contract. External mode deliberately rejects native API
+WebSocket URL/connection helpers instead of opening the static host.
+
+`appResourceUrl()` supports external resources only when the adapter supplies
+a real browser-consumable URL. Call its optional `dispose()` when finished;
+`ResourceImage` owns this cleanup and disposes/refetches logical image resources
+when the external session scope or generation changes. URLs do not make
+arbitrary HTTP/WebSocket applications proxyable.
+`appSaveResource(path, { suggestedName, signal,
+onProgress })` delegates external saving to the application, which owns byte
+limits, disk capacity, cancellation and partial-file cleanup. Native API modes
+retain direct server downloads. Do not promise background or large-file support
+unless the application's actual browser path supports it.
 
 ## Native integration seam
 

@@ -1,11 +1,10 @@
 import { useId, useState } from "react";
 import { VALID_LOG_LEVELS, type LogLevelName, type WebAppConfigResponse } from "../../contracts";
 import { appJson } from "../api-client";
-import { useAsyncOperation } from "../async-operation";
 import { Badge, Button, CheckboxField, ErrorState, FormSection, LoadingState, Select } from "../components";
 import { useLogLevel } from "../log-level";
-import { isThemePreference, useTheme } from "../theme";
 import { SettingsFieldRow } from "./settings-section";
+import { AppearanceSection } from "./appearance-section";
 
 function isLogLevelName(value: string): value is LogLevelName {
   return VALID_LOG_LEVELS.some((level) => level === value);
@@ -19,33 +18,10 @@ export interface AccountSectionProps {
 }
 
 export function AccountSection({ config, refresh, setError, category }: AccountSectionProps) {
-  const themeId = useId();
   const logLevelId = useId();
-  const { preference, savePreference, loading, error, retry } = useTheme();
   const logLevel = useLogLevel();
   const [logLevelSaving, setLogLevelSaving] = useState(false);
   const [serverLogsSaving, setServerLogsSaving] = useState(false);
-  const { pending: themeSaving, start: startThemeSave, finish: finishThemeSave, isCurrent: isThemeSaveCurrent } = useAsyncOperation({ abortOnUnmount: false });
-  const [themeSaved, setThemeSaved] = useState(false);
-
-  async function updateTheme(value: string) {
-    if (!isThemePreference(value)) {
-      setError("Invalid theme");
-      return;
-    }
-    const token = startThemeSave();
-    if (!token) return;
-    setThemeSaved(false);
-    setError(undefined);
-    try {
-      await savePreference(value);
-      if (isThemeSaveCurrent(token)) setThemeSaved(true);
-    } catch (error) {
-      if (isThemeSaveCurrent(token)) setError(error instanceof Error ? error.message : String(error));
-    } finally {
-      finishThemeSave(token);
-    }
-  }
 
   async function updateLogLevel(value: string) {
     if (!isLogLevelName(value)) {
@@ -87,24 +63,7 @@ export function AccountSection({ config, refresh, setError, category }: AccountS
           <p>Signed in as <strong>{config.currentUser.username}</strong> <Badge variant={config.currentUser.isAdmin ? "success" : "disabled"}>{config.currentUser.role}</Badge></p>
         </FormSection>
       ) : null}
-      {category === "general" ? <FormSection title="Appearance">
-        <SettingsFieldRow
-          title="Theme"
-          labelFor={themeId}
-          content={<Select id={themeId} value={preference} disabled={loading || themeSaving} onChange={(event) => void updateTheme(event.currentTarget.value)}>
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </Select>}
-          feedback={loading || themeSaving || themeSaved ? <small role="status" className="wapp-save-status">{loading ? "Loading…" : themeSaving ? "Saving…" : "Saved"}</small> : undefined}
-        />
-        {error ? (
-          <ErrorState
-            description={error.message}
-            action={<Button type="button" loading={loading} onClick={() => void retry()}>Retry</Button>}
-          />
-        ) : null}
-      </FormSection> : null}
+      {category === "general" ? <AppearanceSection setError={setError} /> : null}
 
       {category === "administration" && config.currentUser?.isAdmin ? (
         <FormSection title="Logging">

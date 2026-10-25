@@ -45,6 +45,8 @@ The exported `RouteDelegationMetadata` contains `resource: string`,
 `action: string`, optional `bindings: readonly RouteResourceReference[]`, and
 optional `collection: boolean`. Each binding contains
 `{ source: "param" | "query" | "body"; name: string; resource: string }`.
+These serializable types are also exported from `@pablozaiden/webapp/routing`
+so portable clients can consume projected metadata without server dependencies.
 Names and resource kinds are application-owned, not framework lookup rules.
 The application validates every referenced resource and its relationship to
 the authorized scope; declaring a binding does not grant access or parse input.
@@ -178,3 +180,18 @@ reference fields at this boundary. Keep source selection per operation; do not
 globally switch the browser/CLI API URL, replace arbitrary strings, or duplicate
 the route table. Source identity, membership, storage, domain ID formats, and
 reference mappings remain application responsibilities.
+
+Browser-safe consumers can import `compileRoutePatterns`,
+`matchCompiledRoutePattern`, and `buildCompiledRoutePath` from
+`@pablozaiden/webapp/routing`. These use the same implementation as server
+routing without importing Bun, route handlers, or server state.
+
+For metadata-only operation discovery, use `compileRouteOperations` with
+`{ path, method, metadata }` entries and `matchRouteOperations(table, pathname,
+method)`. Generate these entries from the canonical server routes at build
+time; do not maintain a second handwritten catalog or manufacture dummy
+handlers. Matching preserves path precedence, validates encoded captures, and
+matches HEAD to GET metadata while leaving the caller's request method intact.
+A matching path with no such method returns `method-not-allowed` and its
+allowed methods rather than falling through to a less-specific route.
+This projection is client routing information, never authorization.
