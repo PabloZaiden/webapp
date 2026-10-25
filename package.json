@@ -43,7 +43,7 @@
     "tsc": "bun run typecheck"
   },
   "dependencies": {
-    "@pablozaiden/installer": "github:PabloZaiden/installer#bd73c9bf4f30243dd15c511b81acda864e436127",
+    "@pablozaiden/installer": "github:PabloZaiden/installer#0b6626e46072ebba395d5304577a58c298d39e98",
     "@simplewebauthn/browser": "14.0.0",
     "@simplewebauthn/server": "14.0.3",
     "bun-plugin-tailwind": "0.1.2",
