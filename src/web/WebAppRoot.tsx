@@ -434,7 +434,7 @@ function WebAppRootWithConfig({
 
   return (
     <ThemeProvider userId={config?.currentUser?.id}>
-      <WebAppRootContent {...props} config={config} external={external} loading={loading} error={error} refresh={refresh} controllerRef={controllerRef} />
+      <WebAppRootContent key={external?.scope} {...props} config={config} external={external} loading={loading} error={error} refresh={refresh} controllerRef={controllerRef} />
     </ThemeProvider>
   );
 }

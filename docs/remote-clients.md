@@ -122,10 +122,13 @@ returning fake successful endpoints.
 Session `getSnapshot()` must return a stable object until state changes;
 `subscribe()` returns an unsubscribe callback. Supply a nonempty local profile
 `scope`, a nonnegative `generation`, `ready`, optional `error`, and `logLevel`.
-The scope namespaces framework private browser storage. Advance the generation
-when the session identity or its authoritative data context changes, not for
+The scope namespaces framework private browser storage; changing it remounts the
+shell so the selected profile's sidebar preferences are loaded before writing.
+Advance the generation when the session identity or its authoritative data
+context changes, not for
 every progress update. `refresh()` must surface initialization/recovery failures.
-`useExternalClientSession()` exposes this presentation state;
+`useExternalClientSession()` subscribes to this presentation state, including
+for resource consumers outside `WebAppRoot`;
 `useCurrentUser()` remains undefined. This local state never authorizes remote
 operations.
 
@@ -143,8 +146,10 @@ WebSocket URL/connection helpers instead of opening the static host.
 
 `appResourceUrl()` supports external resources only when the adapter supplies
 a real browser-consumable URL. Call its optional `dispose()` when finished;
-`ResourceImage` owns this cleanup. URLs do not make arbitrary HTTP/WebSocket
-applications proxyable. `appSaveResource(path, { suggestedName, signal,
+`ResourceImage` owns this cleanup and disposes/refetches logical image resources
+when the external session scope or generation changes. URLs do not make
+arbitrary HTTP/WebSocket applications proxyable.
+`appSaveResource(path, { suggestedName, signal,
 onProgress })` delegates external saving to the application, which owns byte
 limits, disk capacity, cancellation and partial-file cleanup. Native API modes
 retain direct server downloads. Do not promise background or large-file support

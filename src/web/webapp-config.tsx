@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { VALID_LOG_LEVELS, type WebAppConfigResponse } from "../contracts";
 import { appJson, getWebAppExternalClient, isWebAppPublicBasePath, onAuthRequired, setWebAppPublicBasePath } from "./api-client";
 import { setExternalRealtimeSource, setRealtimeIdentity } from "./realtime/shared";
@@ -147,12 +147,19 @@ function ServerWebAppConfigProvider({ children }: { children: ReactNode }) {
   return <WebAppConfigContext.Provider value={state}>{children}</WebAppConfigContext.Provider>;
 }
 
+function useExternalSessionSnapshot(client: WebAppExternalClient): WebAppExternalSession;
+function useExternalSessionSnapshot(client?: WebAppExternalClient): WebAppExternalSession | undefined;
+function useExternalSessionSnapshot(client?: WebAppExternalClient): WebAppExternalSession | undefined {
+  const subscribe = useCallback((listener: () => void) => client?.session.subscribe(listener) ?? (() => {}), [client]);
+  const snapshot = useCallback(() => client ? validateExternalSession(client.session.getSnapshot()) : undefined, [client]);
+  return useSyncExternalStore(subscribe, snapshot, snapshot);
+}
+
 function ExternalWebAppConfigProvider({ client, children }: { client: WebAppExternalClient; children: ReactNode }) {
-  const subscribe = useCallback((listener: () => void) => client.session.subscribe(listener), [client]);
-  const snapshot = useCallback(() => validateExternalSession(client.session.getSnapshot()), [client]);
-  const external = useSyncExternalStore(subscribe, snapshot, snapshot);
+  const external = useExternalSessionSnapshot(client);
   const refresh = useCallback(async () => { await client.session.refresh(); }, [client]);
-  useEffect(() => {
+  // Configure the new context before remounted children subscribe in passive effects.
+  useLayoutEffect(() => {
     setExternalRealtimeSource(external.ready && !external.error ? {
       identity: external.scope,
       generation: external.generation,
@@ -178,5 +185,5 @@ export function WebAppConfigProvider({ children }: { children: ReactNode }) {
 
 /** External state is local presentation state and does not imply a server role. */
 export function useExternalClientSession(): WebAppExternalSession | undefined {
-  return useWebAppConfig("useExternalClientSession").external;
+  return useExternalSessionSnapshot(getWebAppExternalClient());
 }
