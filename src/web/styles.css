@@ -2050,6 +2050,10 @@ textarea::placeholder {
   min-width: 0;
 }
 
+.wapp-settings-field-control > select.wapp-input:not(.wapp-input-full) {
+  flex: 0 1 auto;
+}
+
 .wapp-settings-field-content,
 .wapp-settings-feedback {
   grid-column: 1 / -1;
@@ -3292,7 +3296,7 @@ select.wapp-input,
     margin-left: auto;
   }
 
-  :root[data-wapp-mobile] .wapp-settings-field-inline:has(> .wapp-settings-field-control > :is(.wapp-checkbox-field, input[type="checkbox"])) {
+  :root[data-wapp-mobile] .wapp-settings-field-inline:has(> .wapp-settings-field-control > :is(.wapp-checkbox-field, input[type="checkbox"], select.wapp-input:not(.wapp-input-full))) {
     display: grid;
   }
 
