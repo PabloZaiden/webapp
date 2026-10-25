@@ -377,12 +377,19 @@ jobs:
     with:
       release_channel: ${{ github.event_name == 'push' && 'latest' || 'stable' }}
       prebuild_command: bun run typecheck && bun run build
+      targets: |
+        [
+          {"os":"ubuntu-latest","target":"linux-x64","bun_target":"bun-linux-x64"},
+          {"os":"ubuntu-latest","target":"linux-arm64","bun_target":"bun-linux-arm64"},
+          {"os":"macos-latest","target":"darwin-x64","bun_target":"bun-darwin-x64"},
+          {"os":"macos-latest","target":"darwin-arm64","bun_target":"bun-darwin-arm64"}
+        ]
       binaries: |
         [
           {
             "name": "my-app",
             "asset_prefix": "my-app",
-            "build_command": "bun src/build.ts --target=$BUN_TARGET",
+            "build_command": "WEBAPP_VERSION=$VERSION bun src/build.ts --target=$BUN_TARGET",
             "output_path": "dist/my-app-$RELEASE_TARGET"
           }
         ]
