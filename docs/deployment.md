@@ -198,8 +198,11 @@ URL still refers to the hosting origin's root and cannot be relocated.
 `publicAssets` additionally compiles explicit browser entrypoints using the
 existing `WebAppPublicAssetOptions` contract, retaining every emitted sidecar.
 
-Static artifacts, including those embedded through `web.client`, put compiled
-scripts in `webapp-compiled/` and use directory-relative document/import URLs.
+Static artifacts, including those embedded through `web.client`, keep compiled
+scripts, styles and imported file assets beside `index.html`. This gives
+document-relative file-loader URLs and module/CSS-relative imports the same
+base, including when the complete artifact is hosted under a URL prefix.
+Keep the artifact layout intact rather than moving its assets independently.
 Generated PWA manifest links, icons, start and scope URLs are directory-relative
 too.
 
