@@ -5,6 +5,13 @@ its compiled frontend on an ordinary HTTP(S) static host and connect to a
 separate API. Static hosting does not run Bun, Node, or application endpoints.
 The API still owns users, persistence, authorization and execution.
 
+Components inside `WebAppRoot` can read `useWebAppConfig()` to reuse the current
+framework configuration, loading/error state and refresh capability. Do not
+issue another `/api/config` or health request merely to obtain the current app
+version or app-specific configuration fields. External sessions have
+`external` state and no `config`; that absence is intentional, not a reason to
+construct server defaults or invent a user.
+
 Clients do not register their hosting origin with the API. Both unified and
 API-only servers accept independently authenticated clients from any host.
 Browser API requests omit cookies and use explicit tokens; integrated browser
