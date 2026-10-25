@@ -371,7 +371,7 @@ on:
 jobs:
   binaries:
     if: github.event_name != 'release' || github.event.release.tag_name != 'latest'
-    uses: pablozaiden/installer/.github/workflows/reusable-binary-release.yml@0b6626e46072ebba395d5304577a58c298d39e98
+    uses: pablozaiden/installer/.github/workflows/reusable-binary-release.yml@bd5fa6697c003e620d8d7b92734aea506f31e3fa
     permissions:
       contents: write
     with:
