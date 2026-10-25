@@ -45,6 +45,8 @@ The exported `RouteDelegationMetadata` contains `resource: string`,
 `action: string`, optional `bindings: readonly RouteResourceReference[]`, and
 optional `collection: boolean`. Each binding contains
 `{ source: "param" | "query" | "body"; name: string; resource: string }`.
+These serializable types are also exported from `@pablozaiden/webapp/routing`
+so portable clients can consume projected metadata without server dependencies.
 Names and resource kinds are application-owned, not framework lookup rules.
 The application validates every referenced resource and its relationship to
 the authorized scope; declaring a binding does not grant access or parse input.

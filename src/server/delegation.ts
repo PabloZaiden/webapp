@@ -1,19 +1,8 @@
 import type { CurrentUser } from "../contracts";
 import type { HttpMethod, RouteAuth, RouteOperationMetadata } from "./routes";
+import type { RouteDelegationMetadata } from "../routing";
 
-/** Application-owned reference locations; the framework never rewrites values. */
-export interface RouteResourceReference {
-  source: "param" | "query" | "body";
-  name: string;
-  resource: string;
-}
-
-export interface RouteDelegationMetadata {
-  resource: string;
-  action: string;
-  bindings?: readonly RouteResourceReference[];
-  collection?: boolean;
-}
+export type { RouteDelegationMetadata, RouteResourceReference } from "../routing";
 
 /** Canonical operation from the same compiled table used for ordinary HTTP. */
 export interface MatchedRouteOperation {

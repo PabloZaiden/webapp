@@ -9,6 +9,8 @@ import {
   HTTP_METHODS,
 } from "./patterns";
 
+export type { RouteDelegationMetadata, RouteResourceReference } from "./metadata";
+
 export {
   buildCompiledRoutePath,
   compareRoutePatterns,
