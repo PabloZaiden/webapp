@@ -19,6 +19,12 @@ that source's subscriptions/listeners; it must not dispose unrelated
 application-owned connections. The framework does not add a second reconnect
 loop around the external source.
 
+Portable adapters import `RealtimeInterest`, `RealtimeTarget`,
+`RealtimePublication`, and resource-event types from
+`@pablozaiden/webapp/contracts`. These are the same canonical contracts used by
+the server bus; sharing classification or target mapping does not require
+importing the server runtime.
+
 The server advertises its `realtime.path` through `/api/config`; the shared
 runtime uses that configured endpoint, including custom paths outside `/api`.
 Do not configure endpoints separately on individual hooks.

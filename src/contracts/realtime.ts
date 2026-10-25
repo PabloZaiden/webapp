@@ -3,6 +3,19 @@ import { z } from "zod";
 export type RealtimeAction = "created" | "updated" | "changed" | "deleted";
 export type RealtimeKind = "state" | "content" | "action";
 export const MAX_REALTIME_SUBSCRIPTIONS = 128;
+export type RealtimeTarget = {
+  resource?: string;
+  id?: string;
+  scope?: string;
+  userId?: string;
+} & Record<string, string | undefined>;
+
+export interface RealtimePublication<TEvent = unknown> {
+  event: TEvent;
+  target: Readonly<RealtimeTarget>;
+  kind: RealtimeKind;
+}
+
 export interface ResourceRealtimeEvent<TPayload = unknown> {
   type: `${string}.${RealtimeAction}`;
   resource: string;
