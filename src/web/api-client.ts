@@ -176,7 +176,24 @@ export async function appRequest(input: RequestInfo | URL, init?: RequestInit): 
     if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) {
       throw new Error("An external client request must address the application's logical API.");
     }
-    return await external.request(request);
+    url.pathname = `/${url.pathname.slice(base.pathname.length)}`;
+    // A keepalive body must retain a non-stream source when its URL changes.
+    const delegated = request.keepalive && request.body ? new Request(url, {
+      ...init,
+      method: request.method,
+      headers: request.headers,
+      body: await request.blob(),
+      keepalive: request.keepalive,
+      mode: request.mode,
+      credentials: request.credentials,
+      cache: request.cache,
+      redirect: request.redirect,
+      referrer: request.referrer,
+      referrerPolicy: request.referrerPolicy,
+      integrity: request.integrity,
+      signal: request.signal,
+    }) : new Request(url, request);
+    return await external.request(delegated);
   }
   if (!getClientSession().enabled) return await fetchAppRequest(request);
   assertSelectedApiUrl(new URL(request.url));

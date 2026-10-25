@@ -114,6 +114,11 @@ configureWebAppClient({ mode: "external", external: applicationClient });
 `WebAppExternalClient` supplies a session store, `request(Request)`,
 `createRealtimeSource()`, and `connect(path, options)`. Optional `resourceUrl`
 and `saveResource` capabilities support browser resources and downloads.
+`request()` receives an absolute URL with the static hosting prefix removed:
+an app hosted at `/tools/client/` still delegates `/api/items`, not
+`/tools/client/api/items`. Query parameters, method, headers, body and
+cancellation are preserved. Foreign-origin and out-of-base requests are
+rejected before delegation; resource/save/duplex paths remain logical too.
 The framework does not fetch `/api/config`, invent a current user, grant an
 owner role, or contact a default API in this mode. Applications must omit
 unsupported server operations, including initial hook requests, rather than
