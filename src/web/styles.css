@@ -2050,6 +2050,10 @@ textarea::placeholder {
   min-width: 0;
 }
 
+.wapp-settings-field-control > select.wapp-input:not(.wapp-input-full) {
+  flex: 0 1 auto;
+}
+
 .wapp-settings-field-content,
 .wapp-settings-feedback {
   grid-column: 1 / -1;

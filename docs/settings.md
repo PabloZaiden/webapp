@@ -117,7 +117,9 @@ Apps can append structured custom sections:
 
 Row content is inline by default, with compact controls and actions aligned
 right of the label. Use `Select` or `SelectField` with an appropriate field
-width rather than stretching short values. Set `contentPlacement: "below"`
+width rather than stretching short values. Inline `Select` controls size to
+their options so adjacent actions stay on the same line when they fit; use
+`fieldWidth="full"` when a select should stretch. Set `contentPlacement: "below"`
 explicitly for editors and other wide content; this spans the full row below
 the label while actions stay right-aligned. Failed confirmed actions close the
 confirmation before showing the row's accessible inline error.
