@@ -3,6 +3,7 @@ import type { CurrentUser, LogLevelName, WebAppConfigResponse } from "../contrac
 import { DEFAULT_THEME_PREFERENCE } from "../contracts";
 import {
   authenticateApiKey,
+  assertScopes,
   createApiKey,
   deleteApiKey,
   listApiKeys,
@@ -41,7 +42,7 @@ import { nowIso, randomToken } from "./auth/crypto";
 import type { WebAppStore } from "./auth/store";
 import { getRequestBaseUrl, getRequestOriginInfo } from "./auth/request-origin";
 import type { Authentication } from "./authentication";
-import { authErrorResponse, tokenError } from "./authentication";
+import { authErrorResponse, scopesFromBearer, tokenError } from "./authentication";
 import { checkSameOrigin } from "./same-origin";
 import type { WebAppServerConfig } from "./server-types";
 import { htmlResponse, type WebDocument } from "./web-document";
@@ -122,8 +123,20 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
     ensureWebDocument,
   } = dependencies;
 
+  async function authorize(
+    req: Request,
+    required: boolean,
+    allowScopedDevice = false,
+  ) {
+    const auth = await authentication.authorize(req, required);
+    if (auth instanceof Response) return auth;
+    if (auth.kind === "api-key") assertScopes(auth.scopes, []);
+    if (auth.kind === "bearer" && !allowScopedDevice) assertScopes(scopesFromBearer(auth.claims), []);
+    return auth;
+  }
+
   async function configResponse(req: Request): Promise<Response> {
-    const auth = await authentication.authorize(req, false);
+    const auth = await authorize(req, false, true);
     if (auth instanceof Response) return auth;
     const user = authentication.currentUser(auth) ?? authentication.configUser(req);
     const passkeyAuth = passkeyStatus(req, store, config, passkeysEnabled);
@@ -187,7 +200,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         return await configResponse(req);
       }
       if (deviceAuthEnabled && path === "/api/auth/client-ticket" && req.method === "POST") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true, true);
         if (auth instanceof Response) return auth;
         const body = await parseJson(req, clientTicketRequestSchema);
         return jsonResponse(authentication.issueClientTicket(req, auth, body), {
@@ -195,7 +208,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         });
       }
       if (path === wsPath) {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true, true);
         if (auth instanceof Response) return auth;
         const user = authentication.requireUser(auth);
         const originFailure = checkSameOrigin(req, config, auth, "always");
@@ -206,7 +219,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         return upgraded ? undefined : errorResponse(400, "websocket_upgrade_failed", "WebSocket upgrade failed");
       }
       if (path === "/api/auth/status" && req.method === "GET") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true, true);
         if (auth instanceof Response) return auth;
         const user = authentication.currentUser(auth);
         return jsonResponse({
@@ -292,19 +305,19 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         return addHeaders(successResponse(), logoutHeaders(req, config));
       }
       if (passkeysEnabled && path === "/api/passkey-auth/passkey" && req.method === "DELETE") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
         return addHeaders(successResponse(), deletePasskey(req, store, config, authentication.requireUser(auth).id));
       }
       if (apiKeysEnabled && path === "/api/api-keys" && req.method === "GET") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         return jsonResponse(listApiKeys(store, authentication.requireUser(auth).id));
       }
       if (apiKeysEnabled && path === "/api/api-keys" && req.method === "POST") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
@@ -312,7 +325,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
       }
       const apiKeyDelete = /^\/api\/api-keys\/([^/]+)$/.exec(path);
       if (apiKeysEnabled && apiKeyDelete && req.method === "DELETE") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
@@ -324,14 +337,14 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         return jsonResponse(createDeviceAuthorization(req, store, config, body));
       }
       if (deviceAuthEnabled && path === "/api/auth/device/verification" && req.method === "GET") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         const userCode = url.searchParams.get("user_code")?.trim();
         if (!userCode) return errorResponse(400, "invalid_user_code", "user_code is required");
         return jsonResponse(getDeviceVerificationDetails(store, userCode, passkeysEnabled && isPasskeyAuthRequired(store, config)));
       }
       if (deviceAuthEnabled && path === "/api/auth/device/approve" && req.method === "POST") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
@@ -339,7 +352,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         return jsonResponse(approveDevice(store, body.userCode, authentication.requireUser(auth).id));
       }
       if (deviceAuthEnabled && path === "/api/auth/device/deny" && req.method === "POST") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
@@ -371,13 +384,13 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         return successResponse();
       }
       if (deviceAuthEnabled && path === "/api/auth/sessions" && req.method === "GET") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         return jsonResponse(listAuthSessions(store, authentication.requireUser(auth).id));
       }
       const sessionDelete = /^\/api\/auth\/sessions\/([^/]+)$/.exec(path);
       if (deviceAuthEnabled && sessionDelete && req.method === "DELETE") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
         if (originFailure) return originFailure;
@@ -390,13 +403,13 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         return jsonResponse(discovery(req, config));
       }
       if (passkeysEnabled && path === "/api/users" && req.method === "GET") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         ensureAdmin(auth);
         return jsonResponse(store.listUsers().map(summarizeUser));
       }
       if (passkeysEnabled && path === "/api/users" && req.method === "POST") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         const actor = ensureAdmin(auth);
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
@@ -414,7 +427,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
       }
       const userRolePatch = /^\/api\/users\/([^/]+)\/role$/.exec(path);
       if (passkeysEnabled && userRolePatch && req.method === "PATCH") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         const actor = ensureAdmin(auth);
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
@@ -431,7 +444,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
       }
       const userReset = /^\/api\/users\/([^/]+)\/reset$/.exec(path);
       if (passkeysEnabled && userReset && req.method === "POST") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         const actor = ensureAdmin(auth);
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
@@ -452,7 +465,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
       }
       const userDelete = /^\/api\/users\/([^/]+)$/.exec(path);
       if (passkeysEnabled && userDelete && req.method === "DELETE") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         const actor = ensureAdmin(auth);
         const originFailure = checkSameOrigin(req, config, auth, "mutations");
@@ -467,13 +480,13 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         return successResponse();
       }
       if (passkeysEnabled && path === "/api/audit-events" && req.method === "GET") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         ensureAdmin(auth);
         return jsonResponse(store.listAuditEvents(100));
       }
       if (path === "/api/preferences/theme") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         const user = authentication.requireUser(auth);
         if (req.method === "GET") {
@@ -488,7 +501,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         }
       }
       if (path === "/api/preferences/log-level") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         ensureAdmin(auth);
         if (req.method === "GET") {
@@ -509,7 +522,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         }
       }
       if (path === "/api/server/logs") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         ensureAdmin(auth);
         if (req.method !== "GET") {
@@ -522,7 +535,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         });
       }
       if (path === "/api/server/logs/settings") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         ensureAdmin(auth);
         if (req.method !== "PUT") {
@@ -555,7 +568,7 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         return successResponse({ enabled: serverLogs.isEnabled() });
       }
       if (path === "/api/server/kill" && req.method === "POST") {
-        const auth = await authentication.authorize(req, true);
+        const auth = await authorize(req, true);
         if (auth instanceof Response) return auth;
         ensureAdmin(auth);
         const originFailure = checkSameOrigin(req, config, auth, "mutations");

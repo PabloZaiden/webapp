@@ -134,8 +134,11 @@ export function authenticateApiKey(store: WebAppStore, token: string): { user: C
 }
 
 export function assertScopes(actual: string[], required: string[]): void {
-  if (required.length === 0 || actual.includes("*")) {
+  if (actual.includes("*")) {
     return;
+  }
+  if (required.length === 0) {
+    throw new AuthError("insufficient_scope", "An unrestricted credential is required for this operation", 403);
   }
   for (const scope of required) {
     if (!actual.includes(scope)) {
