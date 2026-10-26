@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { WebAppConfigResponse } from "../../contracts";
+import { clientScopedStorageKey } from "../client-session";
 import { FormSection } from "../components";
 import type { SettingsScope, SettingsSection } from "../root-types";
 import type { WebAppRoute } from "../sidebar/types";
+import { readStorage, warnStorageIssue, writeStorage } from "../storage";
 import { AccountSection } from "./account-section";
 import { SecuritySection } from "./security-section";
 import { SessionsSection } from "./sessions-section";
@@ -50,8 +52,20 @@ export function SettingsView({ config, external, appName, version, refresh, cust
     categories.set("maintenance", "Maintenance");
   }
   categories.set("about", "About");
-  const requested = route["category"] ?? "general";
+  const storageKey = clientScopedStorageKey(`webapp.${(appName ?? config?.appName ?? "app").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.settings.category`);
+  const [rememberedCategory, setRememberedCategory] = useState(() => {
+    const result = readStorage(storageKey);
+    if (!result.ok || result.value === null) return "general";
+    if (categories.has(result.value)) return result.value;
+    warnStorageIssue(storageKey, "invalid-value");
+    return "general";
+  });
+  const requested = route["category"] ?? rememberedCategory;
   const selected = categories.has(requested) ? requested : "general";
+  useEffect(() => {
+    setRememberedCategory(selected);
+    writeStorage(storageKey, selected);
+  }, [selected, storageKey]);
   function select(category: string) {
     setError(undefined);
     navigate({ view: "settings", category });

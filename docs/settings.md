@@ -20,6 +20,14 @@ Settings groups controls into **General**, **Account & access**,
 `section.category`; sections without a category join **General**. Section and
 row scope rules determine which application-defined settings are shown.
 
+Settings remembers the last opened category in browser storage per app and,
+for remote clients, per connected server. Reopening Settings without an
+explicit category restores that choice, including after a page reload.
+Links to a specific category take precedence and update the remembered choice.
+If the saved category is no longer available, Settings opens **General**.
+Browser persistence is best-effort; storage failures are logged without
+blocking navigation.
+
 The cached theme, or Dark when no preference exists, is applied immediately while the signed-in
 user preference loads in the background. Browser storage is best-effort:
 unavailable or corrupt storage falls back to a valid in-memory preference, and
