@@ -1,6 +1,7 @@
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Badge, ContextMenu, formatStatusLabel, type ContextMenuPosition } from "./components";
 import { AnimatedList, Collapsible } from "./motion";
+import { routeToHash } from "./routing";
 import type { SidebarCollapsedState } from "./sidebar-state";
 import type { SidebarNode, WebAppRoute } from "./sidebar/types";
 
@@ -96,17 +97,18 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
           if (node.onActivate?.() === false) {
             return false;
           }
-          if (node.route && !navigate(node.route) && !active) {
+          if (node.route && !navigate(node.route)) {
             return false;
           }
           return true;
         };
         const handleContextMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
-          event.preventDefault();
-          if (!activate()) {
+          const mayUpdateActions = node.onActivate || (node.route && routeToHash(node.route) !== routeToHash(route));
+          if (!activate() || (!actions.length && !mayUpdateActions)) {
             setContextMenu(null);
             return;
           }
+          event.preventDefault();
           setContextMenu({ position: { x: event.clientX, y: event.clientY }, nodeId: node.id });
         };
         const itemProps = {

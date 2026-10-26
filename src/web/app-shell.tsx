@@ -6,6 +6,7 @@ import { HeaderActionBar } from "./header-action-bar";
 import { useInertElement, useOverlayLifecycle } from "./overlay";
 import { SidebarTree } from "./sidebar-tree";
 import { MainContentOverlay } from "./main-content-overlay";
+import { routeToHash } from "./routing";
 import type { SidebarCollapsedState } from "./sidebar-state";
 import type { SidebarAction, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
 
@@ -174,9 +175,11 @@ export function AppShell({
   });
   const drawerLayerZIndex = drawerOverlay.zIndex ?? 80;
   const navigateFromSidebar = (nextRoute: WebAppRoute) => {
-    const changed = navigate(nextRoute);
-    closeSidebar();
-    return changed;
+    const selected = routeToHash(nextRoute) === routeToHash(route) || navigate(nextRoute);
+    if (selected) {
+      closeSidebar();
+    }
+    return selected;
   };
   const runSidebarHeaderAction = (action: SidebarAction) => {
     if (action.disabled || action.busy) {
@@ -185,7 +188,8 @@ export function AppShell({
     if (action.onAction) {
       action.onAction();
     } else if (action.route) {
-      navigate(action.route);
+      navigateFromSidebar(action.route);
+      return;
     }
     closeSidebar();
   };
