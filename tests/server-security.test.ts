@@ -486,6 +486,7 @@ for (const provider of testStoreProviders) {
     const routes = defineRoutes({
       "/api/records": {
         auth: "user",
+        scopes: ["read"],
         GET: (_request, context) => jsonResponse(context.filterOwned(records)),
       },
       "/api/admin": {
@@ -527,6 +528,13 @@ for (const provider of testStoreProviders) {
         headers: jsonHeaders(running.baseUrl, aliceKey.token),
       });
       expect(missingScope.status).toBe(403);
+
+      const forbiddenKeyCreation = await fetch(`${running.baseUrl}/api/api-keys`, {
+        method: "POST",
+        headers: jsonHeaders(running.baseUrl, aliceKey.token),
+        body: JSON.stringify({ name: "Unrestricted key", scopes: ["*"] }),
+      });
+      expect(forbiddenKeyCreation.status).toBe(403);
 
       const invalidToken = "wapp_invalid-token";
       const invalid = await fetch(`${running.baseUrl}/api/records`, {

@@ -94,7 +94,14 @@ policy and ownership checks; client-side role checks do not grant access.
 API keys are user-owned bearer tokens for scripts and agents. The plaintext token is
 shown only once and is never stored; the default SQLite store persists its hash,
 while the memory store retains it only for the current process. Route `scopes`
-are enforced for API-key requests; `*` grants all scopes.
+are enforced for API-key and device-bearer requests; `*` grants all scopes.
+A private route without declared scopes requires `*`; it is not accessible to
+limited-scope credentials. Framework account, key, device-approval, preference
+and server-management operations likewise require unrestricted credentials.
+Limited-scope device clients retain authentication status/configuration,
+client tickets and realtime connectivity; resource requests still enforce the
+target route's scopes. Limited-scope API keys cannot use these framework
+surfaces or exchange themselves for an unrestricted browser session.
 
 Expired API keys do not authenticate, are omitted from user-facing lists, and are purged when key lists or expired keys are encountered.
 
