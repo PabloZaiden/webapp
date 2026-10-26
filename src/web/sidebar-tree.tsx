@@ -1,21 +1,26 @@
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Badge, ContextMenu, formatStatusLabel, type ContextMenuPosition } from "./components";
 import { AnimatedList, Collapsible } from "./motion";
+import { routeToHash } from "./routing";
 import type { SidebarCollapsedState } from "./sidebar-state";
-import type { ActionMenuItem, SidebarNode, WebAppRoute } from "./sidebar/types";
+import type { SidebarNode, WebAppRoute } from "./sidebar/types";
 
 type SidebarTreeParentKind = "root" | "section" | "item";
 
 export type SidebarTreeProps = {
   nodes: SidebarNode[];
   route: WebAppRoute;
-  navigate: (route: WebAppRoute) => void;
+  navigate: (route: WebAppRoute) => boolean;
   collapsed: SidebarCollapsedState;
   toggleCollapsed: (id: string, isCollapsed: boolean) => void;
   searchActive: boolean;
   level?: number;
   parentKind?: SidebarTreeParentKind;
 };
+
+function isNodeActive(node: SidebarNode, route: WebAppRoute): boolean {
+  return node.route?.view === route.view && Object.entries(node.route).every(([key, value]) => key === "view" || route[key] === value);
+}
 
 function sidebarIndentStyle(level: number, parentKind: SidebarTreeParentKind): { marginLeft?: string } | undefined {
   if (level <= 0) {
@@ -27,7 +32,10 @@ function sidebarIndentStyle(level: number, parentKind: SidebarTreeParentKind): {
 }
 
 export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed, searchActive, level = 0, parentKind = "root" }: SidebarTreeProps) {
-  const [contextMenu, setContextMenu] = useState<{ position: ContextMenuPosition; items: ActionMenuItem[]; title: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ position: ContextMenuPosition; nodeId: string } | null>(null);
+  const contextNode = contextMenu ? nodes.find((node) => node.id === contextMenu.nodeId) : undefined;
+  const contextActions = contextNode?.contextActions ?? contextNode?.actions ?? [];
+  const contextMenuReady = contextNode && (!contextNode.route || isNodeActive(contextNode, route)) && contextActions.length > 0;
   return (
     <>
       <AnimatedList className={`wapp-sidebar-tree-level wapp-sidebar-tree-level-${level}`}>
@@ -76,7 +84,7 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
             </section>
           );
         }
-        const active = node.route?.view === route.view && Object.entries(node.route).every(([key, value]) => key === "view" || route[key] === value);
+        const active = isNodeActive(node, route);
         const actions = node.contextActions ?? node.actions ?? [];
         const badgeLabel = node.badge ? formatStatusLabel(node.badge) : "";
         const isTextBadge = node.badgeAppearance === "text";
@@ -87,18 +95,21 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
         ].filter(Boolean).join(" ");
         const activate = () => {
           if (node.onActivate?.() === false) {
-            return;
+            return false;
           }
-          if (node.route) {
-            navigate(node.route);
+          if (node.route && !navigate(node.route)) {
+            return false;
           }
+          return true;
         };
         const handleContextMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
-          if (!actions.length) {
+          const mayUpdateActions = node.onActivate || (node.route && routeToHash(node.route) !== routeToHash(route));
+          if (!activate() || (!actions.length && !mayUpdateActions)) {
+            setContextMenu(null);
             return;
           }
           event.preventDefault();
-          setContextMenu({ position: { x: event.clientX, y: event.clientY }, items: actions, title: node.title });
+          setContextMenu({ position: { x: event.clientX, y: event.clientY }, nodeId: node.id });
         };
         const itemProps = {
           type: "button" as const,
@@ -155,7 +166,7 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
         );
         })}
       </AnimatedList>
-      <ContextMenu items={contextMenu?.items ?? []} position={contextMenu?.position ?? null} ariaLabel={contextMenu ? `Actions for ${contextMenu.title}` : "Actions"} onClose={() => setContextMenu(null)} />
+      <ContextMenu items={contextActions} position={contextMenuReady ? contextMenu?.position ?? null : null} ariaLabel={contextNode ? `Actions for ${contextNode.title}` : "Actions"} onClose={() => setContextMenu(null)} />
     </>
   );
 }
