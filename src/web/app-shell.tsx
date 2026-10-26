@@ -66,7 +66,7 @@ export interface AppShellProps {
   mainOverlay?: ReactNode;
   nodes: SidebarNode[];
   route: WebAppRoute;
-  navigate: (route: WebAppRoute) => void;
+  navigate: (route: WebAppRoute) => boolean;
   sidebarSearchEnabled: boolean;
   sidebarTabs: SidebarTab[];
   activeSidebarTab?: string;
@@ -173,9 +173,10 @@ export function AppShell({
     inertTargets: [mainRef.current],
   });
   const drawerLayerZIndex = drawerOverlay.zIndex ?? 80;
-  const navigateFromSidebarHeader = (nextRoute: WebAppRoute) => {
-    navigate(nextRoute);
+  const navigateFromSidebar = (nextRoute: WebAppRoute) => {
+    const changed = navigate(nextRoute);
     closeSidebar();
+    return changed;
   };
   const runSidebarHeaderAction = (action: SidebarAction) => {
     if (action.disabled || action.busy) {
@@ -270,7 +271,7 @@ export function AppShell({
             className={`wapp-brand${hasAppIcon ? " wapp-brand-with-icon" : ""}`}
             aria-label={hasAppIcon ? appName : undefined}
             title={hasAppIcon ? appName : undefined}
-            onClick={() => navigateFromSidebarHeader(homeRoute)}
+            onClick={() => navigateFromSidebar(homeRoute)}
           >
             {hasAppIcon ? <img src={appIconSource} alt="" /> : appName}
           </button>
@@ -295,7 +296,7 @@ export function AppShell({
               </div>
             ) : null}
             <div className="wapp-sidebar-fixed-actions">
-              <IconButton className="wapp-sidebar-top-button" title="Settings" aria-label="Open settings" active={route.view === "settings"} onClick={() => navigateFromSidebarHeader({ view: "settings" })}><Icon name="settings" /></IconButton>
+              <IconButton className="wapp-sidebar-top-button" title="Settings" aria-label="Open settings" active={route.view === "settings"} onClick={() => navigateFromSidebar({ view: "settings" })}><Icon name="settings" /></IconButton>
               {!isMobile ? <IconButton className="wapp-sidebar-top-button" title={sidebarToggleLabel} aria-label={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
             </div>
           </div>
@@ -322,7 +323,7 @@ export function AppShell({
               </div>
             </div>
           ) : null}
-          <SidebarTree nodes={nodes} route={route} navigate={(next) => { navigate(next); setSidebarOpen(false); }} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} />
+          <SidebarTree nodes={nodes} route={route} navigate={navigateFromSidebar} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} />
         </div>
         {sidebarBottomContent != null && sidebarBottomContent !== false ? (
           <div className="wapp-sidebar-bottom-content">{sidebarBottomContent}</div>

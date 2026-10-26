@@ -135,7 +135,7 @@ export function useRoute(defaultRoute: WebAppRoute, transitionScopeRef?: ViewTra
   }, [commitRoute, defaultRoute]);
 
   const navigate = useCallback((next: WebAppRoute) => {
-    replaceWebAppRoute(next);
+    return replaceWebAppRoute(next);
   }, []);
 
   return { route, navigate };
