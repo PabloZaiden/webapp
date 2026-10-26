@@ -489,6 +489,10 @@ for (const provider of testStoreProviders) {
         scopes: ["read"],
         GET: (_request, context) => jsonResponse(context.filterOwned(records)),
       },
+      "/api/private": {
+        auth: "user",
+        GET: () => jsonResponse({ ok: true }),
+      },
       "/api/admin": {
         auth: "admin",
         GET: () => jsonResponse({ ok: true }),
@@ -518,6 +522,18 @@ for (const provider of testStoreProviders) {
       const ownRecordIds = (await responseJson<Array<{ id: string }>>(ownRecords)).map(({ id }) => id);
       expect(ownRecordIds).toEqual(["alice-record"]);
 
+      const forbiddenPrivate = await fetch(`${running.baseUrl}/api/private`, {
+        headers: { authorization: bearer(aliceKey.token) },
+      });
+      expect(forbiddenPrivate.status).toBe(403);
+      expect(await forbiddenPrivate.json()).toMatchObject({ error: "insufficient_scope" });
+
+      const unrestrictedPrivate = await fetch(`${running.baseUrl}/api/private`, {
+        headers: { authorization: bearer(ownerKey.token) },
+      });
+      expect(unrestrictedPrivate.status).toBe(200);
+      expect(await unrestrictedPrivate.json()).toEqual({ ok: true });
+
       const forbiddenAdmin = await fetch(`${running.baseUrl}/api/admin`, {
         headers: { authorization: bearer(aliceKey.token) },
       });
@@ -535,6 +551,7 @@ for (const provider of testStoreProviders) {
         body: JSON.stringify({ name: "Unrestricted key", scopes: ["*"] }),
       });
       expect(forbiddenKeyCreation.status).toBe(403);
+      expect(await forbiddenKeyCreation.json()).toMatchObject({ error: "insufficient_scope" });
 
       const invalidToken = "wapp_invalid-token";
       const invalid = await fetch(`${running.baseUrl}/api/records`, {
@@ -582,6 +599,10 @@ for (const provider of testStoreProviders) {
     store.initialize();
     createUser(store, "owner");
     const routes = defineRoutes({
+      "/api/private": {
+        auth: "user",
+        GET: () => jsonResponse({ ok: true }),
+      },
       "/api/protected": {
         auth: "user",
         scopes: ["write"],
@@ -592,7 +613,7 @@ for (const provider of testStoreProviders) {
       envPrefix: "TEST_E2E_DEVICE_AUTH",
       dataDir,
       store: provider.shareWithServer ? store : undefined,
-      auth: { passkeys: true, deviceAuth: true },
+      auth: { passkeys: true, deviceAuth: true, apiKeys: true },
       passkeyDisabled: true,
       routes,
     });
@@ -644,6 +665,20 @@ for (const provider of testStoreProviders) {
       });
       expect(protectedResponse.status).toBe(200);
       expect(await protectedResponse.json()).toEqual({ ok: true });
+
+      const forbiddenPrivate = await fetch(`${running.baseUrl}/api/private`, {
+        headers: { authorization: bearer(token.access_token) },
+      });
+      expect(forbiddenPrivate.status).toBe(403);
+      expect(await forbiddenPrivate.json()).toMatchObject({ error: "insufficient_scope" });
+
+      const forbiddenKeyCreation = await fetch(`${running.baseUrl}/api/api-keys`, {
+        method: "POST",
+        headers: jsonHeaders(running.baseUrl, token.access_token),
+        body: JSON.stringify({ name: "Unrestricted key", scopes: ["*"] }),
+      });
+      expect(forbiddenKeyCreation.status).toBe(403);
+      expect(await forbiddenKeyCreation.json()).toMatchObject({ error: "insufficient_scope" });
 
       const reusedDeviceCode = await fetch(`${running.baseUrl}/api/auth/token`, {
         method: "POST",
