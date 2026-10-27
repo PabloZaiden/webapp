@@ -56,6 +56,24 @@ Settings categories follow the framework mobile mode. List rows may respond to
 their available width without changing shell behavior. Do not add global touch
 handlers or arbitrary sleeps; use existing event-driven viewport lifecycle.
 
+### Edge-to-edge hosts and safe areas
+
+The generated document uses `viewport-fit=cover`. Hosts such as WKWebView
+should fill their window, leaving safe-area handling to the shared UI instead
+of constraining the whole web viewport to a smaller native rectangle.
+The shell background fills that viewport; header controls, route content,
+sidebar content and authentication screens avoid the system's safe areas.
+This includes lateral status areas on foldable displays, not just top notches.
+The main content does not repeat the left inset when a visible desktop sidebar
+already occupies that edge. Applications must not add another horizontal inset
+around route content, including `Page layout="full"`.
+
+Full-page tools still own their bottom clearance (for example, a composer above
+the home indicator) and scrolling. Main overlays own their safe-area padding;
+use `--wapp-main-safe-area-left` for the main area's left edge and the existing
+`--wapp-safe-area-*` variables for its other edges. Do not hard-code device
+dimensions or add a second native keyboard resize.
+
 ## Main content primitives
 
 Use these first:

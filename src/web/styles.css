@@ -156,6 +156,8 @@ textarea::placeholder {
   height: var(--wapp-viewport-height);
   display: flex;
   flex-direction: column;
+  padding-top: var(--wapp-safe-area-top);
+  padding-left: var(--wapp-safe-area-left);
   overflow: hidden;
   border-right: 0;
   background: var(--wapp-shell-bg);
@@ -169,6 +171,7 @@ textarea::placeholder {
 .wapp-shell.sidebar-collapsed .wapp-sidebar {
   width: 0;
   min-width: 0;
+  padding-left: 0;
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
@@ -192,8 +195,9 @@ textarea::placeholder {
 }
 
 .wapp-main-header {
+  min-height: calc(3.5rem + var(--wapp-safe-area-top));
   justify-content: space-between;
-  padding: 0.375rem 1.25rem;
+  padding: calc(0.375rem + var(--wapp-safe-area-top)) calc(1.25rem + var(--wapp-safe-area-right)) 0.375rem calc(1.25rem + var(--wapp-main-safe-area-left));
 }
 
 .wapp-main-header-title {
@@ -795,6 +799,7 @@ textarea::placeholder {
 }
 
 .wapp-main {
+  --wapp-main-safe-area-left: 0px;
   position: relative;
   flex: 1;
   min-width: 0;
@@ -803,6 +808,10 @@ textarea::placeholder {
   display: flex;
   flex-direction: column;
   background: var(--wapp-shell-bg);
+}
+
+.wapp-shell.sidebar-collapsed .wapp-main {
+  --wapp-main-safe-area-left: var(--wapp-safe-area-left);
 }
 
 .wapp-main-overlay {
@@ -836,7 +845,7 @@ textarea::placeholder {
   overflow: auto;
   overflow-x: hidden;
   background: var(--wapp-shell-bg);
-  padding: 0;
+  padding: 0 var(--wapp-safe-area-right) 0 var(--wapp-main-safe-area-left);
   scroll-padding-bottom: var(--wapp-mobile-bottom-clearance);
 }
 
@@ -1380,21 +1389,13 @@ textarea::placeholder {
   flex: 0 0 auto;
 }
 
-.wapp-auth-screen {
-  min-height: var(--wapp-viewport-height);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  background: var(--wapp-bg);
-}
-
+.wapp-auth-screen,
 .wapp-device-screen {
   min-height: var(--wapp-viewport-height);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
+  padding: max(1rem, var(--wapp-safe-area-top)) max(1rem, var(--wapp-safe-area-right)) max(1rem, var(--wapp-safe-area-bottom)) max(1rem, var(--wapp-safe-area-left));
   background: var(--wapp-bg);
 }
 
@@ -3085,6 +3086,7 @@ select.wapp-input,
   z-index: 81;
   width: min(18rem, 86vw);
   min-width: min(18rem, 86vw);
+  padding-left: var(--wapp-safe-area-left);
   transform: translateX(-100%);
   opacity: 1;
   pointer-events: auto;
@@ -3104,8 +3106,7 @@ select.wapp-input,
 }
 
 :root[data-wapp-mobile] .wapp-main-header {
-  min-height: 3.5rem;
-  padding: 0.5rem 0.75rem;
+  padding: calc(0.5rem + var(--wapp-safe-area-top)) calc(0.75rem + var(--wapp-safe-area-right)) 0.5rem calc(0.75rem + var(--wapp-main-safe-area-left));
 }
 
 /* Keep the toggle above the backdrop during drawer exit, but below an open drawer. */
@@ -3122,6 +3123,7 @@ select.wapp-input,
 }
 
 :root[data-wapp-mobile] .wapp-main {
+  --wapp-main-safe-area-left: var(--wapp-safe-area-left);
   touch-action: pan-y;
 }
 
