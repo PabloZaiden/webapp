@@ -81,7 +81,7 @@ export function useMobileViewportHeight(isMobile: boolean): void {
       if (!viewport || !isEditableElement(document.activeElement)) {
         return false;
       }
-      return viewport.height + 1 < window.innerHeight;
+      return viewport.height * viewport.scale + 1 < window.innerHeight;
     };
 
     const sync = () => {

@@ -56,7 +56,9 @@ Keyboard avoidance is independent of the mobile layout breakpoint: tablets and
 unfolded displays can keep the desktop sidebar while an on-screen keyboard
 reduces their usable height. Closing the keyboard restores the CSS height and
 clears document panning left by editable focus, without changing ordinary
-desktop scrolling when no keyboard adjustment is active.
+desktop scrolling when no keyboard adjustment is active. Detection accounts for
+visual-viewport scale so pinch zoom alone is not treated as a keyboard, while
+keyboard avoidance still works when zoom and a keyboard coexist.
 
 Settings categories follow the framework mobile mode. List rows may respond to
 their available width without changing shell behavior. Do not add global touch
