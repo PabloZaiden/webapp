@@ -37,4 +37,4 @@ export type {
 export { createLogger, getLogLevel, log } from "./logger";
 export { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 export type { ThemePreference } from "../contracts";
-export type { NativeToolbarHost, NativeToolbarItem, NativeToolbarSnapshot } from "./native-toolbar";
+export type { NativeToolbarHost, NativeToolbarItem, NativeToolbarSnapshot, NativeToolbarLayout } from "./native-toolbar";

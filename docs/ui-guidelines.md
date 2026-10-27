@@ -82,6 +82,18 @@ use `--wapp-main-safe-area-left` for the main area's left edge and the existing
 `--wapp-safe-area-*` variables for its other edges. Do not hard-code device
 dimensions or add a second native keyboard resize.
 
+Hosts with public system-occlusion geometry can optionally implement
+`NativeToolbarHost.getLayout`, even when native toolbar presentation is
+unavailable. Report current viewport bounds, safe-area insets and active
+occlusion rectangles in unzoomed viewport coordinates, including system margins,
+and notify subscribers when they change. The shell can place its header beside
+an edge occlusion instead of reserving an otherwise empty top strip. The row
+still clears the full top inset before route content starts; the drawer reuses
+its top space only when no occlusion crosses its width.
+Centered notches, insufficient room, zoom, missing geometry and mismatched
+viewport sizes retain conventional safe-area clearance. Ordinary browsers and
+other hosts need no adapter. Do not infer occlusions from device names or sizes.
+
 ### Native host toolbars
 
 A packaged host can implement `window.webappNativeToolbar` using the public

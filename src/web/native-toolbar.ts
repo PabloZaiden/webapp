@@ -29,6 +29,14 @@ export interface NativeToolbarHost {
   update(snapshot: NativeToolbarSnapshot | null): Promise<boolean>;
   subscribe(listener: () => void): () => void;
   setActionHandler(handler: (scope: string, id: string) => void | Promise<void>): () => void;
+  getLayout?(): Promise<NativeToolbarLayout | null>;
+}
+
+export interface NativeToolbarLayout {
+  width: number;
+  height: number;
+  safeArea: { top: number; right: number; bottom: number; left: number };
+  occlusions: { x: number; y: number; width: number; height: number }[];
 }
 
 declare global {

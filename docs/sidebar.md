@@ -277,8 +277,11 @@ within the first 24px of the viewport, in addition to the header button. The
 gesture must move at least 64px to the right, stay within 48px of vertical
 displacement, and remain more horizontal than vertical.
 
-The open mobile drawer owns focus while it is active and makes the main content
-inert. Closing it restores focus to the trigger when that control is still
+The open mobile drawer initially focuses its panel, not Search, so opening
+navigation alone does not request text input or raise an on-screen keyboard.
+Tapping Search or calling `sidebar.focusSearch()` still focuses the input.
+The drawer owns focus while it is active and makes the main content inert.
+Closing it restores focus to the trigger when that control is still
 available. A closed mobile or desktop-collapsed sidebar is inert and
 `aria-hidden`, so its search field, links, tabs, and actions are not reachable
 by keyboard or exposed as active navigation.
