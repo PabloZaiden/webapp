@@ -10,6 +10,7 @@ import { routeToHash } from "./routing";
 import type { SidebarCollapsedState } from "./sidebar-state";
 import type { SidebarAction, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
 import { nativeMenuAction, useNativeToolbar } from "./native-toolbar";
+import { useNativeHeaderLayout } from "./native-header-layout";
 import { useTheme } from "./theme";
 import type { HeaderPrimaryAction } from "./root-types";
 
@@ -172,6 +173,7 @@ export function AppShell({
   const sidebarTabRefs = useRef(new Map<string, HTMLButtonElement>());
   const closeSidebar = () => setSidebarOpen(false);
   const sidebarRef = useRef<HTMLElement>(null);
+  const nativeLayout = useNativeHeaderLayout(mainHeaderRef, sidebarRef);
   const drawerLayerRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const headerTitleRef = useRef<HTMLHeadingElement>(null);
@@ -182,6 +184,7 @@ export function AppShell({
     open: drawerOpen,
     surfaceRef: sidebarRef,
     layerRef: drawerLayerRef,
+    initialFocusRef: sidebarRef,
     onEscape: closeSidebar,
     onBackdrop: closeSidebar,
     inertTargets: [mainRef.current],
@@ -313,6 +316,8 @@ export function AppShell({
         <aside
           ref={sidebarRef}
           id="wapp-sidebar"
+          tabIndex={-1}
+          style={nativeLayout.sidebar}
           className={`wapp-sidebar${sidebarTabs.length ? " wapp-sidebar-with-tabs" : ""}`}
         >
         {!nativeToolbar ? <div className="wapp-sidebar-header">
@@ -419,7 +424,7 @@ export function AppShell({
         </aside>
       </div>
       <section ref={mainRef} className="wapp-main">
-        <header ref={mainHeaderRef} className="wapp-main-header">
+        <header ref={mainHeaderRef} className="wapp-main-header" style={nativeLayout.header}>
           <div className="wapp-main-header-title">
             {!nativeToolbar && isMobile ? <IconButton className="wapp-sidebar-top-button" style={!drawerOpen && drawerOverlay.mounted ? { zIndex: drawerLayerZIndex } : undefined} aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton> : !nativeToolbar && sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
             <h1 ref={headerTitleRef} tabIndex={-1} key={routeKey} className="wapp-route-fade">{headerTitle}</h1>
