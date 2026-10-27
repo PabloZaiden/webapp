@@ -101,6 +101,10 @@ failure; this preserves update order even for asynchronous hosts.
 Failed refreshes revoke the previous native presentation before exposing web
 fallback controls, and removing or replacing the host restores the web
 presentation until that host accepts a snapshot.
+Acceptance belongs to the current route visit, not just the adapter instance.
+An outgoing adapter must notify subscribers when it is removed or replaced.
+While a mobile drawer is open, its sidebar commands remain available but
+primary/page actions are blocked like their inert web counterparts.
 
 The host must restrict the transport to its trusted bundled main frame and
 clear native controls on document navigation or content-process failure. Never

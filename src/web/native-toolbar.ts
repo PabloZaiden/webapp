@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type RefObject } from "react";
 import type { ThemePreference } from "../contracts";
 import { isDestructiveActionMenuItem, submitActionMenuForm } from "./action-menu-item";
 import type { ActionMenuItem } from "./sidebar/types";
@@ -86,20 +86,26 @@ export function useNativeToolbar(routeKey: string, theme: ThemePreference, actio
   const host = typeof window === "undefined" ? undefined : window.webappNativeToolbar;
   const scope = useMemo(() => host ? crypto.randomUUID() : "", [host, routeKey]);
   const { error: notifyError } = useToast();
-  const [activeHost, setActiveHost] = useState<NativeToolbarHost>();
+  const [activeScope, setActiveScope] = useState<string>();
+  const [, refreshHost] = useReducer((version: number) => version + 1, 0);
   const blocked = useBlockingOverlay(actions.sidebarRef);
-  const registry = useRef({ scope, blocked, items: new Map<string, NativeToolbarAction>() });
-  registry.current = {
-    scope, blocked,
-    items: new Map([...actions.sidebar, ...actions.primary, ...actions.menu].map((item) => [item.id, item])),
-  };
-  const describe = (items: NativeToolbarAction[]): NativeToolbarItem[] => items.map(({ invoke, ...item }) => ({
-    ...item, disabled: item.disabled || blocked,
+  const pageBlocked = useBlockingOverlay();
+  const block = (items: NativeToolbarAction[], disabled: boolean) => items.map((item) => ({
+    ...item, disabled: item.disabled || disabled,
   }));
+  const sidebar = block(actions.sidebar, blocked);
+  const primary = block(actions.primary, pageBlocked);
+  const menu = block(actions.menu, pageBlocked);
+  const registry = useRef({ scope, items: new Map<string, NativeToolbarAction>() });
+  registry.current = {
+    scope,
+    items: new Map([...sidebar, ...primary, ...menu].map((item) => [item.id, item])),
+  };
+  const describe = (items: NativeToolbarAction[]): NativeToolbarItem[] => items.map(({ invoke, ...item }) => item);
   const snapshot: NativeToolbarSnapshot = {
     version: 1, scope, theme,
-    sidebar: describe(actions.sidebar), primary: describe(actions.primary),
-    menu: describe([...actions.menu.filter((item) => !item.destructive), ...actions.menu.filter((item) => item.destructive)]),
+    sidebar: describe(sidebar), primary: describe(primary),
+    menu: describe([...menu.filter((item) => !item.destructive), ...menu.filter((item) => item.destructive)]),
   };
   const currentSnapshot = useRef(snapshot);
   currentSnapshot.current = snapshot;
@@ -111,7 +117,7 @@ export function useNativeToolbar(routeKey: string, theme: ThemePreference, actio
       const current = registry.current;
       const item = current.items.get(id);
       if (scope !== current.scope || !item) throw new Error("This toolbar action is no longer available.");
-      if (current.blocked || item.disabled || item.busy) throw new Error("This toolbar action is disabled.");
+      if (item.disabled || item.busy) throw new Error("This toolbar action is disabled.");
       await item.invoke();
     });
     return () => {
@@ -125,12 +131,17 @@ export function useNativeToolbar(routeKey: string, theme: ThemePreference, actio
     let disposed = false;
     let generation = 0;
     const publish = () => {
+      if (window.webappNativeToolbar !== host) {
+        refreshHost();
+        return;
+      }
       const request = ++generation;
-      void publishToolbar(host, currentSnapshot.current).then((supported) => {
-        if (!disposed && request === generation) setActiveHost(supported ? host : undefined);
+      const published = currentSnapshot.current;
+      void publishToolbar(host, published).then((supported) => {
+        if (!disposed && request === generation) setActiveScope(supported ? published.scope : undefined);
       }).catch((error: unknown) => {
         if (!disposed && request === generation) {
-          setActiveHost(undefined);
+          setActiveScope(undefined);
           notifyError(`Unable to present the native toolbar: ${String(error)}`);
         }
       });
@@ -140,5 +151,5 @@ export function useNativeToolbar(routeKey: string, theme: ThemePreference, actio
     return () => { disposed = true; unsubscribe(); };
   }, [host, serialized, notifyError]);
 
-  return host !== undefined && activeHost === host;
+  return host !== undefined && activeScope === scope;
 }

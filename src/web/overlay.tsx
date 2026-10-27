@@ -23,10 +23,10 @@ type OverlayRecord = {
 const overlayStack: OverlayRecord[] = [];
 const overlayListeners = new Set<() => void>();
 
-export function useBlockingOverlay(except: RefObject<HTMLElement | null>): boolean {
+export function useBlockingOverlay(except?: RefObject<HTMLElement | null>): boolean {
   return useSyncExternalStore(
     (listener) => { overlayListeners.add(listener); return () => { overlayListeners.delete(listener); }; },
-    () => overlayStack.some((record) => record.surface !== except.current),
+    () => overlayStack.some((record) => record.surface !== except?.current),
     () => false,
   );
 }
