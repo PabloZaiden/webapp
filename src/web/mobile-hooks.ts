@@ -71,13 +71,14 @@ export function useMobileViewportHeight(isMobile: boolean): void {
       && window.CSS.supports("height", "100dvh");
     const timers = new Set<number>();
     let frame = 0;
+    let keyboardViewportActive = false;
 
     const clearViewportHeight = () => {
       root.style.removeProperty("--wapp-viewport-height");
     };
 
-    const shouldOverrideDynamicViewportHeight = () => {
-      if (!usesDynamicViewportUnit || !viewport || !isEditableElement(document.activeElement)) {
+    const isKeyboardViewportReduced = () => {
+      if (!viewport || !isEditableElement(document.activeElement)) {
         return false;
       }
       return viewport.height + 1 < window.innerHeight;
@@ -85,12 +86,14 @@ export function useMobileViewportHeight(isMobile: boolean): void {
 
     const sync = () => {
       frame = 0;
-      if (!isMobile) {
+      const wasKeyboardViewportActive = keyboardViewportActive;
+      keyboardViewportActive = isKeyboardViewportReduced();
+      if (!isMobile && !keyboardViewportActive && !wasKeyboardViewportActive) {
         clearViewportHeight();
         return;
       }
 
-      const shouldUseVisualViewport = !usesDynamicViewportUnit || shouldOverrideDynamicViewportHeight();
+      const shouldUseVisualViewport = (isMobile && !usesDynamicViewportUnit) || keyboardViewportActive;
       if (!shouldUseVisualViewport) {
         clearViewportHeight();
       } else {
@@ -123,7 +126,7 @@ export function useMobileViewportHeight(isMobile: boolean): void {
 
     const handleViewportTransition = () => {
       scheduleSync();
-      if (isMobile) {
+      if (isMobile || keyboardViewportActive || isEditableElement(document.activeElement)) {
         scheduleViewportRetry(MOBILE_VIEWPORT_FIRST_SETTLE_DELAY_MS);
         scheduleViewportRetry(MOBILE_VIEWPORT_FINAL_SETTLE_DELAY_MS);
       }
