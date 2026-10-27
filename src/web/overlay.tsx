@@ -356,7 +356,7 @@ export function useOverlayLifecycle({
         return;
       }
       const activeElement = document.activeElement;
-      if (!(activeElement instanceof Node) || !surface.contains(activeElement)) {
+      if (!(activeElement instanceof Node) || activeElement === surface || !surface.contains(activeElement)) {
         event.preventDefault();
         (event.shiftKey ? focusable.at(-1) : focusable[0])?.focus();
         return;

@@ -12,7 +12,7 @@ type SidebarStyle = CSSProperties & { "--wapp-sidebar-safe-area-top": string };
 type LayoutStyles = { header?: HeaderStyle; sidebar?: SidebarStyle };
 
 function validateLayout(value: NativeToolbarLayout): void {
-  if (!Number.isFinite(value.width) || value.width <= 0
+  if (!value || typeof value !== "object" || !Number.isFinite(value.width) || value.width <= 0
     || !Number.isFinite(value.height) || value.height <= 0
     || !value.safeArea || !(["top", "right", "bottom", "left"] as const).every((edge) => {
       const inset = value.safeArea[edge];
@@ -29,17 +29,19 @@ function validateLayout(value: NativeToolbarLayout): void {
   }
 }
 
-function minimumHeaderWidth(header: HTMLElement): number {
+function minimumHeaderWidth(header: HTMLElement, layout: NativeToolbarLayout): number {
   const title = header.querySelector<HTMLElement>(".wapp-main-header-title");
   if (!title) return Infinity;
   const spacing = (value: string) => Number.parseFloat(value) || 0;
   const css = getComputedStyle(header);
+  const leftInset = header.style.getPropertyValue("--wapp-header-safe-area-left")
+    || `${Math.max(0, layout.safeArea.left - header.getBoundingClientRect().left)}px`;
+  const rightInset = header.style.getPropertyValue("--wapp-header-safe-area-right") || `${layout.safeArea.right}px`;
   const titleControls = Array.from(title.children).filter((child) => child.tagName !== "H1");
   const others = Array.from(header.children).filter((child) => child !== title && child.getBoundingClientRect().width > 0);
   const width = (children: Element[]) => children.reduce((sum, child) => sum + child.getBoundingClientRect().width, 0);
   return spacing(css.paddingLeft) + spacing(css.paddingRight)
-    - spacing(header.style.getPropertyValue("--wapp-header-safe-area-left"))
-    - spacing(header.style.getPropertyValue("--wapp-header-safe-area-right"))
+    - spacing(leftInset) - spacing(rightInset)
     + width(titleControls) + spacing(getComputedStyle(title).columnGap) * titleControls.length
     + width(others) + spacing(css.columnGap) * others.length;
 }
@@ -61,7 +63,7 @@ function layoutStyles(layout: NativeToolbarLayout, header: HTMLElement, sidebar:
   }
   // Only an edge-bounded clear span can replace the rectangular top inset.
   if (overlaps.some((rect) => rect.x < right && rect.x + rect.width > left)
-    || right - left < minimumHeaderWidth(header)) return {};
+    || right - left < minimumHeaderWidth(header, layout)) return {};
   const result: LayoutStyles = {
     header: {
       "--wapp-header-safe-area-top": "0px",
@@ -86,19 +88,23 @@ export function useNativeHeaderLayout(headerRef: RefObject<HTMLElement | null>, 
     if (!host || !getLayout) { setStyles({}); return; }
     let disposed = false;
     let generation = 0;
+    let failed = false;
+    const apply = (next: LayoutStyles) => setStyles((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
     const refresh = () => {
       const request = ++generation;
-      void getLayout.call(host).then((layout) => {
+      void Promise.resolve().then(() => getLayout.call(host)).then((layout) => {
         if (disposed || request !== generation) return;
         const header = headerRef.current;
         const sidebar = sidebarRef.current;
-        if (layout) validateLayout(layout);
+        if (layout !== null) validateLayout(layout);
         const next = layout && header && sidebar ? layoutStyles(layout, header, sidebar) : {};
-        setStyles((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
+        apply(next);
+        failed = false;
       }).catch((error: unknown) => {
         if (disposed || request !== generation) return;
-        setStyles({});
-        notifyError(`Unable to adapt the native header: ${String(error)}`);
+        apply({});
+        if (!failed) notifyError(`Unable to adapt the native header: ${String(error)}`);
+        failed = true;
       });
     };
     const unsubscribe = host.subscribe(refresh);
