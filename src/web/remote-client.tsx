@@ -7,6 +7,7 @@ import {
 } from "./client-session";
 import { SettingsFieldRow } from "./settings/settings-section";
 import { ThemeProvider } from "./theme";
+import { getClientConnectionPickerUrl } from "./api-client";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -40,6 +41,7 @@ function EndpointForm({ endpoint, onConnected }: { endpoint?: string; onConnecte
 }
 
 export function RemoteClientBoundary({ children }: { children: ReactNode }) {
+  const connectionPickerUrl = getClientConnectionPickerUrl();
   const session = useSyncExternalStore(subscribeClientSession, getClientSession, getClientSession);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -77,10 +79,13 @@ export function RemoteClientBoundary({ children }: { children: ReactNode }) {
   return (
     <ThemeProvider><main className="wapp-auth-screen">
       <Dialog title={chooseEndpoint ? "Connect to server" : "Sign in"}
-        actions={!chooseEndpoint ? <>
-          <Button type="button" disabled={busy} onClick={() => setEditing(true)}>Change server</Button>
-          {busy ? <Button type="button" onClick={cancelClientLogin}>Cancel</Button>
-            : <Button type="button" disabled={!session.ready} onClick={() => void startLogin()}>Sign in</Button>}
+        actions={!chooseEndpoint || connectionPickerUrl ? <>
+          {connectionPickerUrl ? <a href={connectionPickerUrl}>Change connection</a> : null}
+          {!chooseEndpoint ? <>
+            <Button type="button" disabled={busy} onClick={() => setEditing(true)}>Change server</Button>
+            {busy ? <Button type="button" onClick={cancelClientLogin}>Cancel</Button>
+              : <Button type="button" disabled={!session.ready} onClick={() => void startLogin()}>Sign in</Button>}
+          </> : null}
         </> : undefined}>
         {chooseEndpoint ? <EndpointForm endpoint={session.endpoint} onConnected={() => setEditing(false)} />
           : <CodeValue label="API server" value={session.endpoint ?? ""} />}
@@ -96,10 +101,11 @@ export function RemoteClientBoundary({ children }: { children: ReactNode }) {
 }
 
 export function RemoteClientSettings() {
+  const connectionPickerUrl = getClientConnectionPickerUrl();
   const session = useSyncExternalStore(subscribeClientSession, getClientSession, getClientSession);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string>();
-  if (!session.enabled) return null;
+  if (!session.enabled && !connectionPickerUrl) return null;
   async function signOut() {
     try {
       await logoutClient();
@@ -109,11 +115,13 @@ export function RemoteClientSettings() {
   }
   return (
     <FormSection title="Connection">
-      <SettingsFieldRow title="API server" content={<span>{session.endpoint}</span>} actions={<>
+      {session.enabled ? <SettingsFieldRow title="API server" content={<span>{session.endpoint}</span>} actions={<>
         <Button onClick={() => setEditing(!editing)}>Change server</Button>
         <Button onClick={() => void signOut()}>Sign out</Button>
-      </>} />
-      {editing ? <EndpointForm endpoint={session.endpoint} /> : null}
+      </>} /> : null}
+      {session.enabled && editing ? <EndpointForm endpoint={session.endpoint} /> : null}
+      {connectionPickerUrl ? <SettingsFieldRow title="Client"
+        actions={<a href={connectionPickerUrl}>Change connection</a>} /> : null}
       {error ? <p className="wapp-error" role="alert">{error}</p> : null}
     </FormSection>
   );
