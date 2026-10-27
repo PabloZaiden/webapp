@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { IconButton } from "./components";
 import { useHeaderActionsSnapshot } from "./header-actions";
 import { HeaderNotifications } from "./header-notifications";
@@ -9,6 +9,8 @@ import { MainContentOverlay } from "./main-content-overlay";
 import { routeToHash } from "./routing";
 import type { SidebarCollapsedState } from "./sidebar-state";
 import type { SidebarAction, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
+import { nativeMenuAction, useNativeToolbar } from "./native-toolbar";
+import { useTheme } from "./theme";
 
 function isSidebarShortcutEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -128,6 +130,8 @@ export function AppShell({
   view,
 }: AppShellProps) {
   const { primary: primaryHeaderActions, overflow: headerActions = [] } = useHeaderActionsSnapshot();
+  const primaryActions = useSyncExternalStore(primaryHeaderActions.subscribe, primaryHeaderActions.getSnapshot, primaryHeaderActions.getSnapshot);
+  const { preference: theme } = useTheme();
   const mainHeaderRef = useRef<HTMLElement>(null);
   useEffect(() => {
     function handleSidebarShortcut(event: KeyboardEvent) {
@@ -193,6 +197,30 @@ export function AppShell({
     }
     closeSidebar();
   };
+  const nativeToolbar = useNativeToolbar(routeKey, theme, {
+    sidebarRef,
+    sidebar: [
+      ...topActions.map((action) => ({
+        id: `app:${action.id}`, label: action.title, systemImage: action.systemImage,
+        disabled: action.disabled === true, active: action.active === true,
+        busy: action.busy === true, destructive: false,
+        invoke: () => runSidebarHeaderAction(action),
+      })),
+      {
+        id: "sidebar:settings", label: "Open settings", systemImage: "gearshape",
+        disabled: false, active: route.view === "settings", busy: false, destructive: false,
+        invoke: () => navigateFromSidebar({ view: "settings" }),
+      },
+      {
+        id: "sidebar:toggle", label: isMobile ? sidebarOpen ? "Hide sidebar" : "Show sidebar" : sidebarToggleLabel,
+        systemImage: "sidebar.left", disabled: false,
+        active: isMobile ? sidebarOpen : !sidebarCollapsed, busy: false, destructive: false,
+        invoke: () => isMobile ? setSidebarOpen(!sidebarOpen) : toggleSidebarCollapsed(),
+      },
+    ],
+    primary: primaryActions.map((action, index) => nativeMenuAction(action, `primary:${action.id ?? `${action.label}:${index}`}`)),
+    menu: headerActions.map((action, index) => nativeMenuAction(action, `menu:${action.id ?? `${action.label}:${index}`}`)),
+  });
   const handleSidebarTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, tabId: string) => {
     const currentIndex = sidebarTabs.findIndex((tab) => tab.id === tabId);
     if (currentIndex < 0 || sidebarTabs.length < 2) {
@@ -279,7 +307,7 @@ export function AppShell({
           >
             {hasAppIcon ? <img src={appIconSource} alt="" /> : appName}
           </button>
-          <div className="wapp-sidebar-actions">
+          {!nativeToolbar ? <div className="wapp-sidebar-actions">
             {topActions.length ? (
               <div className="wapp-sidebar-app-actions">
                 {topActions.map((action) => (
@@ -303,7 +331,7 @@ export function AppShell({
               <IconButton className="wapp-sidebar-top-button" title="Settings" aria-label="Open settings" active={route.view === "settings"} onClick={() => navigateFromSidebar({ view: "settings" })}><Icon name="settings" /></IconButton>
               {!isMobile ? <IconButton className="wapp-sidebar-top-button" title={sidebarToggleLabel} aria-label={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
             </div>
-          </div>
+          </div> : null}
         </div>
         <div className="wapp-sidebar-scroll">
           {sidebarSearchEnabled ? (
@@ -375,11 +403,11 @@ export function AppShell({
       <section ref={mainRef} className="wapp-main">
         <header ref={mainHeaderRef} className="wapp-main-header">
           <div className="wapp-main-header-title">
-            {isMobile ? <IconButton className="wapp-sidebar-top-button" style={!drawerOpen && drawerOverlay.mounted ? { zIndex: drawerLayerZIndex } : undefined} aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton> : sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
+            {!nativeToolbar && isMobile ? <IconButton className="wapp-sidebar-top-button" style={!drawerOpen && drawerOverlay.mounted ? { zIndex: drawerLayerZIndex } : undefined} aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton> : !nativeToolbar && sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
             <h1 ref={headerTitleRef} tabIndex={-1} key={routeKey} className="wapp-route-fade">{headerTitle}</h1>
           </div>
           <HeaderNotifications focusFallbackRef={headerTitleRef} />
-          <HeaderActionBar key={routeKey} primary={primaryHeaderActions} overflow={headerActions} headerRef={mainHeaderRef} ariaLabel={`Actions for ${headerActionLabel}`} />
+          {!nativeToolbar ? <HeaderActionBar key={routeKey} primary={primaryHeaderActions} overflow={headerActions} headerRef={mainHeaderRef} ariaLabel={`Actions for ${headerActionLabel}`} /> : null}
         </header>
         <div ref={routeTransitionScopeRef} className="wapp-main-content">
           <div key={routeKey} className="wapp-route-view">

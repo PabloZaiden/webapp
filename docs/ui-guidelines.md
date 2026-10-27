@@ -74,6 +74,27 @@ use `--wapp-main-safe-area-left` for the main area's left edge and the existing
 `--wapp-safe-area-*` variables for its other edges. Do not hard-code device
 dimensions or add a second native keyboard resize.
 
+### Native host toolbars
+
+A packaged host can implement `window.webappNativeToolbar` using the public
+`NativeToolbarHost` contract. The shell publishes presentation-only snapshots
+and keeps its web buttons until the host accepts native presentation. The host
+must notify subscribers when that capability changes; ordinary browsers keep
+the existing shell without installing an adapter.
+
+Native controls replace, rather than duplicate, sidebar header actions and
+page actions. `systemImage` optionally supplies the host's system symbol for a
+sidebar or primary action. Activation returns to the current web callback
+registry, scoped to the route visit; disabled/busy actions and blocking web
+dialogs cannot be bypassed. Native form actions retain validation and an actual
+submitter. Destructive menu items remain last and destructive.
+
+The host must restrict the transport to its trusted bundled main frame and
+clear native controls on document navigation or content-process failure. Never
+transfer credentials, domain execution or authorization logic into this adapter.
+The host owns platform toolbar placement; applications do not inspect or
+relocate framework DOM.
+
 ## Main content primitives
 
 Use these first:

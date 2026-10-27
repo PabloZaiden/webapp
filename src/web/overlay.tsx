@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { MOTION_FAST_MS, usePresence, type MotionPresenceState } from "./motion";
 
 const FOCUSABLE_SELECTOR = [
@@ -21,6 +21,15 @@ type OverlayRecord = {
 };
 
 const overlayStack: OverlayRecord[] = [];
+const overlayListeners = new Set<() => void>();
+
+export function useBlockingOverlay(except: RefObject<HTMLElement | null>): boolean {
+  return useSyncExternalStore(
+    (listener) => { overlayListeners.add(listener); return () => { overlayListeners.delete(listener); }; },
+    () => overlayStack.some((record) => record.surface !== except.current),
+    () => false,
+  );
+}
 
 function registerOverlay(token: OverlayToken, surface: HTMLElement, layer: HTMLElement): OverlayRecord {
   const usedOrders = new Set(overlayStack.map((record) => record.order));
@@ -30,6 +39,7 @@ function registerOverlay(token: OverlayToken, surface: HTMLElement, layer: HTMLE
   }
   const record = { token, surface, layer, order };
   overlayStack.push(record);
+  for (const listener of overlayListeners) listener();
   return record;
 }
 
@@ -37,6 +47,7 @@ function unregisterOverlay(token: OverlayToken): void {
   const index = overlayStack.findIndex((record) => record.token === token);
   if (index >= 0) {
     overlayStack.splice(index, 1);
+    for (const listener of overlayListeners) listener();
   }
 }
 

@@ -32,6 +32,7 @@ export interface SidebarAction {
   title: string;
   label?: string;
   icon?: ReactNode;
+  systemImage?: string;
   disabled?: boolean;
   active?: boolean;
   busy?: boolean;
