@@ -41,10 +41,10 @@ export interface NativeToolbarAction extends NativeToolbarItem {
   invoke: () => unknown;
 }
 
-const publications = new WeakMap<NativeToolbarHost, Promise<boolean>>();
+let lastPublication: Promise<boolean> | undefined;
 
 function publishToolbar(host: NativeToolbarHost, snapshot: NativeToolbarSnapshot | null): Promise<boolean> {
-  const previous = publications.get(host);
+  const previous = lastPublication;
   const update = async () => {
     try {
       return await host.update(snapshot);
@@ -59,9 +59,9 @@ function publishToolbar(host: NativeToolbarHost, snapshot: NativeToolbarSnapshot
       throw error;
     }
   };
-  // Each caller reports its own failure; a failed update must not block later publications.
+  // Replacement adapters can address the same native toolbar. Each caller reports its own failure.
   const next = previous ? previous.then(update, update) : Promise.resolve().then(update);
-  publications.set(host, next);
+  lastPublication = next;
   return next;
 }
 

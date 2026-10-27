@@ -95,8 +95,8 @@ dialogs cannot be bypassed. Native form actions retain validation and an actual
 submitter. Hidden, live primary submitters remain mounted for implicit keyboard
 submission. Destructive menu items remain last and destructive.
 
-Publications and clearing are serialized per host, including across shell
-unmount/remount. `update` must apply its snapshot before resolving and reject on
+Publications and clearing are serialized within each web window, including
+across adapter replacement and shell unmount/remount. `update` must apply its snapshot before resolving and reject on
 failure; this preserves update order even for asynchronous hosts.
 Failed refreshes revoke the previous native presentation before exposing web
 fallback controls, and removing or replacing the host restores the web
@@ -105,6 +105,8 @@ Acceptance belongs to the current route visit, not just the adapter instance.
 An outgoing adapter must notify subscribers when it is removed or replaced.
 While a mobile drawer is open, its sidebar commands remain available but
 primary/page actions are blocked like their inert web counterparts.
+Transport IDs also include the merged-list position so contributor-local action
+IDs cannot collide; the original descriptor IDs remain unchanged for submitters.
 
 The host must restrict the transport to its trusted bundled main frame and
 clear native controls on document navigation or content-process failure. Never

@@ -218,8 +218,8 @@ export function AppShell({
         disabled: false, active: routeToHash(route) === routeToHash(homeRoute), busy: false, destructive: false,
         invoke: navigateHome,
       },
-      ...topActions.map((action) => ({
-        id: `app:${action.id}`, label: action.title, systemImage: action.systemImage,
+      ...topActions.map((action, index) => ({
+        id: `app:${action.id}:${index}`, label: action.title, systemImage: action.systemImage,
         disabled: action.disabled === true, active: action.active === true,
         busy: action.busy === true, destructive: false,
         invoke: () => runSidebarHeaderAction(action),
@@ -236,8 +236,8 @@ export function AppShell({
         invoke: () => isMobile ? setSidebarOpen(!sidebarOpen) : toggleSidebarCollapsed(),
       },
     ],
-    primary: primaryActions.map((action, index) => nativeMenuAction(action, `primary:${action.id ?? `${action.label}:${index}`}`)),
-    menu: headerActions.map((action, index) => nativeMenuAction(action, `menu:${action.id ?? `${action.label}:${index}`}`)),
+    primary: primaryActions.map((action, index) => nativeMenuAction(action, `primary:${action.id ?? action.label}:${index}`)),
+    menu: headerActions.map((action, index) => nativeMenuAction(action, `menu:${action.id ?? action.label}:${index}`)),
   });
   const handleSidebarTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, tabId: string) => {
     const currentIndex = sidebarTabs.findIndex((tab) => tab.id === tabId);
