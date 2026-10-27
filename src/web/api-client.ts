@@ -31,6 +31,7 @@ let configuredWebSocketBaseUrl: string | undefined;
 let configuredPartialResults: PartialResultMetadata | undefined;
 let configuredMode: "integrated" | "remote" | "external" = "integrated";
 let configuredClientVersion: string | undefined;
+let configuredConnectionPickerUrl: string | undefined;
 let externalClient: WebAppExternalClient | undefined;
 const ABSOLUTE_URL_PATTERN = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
 
@@ -54,7 +55,15 @@ export function configureWebAppClient(options: {
   remote?: WebAppRemoteClientOptions;
   external?: WebAppExternalClient;
   version?: string;
+  connectionPickerUrl?: string;
 } = {}): void {
+  if (options.connectionPickerUrl !== undefined) {
+    const url = new URL(options.connectionPickerUrl, document.baseURI);
+    if (!options.connectionPickerUrl.trim() || url.origin !== window.location.origin || url.username || url.password) {
+      throw new TypeError("The connection picker must use a same-origin URL without credentials.");
+    }
+    configuredConnectionPickerUrl = url.href;
+  }
   const mode = options.mode ?? (options.external ? "external" : options.remote ? "remote" : configuredMode);
   if (mode === "external" && (getClientSession().enabled || options.remote
     || options.apiBaseUrl || options.wsBaseUrl)) {
@@ -94,6 +103,10 @@ export function getWebAppClientMode(): "integrated" | "remote" | "external" {
 
 export function getWebAppClientVersion(): string | undefined {
   return configuredClientVersion;
+}
+
+export function getClientConnectionPickerUrl(): string | undefined {
+  return configuredConnectionPickerUrl;
 }
 
 export function getWebAppExternalClient(): WebAppExternalClient | undefined {

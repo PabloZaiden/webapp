@@ -74,7 +74,7 @@ export function SettingsView({ config, external, appName, version, refresh, cust
     <SettingsLayout categories={Array.from(categories, ([id, title]) => ({ id, title }))} category={selected} onCategoryChange={select}>
       <div key={selected}>
         {error ? <p className="wapp-error" role="alert">{error}</p> : null}
-        {selected === "general" && config ? <RemoteClientSettings /> : null}
+        {selected === "general" ? <RemoteClientSettings /> : null}
         {selected === "general" && external ? <AppearanceSection setError={setError} /> : null}
         {config && ["general", "account", "administration"].includes(selected) ? <AccountSection config={config} refresh={refresh} setError={setError} category={selected} /> : null}
         {selected === "account" && config ? <FormSection title="Security">

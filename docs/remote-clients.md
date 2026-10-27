@@ -38,6 +38,14 @@ Settings / General exposes the current connection, server selection and sign-out
 Changing servers reloads the client, retiring its entire JavaScript context,
 connections, pending work and application-owned in-memory caches.
 
+Multi-mode hosts can optionally set `connectionPickerUrl` in their remote or
+external bootstrap to a same-origin connection chooser, such as `"../"`.
+Relative URLs resolve against the client document, not the API. The framework
+exposes **Change connection** before remote login and in Settings / General,
+including external mode. This navigates to the chooser without signing out,
+revoking pairings or copying credentials. No link is added by default.
+Client-mode startup/restoration remains the host's responsibility.
+
 Remote login uses device authorization, not cross-origin passkey calls or
 third-party cookies. The client opens the API's authorization page; the user
 signs in with that server's passkey and approves the displayed code. The client
