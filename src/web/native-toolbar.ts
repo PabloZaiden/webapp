@@ -44,7 +44,20 @@ const publications = new WeakMap<NativeToolbarHost, Promise<boolean>>();
 
 function publishToolbar(host: NativeToolbarHost, snapshot: NativeToolbarSnapshot | null): Promise<boolean> {
   const previous = publications.get(host);
-  const update = () => host.update(snapshot);
+  const update = async () => {
+    try {
+      return await host.update(snapshot);
+    } catch (error) {
+      if (snapshot !== null) {
+        try {
+          await host.update(null);
+        } catch (clearError) {
+          throw new AggregateError([error, clearError], `Unable to revoke native controls: ${String(error)}; ${String(clearError)}`);
+        }
+      }
+      throw error;
+    }
+  };
   // Each caller reports its own failure; a failed update must not block later publications.
   const next = previous ? previous.then(update, update) : Promise.resolve().then(update);
   publications.set(host, next);
@@ -72,7 +85,7 @@ export function useNativeToolbar(routeKey: string, theme: ThemePreference, actio
   const host = typeof window === "undefined" ? undefined : window.webappNativeToolbar;
   const scope = useMemo(() => host ? crypto.randomUUID() : "", [host, routeKey]);
   const { error: notifyError } = useToast();
-  const [active, setActive] = useState(false);
+  const [activeHost, setActiveHost] = useState<NativeToolbarHost>();
   const blocked = useBlockingOverlay(actions.sidebarRef);
   const registry = useRef({ scope, blocked, items: new Map<string, NativeToolbarAction>() });
   registry.current = {
@@ -113,10 +126,10 @@ export function useNativeToolbar(routeKey: string, theme: ThemePreference, actio
     const publish = () => {
       const request = ++generation;
       void publishToolbar(host, currentSnapshot.current).then((supported) => {
-        if (!disposed && request === generation) setActive(supported);
+        if (!disposed && request === generation) setActiveHost(supported ? host : undefined);
       }).catch((error: unknown) => {
         if (!disposed && request === generation) {
-          setActive(false);
+          setActiveHost(undefined);
           notifyError(`Unable to present the native toolbar: ${String(error)}`);
         }
       });
@@ -126,5 +139,5 @@ export function useNativeToolbar(routeKey: string, theme: ThemePreference, actio
     return () => { disposed = true; unsubscribe(); };
   }, [host, serialized, notifyError]);
 
-  return active;
+  return host !== undefined && activeHost === host;
 }

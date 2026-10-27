@@ -93,6 +93,9 @@ submission. Destructive menu items remain last and destructive.
 Publications and clearing are serialized per host, including across shell
 unmount/remount. `update` must apply its snapshot before resolving and reject on
 failure; this preserves update order even for asynchronous hosts.
+Failed refreshes revoke the previous native presentation before exposing web
+fallback controls, and removing or replacing the host restores the web
+presentation until that host accepts a snapshot.
 
 The host must restrict the transport to its trusted bundled main frame and
 clear native controls on document navigation or content-process failure. Never
