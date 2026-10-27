@@ -87,7 +87,12 @@ page actions. `systemImage` optionally supplies the host's system symbol for a
 sidebar or primary action. Activation returns to the current web callback
 registry, scoped to the route visit; disabled/busy actions and blocking web
 dialogs cannot be bypassed. Native form actions retain validation and an actual
-submitter. Destructive menu items remain last and destructive.
+submitter. Hidden, live primary submitters remain mounted for implicit keyboard
+submission. Destructive menu items remain last and destructive.
+
+Publications and clearing are serialized per host, including across shell
+unmount/remount. `update` must apply its snapshot before resolving and reject on
+failure; this preserves update order even for asynchronous hosts.
 
 The host must restrict the transport to its trusted bundled main frame and
 clear native controls on document navigation or content-process failure. Never

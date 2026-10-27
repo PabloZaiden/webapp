@@ -407,7 +407,7 @@ export function AppShell({
             <h1 ref={headerTitleRef} tabIndex={-1} key={routeKey} className="wapp-route-fade">{headerTitle}</h1>
           </div>
           <HeaderNotifications focusFallbackRef={headerTitleRef} />
-          {!nativeToolbar ? <HeaderActionBar key={routeKey} primary={primaryHeaderActions} overflow={headerActions} headerRef={mainHeaderRef} ariaLabel={`Actions for ${headerActionLabel}`} /> : null}
+          <HeaderActionBar key={routeKey} primary={primaryHeaderActions} overflow={headerActions} headerRef={mainHeaderRef} ariaLabel={`Actions for ${headerActionLabel}`} nativePresentation={nativeToolbar} />
         </header>
         <div ref={routeTransitionScopeRef} className="wapp-main-content">
           <div key={routeKey} className="wapp-route-view">

@@ -27,7 +27,7 @@ export interface NativeToolbarSnapshot {
 export interface NativeToolbarHost {
   update(snapshot: NativeToolbarSnapshot | null): Promise<boolean>;
   subscribe(listener: () => void): () => void;
-  setActionHandler(handler: (scope: string, id: string) => unknown): () => void;
+  setActionHandler(handler: (scope: string, id: string) => void | Promise<void>): () => void;
 }
 
 declare global {
@@ -38,6 +38,17 @@ declare global {
 
 export interface NativeToolbarAction extends NativeToolbarItem {
   invoke: () => unknown;
+}
+
+const publications = new WeakMap<NativeToolbarHost, Promise<boolean>>();
+
+function publishToolbar(host: NativeToolbarHost, snapshot: NativeToolbarSnapshot | null): Promise<boolean> {
+  const previous = publications.get(host);
+  const update = () => host.update(snapshot);
+  // Each caller reports its own failure; a failed update must not block later publications.
+  const next = previous ? previous.then(update, update) : Promise.resolve().then(update);
+  publications.set(host, next);
+  return next;
 }
 
 export function nativeMenuAction(item: ActionMenuItem & { systemImage?: string; loading?: boolean }, id: string): NativeToolbarAction {
@@ -73,7 +84,8 @@ export function useNativeToolbar(routeKey: string, theme: ThemePreference, actio
   }));
   const snapshot: NativeToolbarSnapshot = {
     version: 1, scope, theme,
-    sidebar: describe(actions.sidebar), primary: describe(actions.primary), menu: describe(actions.menu),
+    sidebar: describe(actions.sidebar), primary: describe(actions.primary),
+    menu: describe([...actions.menu.filter((item) => !item.destructive), ...actions.menu.filter((item) => item.destructive)]),
   };
   const currentSnapshot = useRef(snapshot);
   currentSnapshot.current = snapshot;
@@ -81,16 +93,16 @@ export function useNativeToolbar(routeKey: string, theme: ThemePreference, actio
 
   useEffect(() => {
     if (!host) return;
-    const removeHandler = host.setActionHandler((scope, id) => {
+    const removeHandler = host.setActionHandler(async (scope, id) => {
       const current = registry.current;
       const item = current.items.get(id);
       if (scope !== current.scope || !item) throw new Error("This toolbar action is no longer available.");
       if (current.blocked || item.disabled || item.busy) throw new Error("This toolbar action is disabled.");
-      return item.invoke();
+      await item.invoke();
     });
     return () => {
       removeHandler();
-      void host.update(null).catch((error: unknown) => notifyError(`Unable to clear the native toolbar: ${String(error)}`));
+      void publishToolbar(host, null).catch((error: unknown) => notifyError(`Unable to clear the native toolbar: ${String(error)}`));
     };
   }, [host, notifyError]);
 
@@ -100,7 +112,7 @@ export function useNativeToolbar(routeKey: string, theme: ThemePreference, actio
     let generation = 0;
     const publish = () => {
       const request = ++generation;
-      void host.update(currentSnapshot.current).then((supported) => {
+      void publishToolbar(host, currentSnapshot.current).then((supported) => {
         if (!disposed && request === generation) setActive(supported);
       }).catch((error: unknown) => {
         if (!disposed && request === generation) {
