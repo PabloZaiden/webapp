@@ -52,6 +52,14 @@ The framework owns the mobile shell breakpoint. `MOBILE_BREAKPOINT_PX` and `MOBI
 
 `WebAppRoot` follows `visualViewport` resize/scroll, window resize, orientation changes, focus boundaries, and mobile media-query changes. CSS `100dvh` is the authoritative height when the browser supports dynamic viewport units, except while an editable control is focused and the visual viewport is materially shorter because the on-screen keyboard is open. In that keyboard state, the hook temporarily overrides the shell height with the measured visual viewport so the keyboard cannot cover the app. The visual-viewport pixel value remains the normal fallback for browsers without `100dvh`. Two named, bounded retries catch the post-event layout pass and the end of keyboard, browser-chrome, or rotation transitions when no further geometry event is emitted. These retries are implementation fallbacks, not general synchronization primitives, and are cancelled with the associated animation frame and listeners when the root is unmounted.
 
+Keyboard avoidance is independent of the mobile layout breakpoint: tablets and
+unfolded displays can keep the desktop sidebar while an on-screen keyboard
+reduces their usable height. Closing the keyboard restores the CSS height and
+clears document panning left by editable focus, without changing ordinary
+desktop scrolling when no keyboard adjustment is active. Detection accounts for
+visual-viewport scale so pinch zoom alone is not treated as a keyboard, while
+keyboard avoidance still works when zoom and a keyboard coexist.
+
 Settings categories follow the framework mobile mode. List rows may respond to
 their available width without changing shell behavior. Do not add global touch
 handlers or arbitrary sleeps; use existing event-driven viewport lifecycle.
