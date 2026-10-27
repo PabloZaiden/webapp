@@ -197,9 +197,18 @@ export function AppShell({
     }
     closeSidebar();
   };
+  const navigateHome = () => navigateFromSidebar(homeRoute);
+  const nativeAppIcon = appIconSource && typeof window !== "undefined" && window.webappNativeToolbar
+    ? new URL(appIconSource, window.location.href).href : undefined;
   const nativeToolbar = useNativeToolbar(routeKey, theme, {
     sidebarRef,
     sidebar: [
+      {
+        id: "sidebar:home", label: appName, imageURL: nativeAppIcon,
+        systemImage: nativeAppIcon ? undefined : "house",
+        disabled: false, active: routeToHash(route) === routeToHash(homeRoute), busy: false, destructive: false,
+        invoke: navigateHome,
+      },
       ...topActions.map((action) => ({
         id: `app:${action.id}`, label: action.title, systemImage: action.systemImage,
         disabled: action.disabled === true, active: action.active === true,
@@ -297,17 +306,17 @@ export function AppShell({
           id="wapp-sidebar"
           className={`wapp-sidebar${sidebarTabs.length ? " wapp-sidebar-with-tabs" : ""}`}
         >
-        <div className="wapp-sidebar-header">
+        {!nativeToolbar ? <div className="wapp-sidebar-header">
           <button
             type="button"
             className={`wapp-brand${hasAppIcon ? " wapp-brand-with-icon" : ""}`}
             aria-label={hasAppIcon ? appName : undefined}
             title={hasAppIcon ? appName : undefined}
-            onClick={() => navigateFromSidebar(homeRoute)}
+            onClick={navigateHome}
           >
             {hasAppIcon ? <img src={appIconSource} alt="" /> : appName}
           </button>
-          {!nativeToolbar ? <div className="wapp-sidebar-actions">
+          <div className="wapp-sidebar-actions">
             {topActions.length ? (
               <div className="wapp-sidebar-app-actions">
                 {topActions.map((action) => (
@@ -331,8 +340,8 @@ export function AppShell({
               <IconButton className="wapp-sidebar-top-button" title="Settings" aria-label="Open settings" active={route.view === "settings"} onClick={() => navigateFromSidebar({ view: "settings" })}><Icon name="settings" /></IconButton>
               {!isMobile ? <IconButton className="wapp-sidebar-top-button" title={sidebarToggleLabel} aria-label={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
             </div>
-          </div> : null}
-        </div>
+          </div>
+        </div> : null}
         <div className="wapp-sidebar-scroll">
           {sidebarSearchEnabled ? (
             <div className="wapp-search">

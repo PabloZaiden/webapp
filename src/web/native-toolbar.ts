@@ -9,6 +9,7 @@ export interface NativeToolbarItem {
   id: string;
   label: string;
   systemImage?: string;
+  imageURL?: string;
   disabled: boolean;
   active: boolean;
   busy: boolean;
