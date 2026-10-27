@@ -11,6 +11,13 @@ import type { SidebarCollapsedState } from "./sidebar-state";
 import type { SidebarAction, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
 import { nativeMenuAction, useNativeToolbar } from "./native-toolbar";
 import { useTheme } from "./theme";
+import type { HeaderPrimaryAction } from "./root-types";
+
+const EMPTY_PRIMARY_ACTIONS: HeaderPrimaryAction[] = [];
+const EMPTY_PRIMARY_SOURCE = {
+  subscribe: () => () => {},
+  getSnapshot: () => EMPTY_PRIMARY_ACTIONS,
+};
 
 function isSidebarShortcutEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -130,7 +137,9 @@ export function AppShell({
   view,
 }: AppShellProps) {
   const { primary: primaryHeaderActions, overflow: headerActions = [] } = useHeaderActionsSnapshot();
-  const primaryActions = useSyncExternalStore(primaryHeaderActions.subscribe, primaryHeaderActions.getSnapshot, primaryHeaderActions.getSnapshot);
+  const nativePrimarySource = typeof window !== "undefined" && window.webappNativeToolbar
+    ? primaryHeaderActions : EMPTY_PRIMARY_SOURCE;
+  const primaryActions = useSyncExternalStore(nativePrimarySource.subscribe, nativePrimarySource.getSnapshot, nativePrimarySource.getSnapshot);
   const { preference: theme } = useTheme();
   const mainHeaderRef = useRef<HTMLElement>(null);
   useEffect(() => {
