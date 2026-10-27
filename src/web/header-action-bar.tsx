@@ -3,11 +3,12 @@ import { ActionMenu, Button } from "./components";
 import type { HeaderPrimaryStore } from "./header-actions";
 import type { ActionMenuItem } from "./sidebar/types";
 
-export function HeaderActionBar({ primary, overflow, headerRef, ariaLabel }: {
+export function HeaderActionBar({ primary, overflow, headerRef, ariaLabel, nativePresentation = false }: {
   primary: HeaderPrimaryStore;
   overflow: ActionMenuItem[];
   headerRef: RefObject<HTMLElement | null>;
   ariaLabel: string;
+  nativePresentation?: boolean;
 }) {
   const actions = useSyncExternalStore(primary.subscribe, primary.getSnapshot, primary.getSnapshot);
   const primaryRef = useRef<HTMLDivElement>(null);
@@ -17,6 +18,7 @@ export function HeaderActionBar({ primary, overflow, headerRef, ariaLabel }: {
   const restorePrimaryFocusRef = useRef<string | undefined>(undefined);
   const [collapsed, setCollapsed] = useState(false);
   useLayoutEffect(() => {
+    if (nativePresentation) return;
     const header = headerRef.current;
     const content = primaryRef.current;
     if (!header || !content) return;
@@ -53,7 +55,7 @@ export function HeaderActionBar({ primary, overflow, headerRef, ariaLabel }: {
     if (title) observer.observe(title);
     measure();
     return () => observer.disconnect();
-  }, [actions, collapsed, headerRef, overflow.length]);
+  }, [actions, collapsed, headerRef, overflow.length, nativePresentation]);
   useLayoutEffect(() => {
     if (collapsed && restoreFocusRef.current) {
       menuButtonRef.current?.focus();
@@ -71,15 +73,17 @@ export function HeaderActionBar({ primary, overflow, headerRef, ariaLabel }: {
     ...(collapsed ? actions.map((action, index) => ({ ...action, id: action.id ?? `${action.label}:${index}`, disabled: action.disabled || action.loading })) : []),
     ...overflow,
   ];
+  const buttons = actions.map((action, index) => <Button key={action.id ?? `${action.label}:${index}`} size="sm" variant="primary"
+    tone={action.destructive ? "danger" : "neutral"}
+    data-action-id={action.id ?? `${action.label}:${index}`}
+    type={action.form !== undefined ? "submit" : "button"} form={action.form}
+    loading={action.loading} disabled={action.disabled} onClick={action.onAction}>
+    {action.icon}{action.label}
+  </Button>);
+  if (nativePresentation) return <div hidden>{buttons}</div>;
   return <div className="wapp-main-header-actions wapp-route-fade">
     <div ref={primaryRef} tabIndex={-1} className={`wapp-header-primary${collapsed ? " wapp-header-primary-collapsed" : ""}`} aria-hidden={collapsed || undefined}>
-      {actions.map((action, index) => <Button key={action.id ?? `${action.label}:${index}`} size="sm" variant="primary"
-        tone={action.destructive ? "danger" : "neutral"}
-        data-action-id={action.id ?? `${action.label}:${index}`}
-        type={action.form !== undefined ? "submit" : "button"} form={action.form}
-        loading={action.loading} disabled={action.disabled} onClick={action.onAction}>
-        {action.icon}{action.label}
-      </Button>)}
+      {buttons}
     </div>
     {menuActions.length ? <div ref={menuRef}><ActionMenu items={menuActions} ariaLabel={ariaLabel} buttonRef={menuButtonRef} /></div> : null}
   </div>;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { IconButton } from "./components";
 import { useHeaderActionsSnapshot } from "./header-actions";
 import { HeaderNotifications } from "./header-notifications";
@@ -9,6 +9,15 @@ import { MainContentOverlay } from "./main-content-overlay";
 import { routeToHash } from "./routing";
 import type { SidebarCollapsedState } from "./sidebar-state";
 import type { SidebarAction, SidebarNode, SidebarTab, WebAppRoute } from "./sidebar/types";
+import { nativeMenuAction, useNativeToolbar } from "./native-toolbar";
+import { useTheme } from "./theme";
+import type { HeaderPrimaryAction } from "./root-types";
+
+const EMPTY_PRIMARY_ACTIONS: HeaderPrimaryAction[] = [];
+const EMPTY_PRIMARY_SOURCE = {
+  subscribe: () => () => {},
+  getSnapshot: () => EMPTY_PRIMARY_ACTIONS,
+};
 
 function isSidebarShortcutEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -128,6 +137,10 @@ export function AppShell({
   view,
 }: AppShellProps) {
   const { primary: primaryHeaderActions, overflow: headerActions = [] } = useHeaderActionsSnapshot();
+  const nativePrimarySource = typeof window !== "undefined" && window.webappNativeToolbar
+    ? primaryHeaderActions : EMPTY_PRIMARY_SOURCE;
+  const primaryActions = useSyncExternalStore(nativePrimarySource.subscribe, nativePrimarySource.getSnapshot, nativePrimarySource.getSnapshot);
+  const { preference: theme } = useTheme();
   const mainHeaderRef = useRef<HTMLElement>(null);
   useEffect(() => {
     function handleSidebarShortcut(event: KeyboardEvent) {
@@ -193,6 +206,39 @@ export function AppShell({
     }
     closeSidebar();
   };
+  const navigateHome = () => navigateFromSidebar(homeRoute);
+  const nativeAppIcon = appIconSource && typeof window !== "undefined" && window.webappNativeToolbar
+    ? new URL(appIconSource, window.location.href).href : undefined;
+  const nativeToolbar = useNativeToolbar(routeKey, theme, {
+    sidebarRef,
+    sidebar: [
+      {
+        id: "sidebar:home", label: appName, imageURL: nativeAppIcon,
+        systemImage: nativeAppIcon ? undefined : "house",
+        disabled: false, active: routeToHash(route) === routeToHash(homeRoute), busy: false, destructive: false,
+        invoke: navigateHome,
+      },
+      ...topActions.map((action, index) => ({
+        id: `app:${action.id}:${index}`, label: action.title, systemImage: action.systemImage,
+        disabled: action.disabled === true, active: action.active === true,
+        busy: action.busy === true, destructive: false,
+        invoke: () => runSidebarHeaderAction(action),
+      })),
+      {
+        id: "sidebar:settings", label: "Open settings", systemImage: "gearshape",
+        disabled: false, active: route.view === "settings", busy: false, destructive: false,
+        invoke: () => navigateFromSidebar({ view: "settings" }),
+      },
+      {
+        id: "sidebar:toggle", label: isMobile ? sidebarOpen ? "Hide sidebar" : "Show sidebar" : sidebarToggleLabel,
+        systemImage: "sidebar.left", disabled: false,
+        active: isMobile ? sidebarOpen : !sidebarCollapsed, busy: false, destructive: false,
+        invoke: () => isMobile ? setSidebarOpen(!sidebarOpen) : toggleSidebarCollapsed(),
+      },
+    ],
+    primary: primaryActions.map((action, index) => nativeMenuAction(action, `primary:${action.id ?? action.label}:${index}`)),
+    menu: headerActions.map((action, index) => nativeMenuAction(action, `menu:${action.id ?? action.label}:${index}`)),
+  });
   const handleSidebarTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, tabId: string) => {
     const currentIndex = sidebarTabs.findIndex((tab) => tab.id === tabId);
     if (currentIndex < 0 || sidebarTabs.length < 2) {
@@ -269,13 +315,13 @@ export function AppShell({
           id="wapp-sidebar"
           className={`wapp-sidebar${sidebarTabs.length ? " wapp-sidebar-with-tabs" : ""}`}
         >
-        <div className="wapp-sidebar-header">
+        {!nativeToolbar ? <div className="wapp-sidebar-header">
           <button
             type="button"
             className={`wapp-brand${hasAppIcon ? " wapp-brand-with-icon" : ""}`}
             aria-label={hasAppIcon ? appName : undefined}
             title={hasAppIcon ? appName : undefined}
-            onClick={() => navigateFromSidebar(homeRoute)}
+            onClick={navigateHome}
           >
             {hasAppIcon ? <img src={appIconSource} alt="" /> : appName}
           </button>
@@ -304,7 +350,7 @@ export function AppShell({
               {!isMobile ? <IconButton className="wapp-sidebar-top-button" title={sidebarToggleLabel} aria-label={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
             </div>
           </div>
-        </div>
+        </div> : null}
         <div className="wapp-sidebar-scroll">
           {sidebarSearchEnabled ? (
             <div className="wapp-search">
@@ -375,11 +421,11 @@ export function AppShell({
       <section ref={mainRef} className="wapp-main">
         <header ref={mainHeaderRef} className="wapp-main-header">
           <div className="wapp-main-header-title">
-            {isMobile ? <IconButton className="wapp-sidebar-top-button" style={!drawerOpen && drawerOverlay.mounted ? { zIndex: drawerLayerZIndex } : undefined} aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton> : sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
+            {!nativeToolbar && isMobile ? <IconButton className="wapp-sidebar-top-button" style={!drawerOpen && drawerOverlay.mounted ? { zIndex: drawerLayerZIndex } : undefined} aria-label="Show sidebar" title="Show sidebar" aria-expanded={sidebarOpen} aria-controls="wapp-sidebar" onClick={() => setSidebarOpen(true)}><Icon name="sidebar" /></IconButton> : !nativeToolbar && sidebarCollapsed ? <IconButton className="wapp-sidebar-top-button" aria-label={sidebarToggleLabel} title={sidebarToggleLabel} aria-expanded={!sidebarCollapsed} aria-controls="wapp-sidebar" onClick={toggleSidebarCollapsed}><Icon name="sidebar" /></IconButton> : null}
             <h1 ref={headerTitleRef} tabIndex={-1} key={routeKey} className="wapp-route-fade">{headerTitle}</h1>
           </div>
           <HeaderNotifications focusFallbackRef={headerTitleRef} />
-          <HeaderActionBar key={routeKey} primary={primaryHeaderActions} overflow={headerActions} headerRef={mainHeaderRef} ariaLabel={`Actions for ${headerActionLabel}`} />
+          <HeaderActionBar key={routeKey} primary={primaryHeaderActions} overflow={headerActions} headerRef={mainHeaderRef} ariaLabel={`Actions for ${headerActionLabel}`} nativePresentation={nativeToolbar} />
         </header>
         <div ref={routeTransitionScopeRef} className="wapp-main-content">
           <div key={routeKey} className="wapp-route-view">

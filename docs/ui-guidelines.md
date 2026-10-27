@@ -74,6 +74,46 @@ use `--wapp-main-safe-area-left` for the main area's left edge and the existing
 `--wapp-safe-area-*` variables for its other edges. Do not hard-code device
 dimensions or add a second native keyboard resize.
 
+### Native host toolbars
+
+A packaged host can implement `window.webappNativeToolbar` using the public
+`NativeToolbarHost` contract. The shell publishes presentation-only snapshots
+and keeps its web buttons until the host accepts native presentation. The host
+must notify subscribers when that capability changes; ordinary browsers keep
+the existing shell without installing an adapter.
+
+Native controls replace, rather than duplicate, sidebar header actions and
+page actions. This includes the existing brand/Home button: after native
+acceptance the entire sidebar header is omitted, reclaiming its row rather
+than leaving an empty band. Home invokes the same protected web navigation.
+`imageURL` supplies its bundled raster logo; hosts must load it successfully
+before accepting presentation and must not fetch credentials or remote images.
+`systemImage` optionally supplies the host's system symbol for a
+sidebar or primary action. Activation returns to the current web callback
+registry, scoped to the route visit; disabled/busy actions and blocking web
+dialogs cannot be bypassed. Native form actions retain validation and an actual
+submitter. Hidden, live primary submitters remain mounted for implicit keyboard
+submission. Destructive menu items remain last and destructive.
+
+Publications and clearing are serialized within each web window, including
+across adapter replacement and shell unmount/remount. `update` must apply its snapshot before resolving and reject on
+failure; this preserves update order even for asynchronous hosts.
+Failed refreshes revoke the previous native presentation before exposing web
+fallback controls, and removing or replacing the host restores the web
+presentation until that host accepts a snapshot.
+Acceptance belongs to the current route visit, not just the adapter instance.
+An outgoing adapter must notify subscribers when it is removed or replaced.
+While a mobile drawer is open, its sidebar commands remain available but
+primary/page actions are blocked like their inert web counterparts.
+Transport IDs also include the merged-list position so contributor-local action
+IDs cannot collide; the original descriptor IDs remain unchanged for submitters.
+
+The host must restrict the transport to its trusted bundled main frame and
+clear native controls on document navigation or content-process failure. Never
+transfer credentials, domain execution or authorization logic into this adapter.
+The host owns platform toolbar placement; applications do not inspect or
+relocate framework DOM.
+
 ## Main content primitives
 
 Use these first:

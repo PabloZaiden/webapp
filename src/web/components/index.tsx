@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { ActionMenuItem, BadgeAppearance, BadgeVariant } from "../sidebar/types";
 import { AnimatedList, MOTION_FAST_MS, usePresence } from "../motion";
 import { isTopmostOverlayElement, useOverlayLifecycle } from "../overlay";
+import { isDestructiveActionMenuItem, submitActionMenuForm } from "../action-menu-item";
 
 export type ButtonVariant = "default" | "primary" | "danger" | "ghost" | "link";
 export type ButtonSize = "xs" | "sm" | "md" | "lg";
@@ -1202,10 +1203,6 @@ function hiddenMenuStyle(position: ContextMenuPosition): CSSProperties {
   };
 }
 
-function isDestructiveActionMenuItem(item: ActionMenuItem): boolean {
-  return item.destructive === true || item.id?.toLowerCase().includes("delete") === true || item.label.toLowerCase().includes("delete");
-}
-
 function ActionMenuItems({ items, onItemClick }: { items: ActionMenuItem[]; onItemClick: (item: ActionMenuItem) => void }) {
   const orderedItems = [
     ...items.filter((item) => !isDestructiveActionMenuItem(item)),
@@ -1225,9 +1222,7 @@ function ActionMenuItems({ items, onItemClick }: { items: ActionMenuItem[]; onIt
           onClick={(event) => {
             if (item.form !== undefined) {
               event.preventDefault();
-              const form = event.currentTarget.form;
-              if (!form) throw new Error(`Action form is not mounted: ${item.form}`);
-              form.requestSubmit(event.currentTarget);
+              submitActionMenuForm(item, event.currentTarget);
             }
             onItemClick(item);
           }}
