@@ -1,5 +1,10 @@
 # Trusted delegated operations
 
+For explicitly approved account-level operations that must preserve normal
+admin/owner checks without guest delegation metadata, use the separate
+server-only [`dispatchAuthenticated` capability](oauth.md#resource-admission-and-application-execution).
+It is not a remote credential or a replacement for guest admission policy.
+
 Delegation is a server-code capability for applications that authenticate a
 remote principal through their own trusted transport. It does not add a public
 HTTP endpoint, credential format, header override, or another route catalog.

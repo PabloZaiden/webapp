@@ -22,6 +22,7 @@ import type {
 } from "./store";
 import type { ApiKeyKind, LogLevelName, ThemePreference, WebAppUserRole } from "../../contracts";
 import { createUserRecord } from "./users";
+import { sqliteOAuthStore } from "./oauth-store";
 
 type Row = Record<string, unknown>;
 const SQLITE_BUSY_TIMEOUT_MS = 5_000;
@@ -64,6 +65,7 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
     throw error;
   }
   db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};`);
+  const oauth = sqliteOAuthStore(db);
 
   function immediateTransaction<T>(callback: () => T): T {
     return db.transaction(callback).immediate();
@@ -341,6 +343,7 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
     createSchema();
     migrateApiKeySchema();
     migrateSigningKeySchema();
+    oauth.initialize();
     db.exec("PRAGMA foreign_keys = ON;");
   }
 
@@ -824,6 +827,7 @@ export function sqliteWebAppStore(options: { dataDir?: string; fileName?: string
   }
 
   return {
+    oauth,
     initialize,
     getPreference,
     setPreference,

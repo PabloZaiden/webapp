@@ -1,4 +1,5 @@
 import type { ApiKeyKind, ApiKeySummary, AuditEventSummary, LogLevelName, ThemePreference, WebAppUserRole, WebAppUserSummary } from "../../contracts";
+import type { OAuthStore } from "./oauth-types";
 
 export interface UserRecord extends WebAppUserSummary {
   authVersion: number;
@@ -129,6 +130,8 @@ export type AccountDisableResult =
   | { kind: "not_found" | "owner_immutable" | "conflict" };
 
 export interface WebAppStore {
+  /** Required when OAuth is enabled; credentials must share account-store durability. */
+  oauth?: OAuthStore;
   initialize(): void;
   getPreference(key: string, userId?: string): string | undefined;
   setPreference(key: string, value: string, userId?: string): void;

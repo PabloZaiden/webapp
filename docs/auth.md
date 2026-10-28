@@ -1,6 +1,9 @@
 # Auth and security
 
-The framework provides three auth modes designed to coexist.
+The framework provides passkeys, API keys and device authentication, plus
+opt-in [resource-bound OAuth authorization-code/PKCE](oauth.md) for HTTP
+resources such as MCP. OAuth resource credentials intentionally do not
+authenticate ordinary application APIs or browser sessions.
 
 ## Store durability
 

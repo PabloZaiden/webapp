@@ -204,6 +204,12 @@ async function readRequestBody(req: Request, maxBytes: number | undefined): Prom
   return await readLimitedRequestBody(req, maxBytes ?? DEFAULT_JSON_BODY_MAX_BYTES);
 }
 
+/** Bounded UTF-8 input for protocols using non-JSON request bodies. */
+export async function readRequestText(req: Request, maxBytes = DEFAULT_JSON_BODY_MAX_BYTES): Promise<string> {
+  validateParseJsonOptions({ maxBytes });
+  return await readLimitedRequestBody(req, maxBytes);
+}
+
 function parseJsonText(text: string): unknown {
   try {
     return JSON.parse(text);
