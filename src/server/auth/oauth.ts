@@ -406,6 +406,7 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
           id: session.familyId, clientId: session.clientId,
           clientName: oauthClient(config, session.clientId).clientName,
           resource: session.resource, scopes: session.scopes,
+          authorizationContext: session.authorizationContext,
           createdAt: new Date(session.createdAt).toISOString(), expiresAt: new Date(session.expiresAt).toISOString(),
         })),
       });

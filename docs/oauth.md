@@ -344,7 +344,18 @@ redirect and PKCE bindings still revokes its family after code expiry.
 `POST /api/oauth/revoke` accepts `token` and client authentication, revokes the
 matching client's entire grant family, and is intentionally idempotent for
 unknown tokens. Authenticated humans can list their active grants with
-`GET /api/oauth/grants` and revoke their own grant with
+`GET /api/oauth/grants`. Each summary contains `id` (the stable public
+`OAuthPrincipal.grantId`), `clientId`, `clientName`, `resource`, `scopes`,
+`authorizationContext`, `createdAt` and `expiresAt`. The context is the
+persisted application JSON from consent, enabling application-owned grant
+labels such as workspace/general. Keep it safe for the authorizing human to
+view, never put credentials/secrets in it, and validate it against the
+application schema before rendering. Unknown/empty context must not imply a
+broader grant. Summaries contain no credential values or hashes and are
+available only to that human's authenticated browser session, not OAuth/API
+bearers or another account.
+
+Humans revoke their own grant with
 `DELETE /api/oauth/grants?id=<grantId>` (same-origin required). Account
 deletion/disabling and authentication-version changes immediately invalidate
 issued credentials and consent requests; current application grants are

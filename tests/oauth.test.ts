@@ -416,7 +416,13 @@ test("OAuth confidential client binding and durable consent survive server recon
     expect((await f.resource(tokens.access_token, "/another-resource")).status).toBe(401);
     await f.restart({ resource: originalResource });
     const list = await fetch(`${f.base}/api/oauth/grants`, { headers: { cookie: f.browserCookie } });
-    const grant = (await list.json() as { grants: { id: string }[] }).grants[0]!;
+    expect(list.status).toBe(200);
+    const grant = (await list.json() as { grants: { id: string; authorizationContext: OAuthAuthorizationContext }[] }).grants[0]!;
+    expect(grant.authorizationContext).toEqual({ workspaceId: "one", grant: "approved-by-human" });
+    expect(await (await fetch(`${f.base}/api/oauth/grants`, { headers: { cookie: f.otherCookie } })).json()).toEqual({ grants: [] });
+    expect((await fetch(`${f.base}/api/oauth/grants`, { headers: {
+      authorization: `Bearer ${tokens.access_token}`,
+    } })).status).toBe(403);
     expect((await fetch(`${f.base}/api/oauth/grants?id=${grant.id}`, {
       method: "DELETE", headers: { cookie: f.otherCookie, origin: f.base },
     })).status).toBe(200);
