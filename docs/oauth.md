@@ -225,6 +225,9 @@ Static descriptions take precedence. `authorizeConsent` and
 `resourceScopes` advertises only the minimal scopes required by the resource;
 the authorization-server metadata advertises all static scope descriptions.
 Dynamic scopes need not appear in metadata.
+Only explicitly configured or resolved scope names are recognized. Unknown
+names, including names resembling inherited object properties, receive the
+normal `invalid_scope` redirect.
 
 Clients do **not** need workspace identifiers or a privileged general scope
 in advance. They may request only a base scope such as `control`. The consent

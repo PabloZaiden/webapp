@@ -149,7 +149,9 @@ export async function describeOAuthScopes(config: ValidatedOAuthConfig, scopes: 
   const descriptions = z.record(scopeSchema, z.string().min(1).max(1000)).parse(resolved);
   const result: [string, string][] = [];
   for (const scope of scopes) {
-    const description = Object.hasOwn(config.scopes, scope) ? config.scopes[scope] : descriptions[scope];
+    const description = Object.hasOwn(config.scopes, scope)
+      ? config.scopes[scope]
+      : Object.hasOwn(descriptions, scope) ? descriptions[scope] : undefined;
     if (!description) oauthError("invalid_scope", "Requested scopes are not available");
     result.push([scope, description]);
   }

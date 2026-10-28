@@ -239,12 +239,16 @@ test.each(["memory", "sqlite"] as const)("OAuth HTTP consent and resource isolat
     const invalidRequests: Record<string, string>[] = [
       { code_challenge_method: "plain" }, { code_challenge: "" }, { resource: `${f.base}/other` },
       { scope: "*" }, { scope: "workspace:unknown" }, { response_type: "token" },
+      { scope: "toString" }, { scope: "constructor" }, { scope: "__proto__" },
     ];
     for (const overrides of invalidRequests) {
       const invalid = await f.begin(overrides);
       expect(invalid.response.status).toBe(303);
       expect(new URL(invalid.response.headers.get("location")!).searchParams.has("error")).toBe(true);
       expect(invalid.handle).toBeNull();
+      if (overrides["scope"]) {
+        expect(new URL(invalid.response.headers.get("location")!).searchParams.get("error")).toBe("invalid_scope");
+      }
     }
     const unknownClient = await f.begin({ client_id: "unregistered" });
     expect(unknownClient.response.status).toBe(401);
