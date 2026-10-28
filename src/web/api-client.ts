@@ -24,6 +24,16 @@ export class WebAppApiError extends Error {
 
 export type AuthRequiredListener = () => void;
 
+export interface WebAppNativeResourceSaver {
+  saveResource(resource: { url: string; suggestedName: string }): Promise<void>;
+}
+
+declare global {
+  interface Window {
+    webappNativeResourceSaver?: WebAppNativeResourceSaver;
+  }
+}
+
 const authRequiredListeners = new Set<AuthRequiredListener>();
 let configuredPublicBasePath: string | undefined;
 let configuredApiBaseUrl: string | undefined;
@@ -302,6 +312,13 @@ export async function appSaveResource(path: string, options: WebAppSaveResourceO
   const resource = await appResourceUrl(path, "resource", options);
   try {
     options.signal?.throwIfAborted();
+    if (window.webappNativeResourceSaver) {
+      await window.webappNativeResourceSaver.saveResource({
+        url: resource.url,
+        suggestedName: options.suggestedName,
+      });
+      return;
+    }
     const link = document.createElement("a");
     link.href = resource.url;
     link.download = options.suggestedName;

@@ -195,3 +195,18 @@ configureWebAppClient({
 belong to the requested API URL. A browser implementation is provided by default;
 no native runtime, signing, packaging, deep-link or App Store integration is
 included.
+
+A native host can supply `window.webappNativeResourceSaver`, implementing the
+exported `WebAppNativeResourceSaver` contract. `appSaveResource()` passes its
+resolved, selected-server-validated resource URL and suggested filename to
+`saveResource({ url, suggestedName })`. Remote clients still acquire their
+normal resource ticket; no bearer credentials are passed to this hook.
+Hosts must validate the calling document and destination before handing the
+request to their native download/save flow. Promise rejection is surfaced to
+the caller, without falling back to a browser navigation.
+Resolution means the host accepted the handoff, not that bytes were saved.
+The framework disposes the resource after the handoff; the hook must not retain
+client-owned URLs for deferred use. It does not add background/progress or
+cancellation guarantees after acceptance. Without this optional host, browser
+downloads are unchanged. External-client `saveResource()` remains authoritative
+and does not use this hook.
