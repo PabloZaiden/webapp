@@ -134,13 +134,16 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
     }
   }
 
-  function browserUser(request: Request, mutation = false): CurrentUser {
+  function browserUser(request: Request, mutation = false, expectedUserId?: string): CurrentUser {
     // Neither API/device/OAuth bearers nor the emergency passkey bypass can consent.
     if (runtime.passkeyDisabled || request.headers.has("authorization")) {
       oauthError("access_denied", "An authenticated browser session is required", 403);
     }
     const user = getPasskeySessionUser(request, accounts, runtime);
     if (!user) oauthError("login_required", "Sign in before reviewing this authorization", 401);
+    if (expectedUserId !== undefined && user.id !== expectedUserId) {
+      oauthError("access_denied", "The browser session no longer matches this authorization", 403);
+    }
     if (mutation && request.headers.get("origin") !== config.issuerUrl.origin) {
       oauthError("access_denied", "Same-origin consent is required", 403);
     }
@@ -240,6 +243,7 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
         oauthError("access_denied", "Authorization request is not available", 403);
       }
       account(current.userId, current.authVersion, observedRole);
+      browserUser(request, false, current.userId);
       return protocolResponse({
         request: handle, client: { clientId: client.clientId, clientName: client.clientName },
         resource: record.resource,
@@ -257,6 +261,7 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
     const record = authorization(body.request);
     if (record.status !== "pending" || record.userId !== user.id) oauthError("access_denied", "Review authorization before deciding", 403);
     account(record.userId, record.authVersion, observedRole);
+    browserUser(request, true, record.userId);
     const client = oauthClient(config, record.clientId);
     const decision = body.decision === "approve"
       ? await config.authorizeConsent({
@@ -278,6 +283,7 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
         oauthError("access_denied", "Authorization request has already been decided", 403);
       }
       account(current.userId, current.authVersion, observedRole);
+      browserUser(request, true, current.userId);
       if (!approval) {
         store!.saveAuthorization({ ...current, status: "denied" });
         return protocolResponse({ redirectUri: callback(current, { error: "access_denied" }) });

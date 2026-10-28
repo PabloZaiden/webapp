@@ -135,6 +135,7 @@ async function fixture(kind: "memory" | "sqlite" = "memory", options?: (store: W
   }
   return {
     base, store, user, other, config, runtime, directory, browserCookie, otherCookie, secret,
+    dispatch: (request: Request) => app!.handleRequest(request),
     begin, consent, approve, form, exchange, resource,
     revokeApplicationGrant() { grantActive = false; },
     async restart(overrides: Partial<OAuthConfig> = {}) {
@@ -402,8 +403,9 @@ test("OAuth rotation, revocation, expiration and application/account grant inval
   } finally { await revoked.close(); }
 });
 
-test("OAuth account demotion invalidates in-flight human and credential policy snapshots", async () => {
-  for (const stage of ["presentation", "consent", "access", "refresh"]) {
+test("OAuth admission rechecks source credentials and accounts across asynchronous handoffs", async () => {
+  for (const stage of ["presentation", "consent", "access", "refresh"]) for (const change of ["credential", "expiry", "version", "role", "disabled"]) {
+    setSystemTime(Date.now());
     const entered = Promise.withResolvers<void>();
     const released = Promise.withResolvers<void>();
     let armed = false;
@@ -433,10 +435,22 @@ test("OAuth account demotion invalidates in-flight human and credential policy s
     }));
     try {
       f.store.setUserRole(f.user.id, "admin", new Date().toISOString());
+      const human = stage === "presentation" || stage === "consent";
+      if (change === "expiry" && human) {
+        const headers = createBrowserSessionHeaders(new Request(f.base), f.store, f.runtime, f.user);
+        const lifetime = Number(/Max-Age=(\d+)/.exec(headers.get("set-cookie")!)?.[1]);
+        expect(lifetime).toBeGreaterThan(0);
+        setSystemTime(Date.now() + lifetime * 1000 - 1000);
+      }
       let pending: Promise<Response>;
       let tokens: TokenResponse | undefined;
-      if (stage === "presentation" || stage === "consent") {
+      let handle: string | undefined;
+      let verifier: string | undefined;
+      if (human) {
         const started = await f.begin();
+        expect(started.handle).toBeString();
+        handle = started.handle!;
+        verifier = started.verifier;
         if (stage === "consent") {
           expect((await fetch(`${f.base}/api/oauth/consent?request=${started.handle}`, {
             headers: { cookie: f.browserCookie },
@@ -456,10 +470,37 @@ test("OAuth account demotion invalidates in-flight human and credential policy s
       }
       await entered.promise;
       expect(observedRole).toBe("admin");
-      f.store.setUserRole(f.user.id, "user", new Date().toISOString());
+      if (change === "credential") {
+        if (human) f.store.deletePreference("passkey.secret");
+        else expect((await f.form("revoke", { client_id: "desktop", token: tokens!.refresh_token })).status).toBe(200);
+      } else if (change === "expiry") {
+        setSystemTime(Date.now() + (human ? 2000 : stage === "access" ? 11 * 60_000 : 31 * 86400_000));
+      } else if (change === "version") {
+        f.store.incrementUserAuthVersion(f.user.id, new Date().toISOString());
+      } else if (change === "role") {
+        f.store.setUserRole(f.user.id, "user", new Date().toISOString());
+      } else {
+        f.store.disableUser(f.user.id, new Date().toISOString());
+      }
+      if (human && change !== "role") {
+        expect((await fetch(`${f.base}/api/private`, { headers: { cookie: f.browserCookie } })).status).toBe(401);
+      }
       released.resolve();
-      expect((await pending).status).toBe(stage === "access" ? 401 : 400);
-      if (stage === "refresh" && tokens) {
+      const expected = stage === "access" || (human && ["credential", "expiry"].includes(change)) ? 401 : 400;
+      expect((await pending).status).toBe(expected);
+      if (human && ["credential", "expiry"].includes(change)) {
+        armed = false;
+        const headers = createBrowserSessionHeaders(new Request(f.base), f.store, f.runtime, f.store.getUserById(f.user.id)!);
+        const cookie = headers.get("set-cookie")!.split(";", 1)[0]!;
+        expect((await fetch(`${f.base}/api/oauth/consent?request=${handle}`, { headers: { cookie } })).status).toBe(200);
+        const decision = await f.consent(handle!, {
+          headers: { cookie, origin: f.base, "content-type": "application/json" },
+        });
+        expect(decision.status).toBe(200);
+        const callback = new URL((await decision.json() as { redirectUri: string }).redirectUri);
+        expect((await f.exchange(callback.searchParams.get("code")!, verifier!)).status).toBe(200);
+      }
+      if (stage === "refresh" && change === "role" && tokens) {
         armed = false;
         f.store.setUserRole(f.user.id, "admin", new Date().toISOString());
         expect((await f.form("token", {
@@ -467,6 +508,41 @@ test("OAuth account demotion invalidates in-flight human and credential policy s
           refresh_token: tokens.refresh_token,
         })).status).toBe(200);
       }
+    } finally {
+      released.resolve();
+      setSystemTime();
+      await f.close();
+    }
+  }
+  for (const change of ["credential", "version"]) {
+    let policyCalls = 0;
+    const f = await fixture("memory", () => ({ authorizeConsent: () => { policyCalls++; return {}; } }));
+    const entered = Promise.withResolvers<void>();
+    const released = Promise.withResolvers<void>();
+    try {
+      const started = await f.begin();
+      expect((await fetch(`${f.base}/api/oauth/consent?request=${started.handle}`, {
+        headers: { cookie: f.browserCookie },
+      })).status).toBe(200);
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          entered.resolve();
+          await released.promise;
+          controller.enqueue(new TextEncoder().encode(JSON.stringify({
+            request: started.handle, decision: "approve", approval: {},
+          })));
+          controller.close();
+        },
+      }, { highWaterMark: 0 });
+      const pending = f.dispatch(new Request(`${f.base}/api/oauth/consent`, {
+        method: "POST", headers: { cookie: f.browserCookie, origin: f.base, "content-type": "application/json" }, body,
+      }));
+      await entered.promise;
+      if (change === "credential") f.store.deletePreference("passkey.secret");
+      else f.store.incrementUserAuthVersion(f.user.id, new Date().toISOString());
+      released.resolve();
+      expect((await pending)?.status).toBe(change === "credential" ? 401 : 400);
+      expect(policyCalls).toBe(0);
     } finally {
       released.resolve();
       await f.close();

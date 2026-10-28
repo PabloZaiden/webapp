@@ -382,6 +382,34 @@ not itself increment the account authentication version. The final account
 check precedes returning an OAuth principal or committing credentials; policy
 decisions made for the old role cannot authorize the new one.
 
+Browser consent also revalidates the original signed browser cookie against
+the current account and signing secret after request-body parsing, after
+`getConsentContext`, and after `authorizeConsent`. The final recheck is inside
+the synchronous consent transaction, before returning presentation data or
+issuing a code. Expiry or signing-secret loss/replacement cannot turn a stale
+browser snapshot into approval, and a fresh valid session for the same account
+can review the still-pending request.
+
+These are the existing browser-session semantics, not a new revocation system:
+account/passkey resets invalidate sessions through `authVersion`, disabled
+accounts cannot authenticate, and cookie expiry/signature checks use current
+store state. Logout clears the browser cookies; it does not add a server-side
+per-cookie revocation record or cancel an already-running request. Resetting
+only the browser signing secret does not revoke OAuth grants already issued
+under valid authority; use account invalidation or explicit grant revocation
+for those. No arbitrary application work is rolled back.
+
+Across asynchronous `validateAuthorization` hooks, access verification rereads
+the presented token's current session, access/family expiry, revocation and
+account; refresh rereads the presented refresh token in its issuance transaction
+and preserves replay-family revocation before applying deferred policy results.
+`resolveScopes` runs before any authenticated grant exists. Alternative
+`admitResource` handlers own their separately verified source credential and
+final response; trusted `dispatchAuthenticated` has no remote source credential
+of its own and keeps checking its store-derived account at dispatch handoffs.
+Applications must validate their own credential/grant bindings, not treat
+either extension as implicit OAuth or browser admission.
+
 ## Persistence, deployment and validation
 
 Both built-in stores implement `WebAppStore.oauth`. SQLite uses the same
