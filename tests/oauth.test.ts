@@ -292,6 +292,29 @@ test.each(["memory", "sqlite"] as const)("OAuth HTTP consent and resource isolat
     expect((await fetch(`${f.base}/mcp?access_token=${tokens.access_token}`, { method: "POST" })).status).toBe(400);
     expect((await f.exchange(approved.code, approved.verifier)).status).toBe(400);
     expect((await f.resource(tokens.access_token)).status).toBe(401);
+    for (const elapsed of [61 * 1000, 11 * 60 * 1000]) {
+      const replayed = await f.approve();
+      const original = await (await f.exchange(replayed.code, replayed.verifier)).json() as TokenResponse;
+      setSystemTime(new Date(Date.now() + elapsed));
+      const refresh = await f.form("token", {
+        grant_type: "refresh_token", client_id: "desktop", refresh_token: original.refresh_token,
+        resource: f.config.resource,
+      });
+      expect(refresh.status).toBe(200);
+      const rotated = await refresh.json() as TokenResponse;
+      expect((await f.begin()).response.status).toBe(303);
+      if (kind === "sqlite") await f.restart();
+      expect((await f.exchange(replayed.code, randomToken(48))).status).toBe(400);
+      expect((await f.exchange(replayed.code, replayed.verifier, { redirect_uri: "http://127.0.0.1:7778/callback" })).status).toBe(400);
+      expect((await f.resource(rotated.access_token)).status).toBe(200);
+      expect((await f.exchange(replayed.code, replayed.verifier)).status).toBe(400);
+      expect((await f.resource(rotated.access_token)).status).toBe(401);
+      expect((await f.form("token", {
+        grant_type: "refresh_token", client_id: "desktop", refresh_token: rotated.refresh_token,
+        resource: f.config.resource,
+      })).status).toBe(400);
+      setSystemTime();
+    }
     const limitedApproval = await f.approve({ scope: "workspace:one" });
     const limitedTokens = await (await f.exchange(limitedApproval.code, limitedApproval.verifier)).json() as TokenResponse;
     const insufficient = await f.resource(limitedTokens.access_token);

@@ -337,7 +337,9 @@ at most 10 minutes. Refresh tokens are issued only to clients registered with
 credentials and invalidates the previous access token. Families have an
 absolute 30-day lifetime, not a sliding expiration. Validated code replay and
 refresh replay revoke the family. Revocation is committed even when the
-request returns `invalid_grant`.
+request returns `invalid_grant`. Authorization-code expiry prevents unused
+codes from issuing credentials; a consumed code with verified client, resource,
+redirect and PKCE bindings still revokes its family after code expiry.
 
 `POST /api/oauth/revoke` accepts `token` and client authentication, revokes the
 matching client's entire grant family, and is intentionally idempotent for
@@ -362,8 +364,10 @@ enabling OAuth; the server fails closed if it is missing. Transactions must
 be synchronous, atomic, isolated, roll back on exceptions, and share the
 account store's consistency boundary. Persisted OAuth records must be runtime
 validated; malformed state cannot silently become an empty successful grant.
-Retain rotated/revoked records until the family's absolute expiry for replay
-detection.
+Retain rotated/revoked records and consumed-code bindings until the family's
+absolute expiry for replay detection. Consumed authorization records use their
+`expiresAt` as this retention deadline, rather than the original pending-request
+deadline, so normal cleanup cannot discard active-family replay protection.
 
 Configure fixed externally visible issuer/resource URLs, HTTPS, durable
 storage and the existing explicit proxy trust settings. Never derive the

@@ -290,8 +290,8 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
   function issue(
     source: Pick<OAuthSessionRecord, "userId" | "authVersion" | "clientId" | "scopes" | "authorizationContext">,
     client: ValidatedOAuthClient,
-    familyId: string = crypto.randomUUID(),
-    expiresAt = Date.now() + REFRESH_SECONDS * 1000,
+    familyId: string,
+    expiresAt: number,
   ): Response {
     const now = Date.now();
     const access = `oauth_access_${randomToken()}`;
@@ -321,8 +321,7 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
         || !verifier || !/^[A-Za-z0-9._~-]{43,128}$/.test(verifier)) oauthError("invalid_grant", "Invalid authorization code or PKCE verifier");
       return store!.transaction(() => {
         const record = store!.getAuthorizationByCode(sha256(code));
-        if (!record || !["approved", "consumed"].includes(record.status) || record.expiresAt <= Date.now()
-          || !record.codeExpiresAt || record.codeExpiresAt <= Date.now()
+        if (!record || !["approved", "consumed"].includes(record.status)
           || record.clientId !== client.clientId || record.redirectUri !== parameters.get("redirect_uri")
           || !client.redirectUris.includes(record.redirectUri)
           || record.issuer !== config.issuer || record.resource !== config.resource
@@ -334,12 +333,16 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
           if (record.familyId) store!.revokeFamily(record.familyId, Date.now());
           return protocolResponse({ error: "invalid_grant", error_description: "Authorization code has already been used" }, 400);
         }
+        if (record.expiresAt <= Date.now() || !record.codeExpiresAt || record.codeExpiresAt <= Date.now()) {
+          oauthError("invalid_grant", "Invalid authorization code or PKCE verifier");
+        }
         const familyId = crypto.randomUUID();
-        store!.saveAuthorization({ ...record, status: "consumed", familyId });
+        const expiresAt = Date.now() + (client.grantTypes.includes("refresh_token") ? REFRESH_SECONDS : ACCESS_SECONDS) * 1000;
+        store!.saveAuthorization({ ...record, status: "consumed", familyId, expiresAt });
         return issue({
           userId: record.userId!, authVersion: record.authVersion!, clientId: client.clientId,
           scopes: record.scopes, authorizationContext: record.authorizationContext ?? {},
-        }, client, familyId);
+        }, client, familyId, expiresAt);
       });
     }
     if (parameters.get("grant_type") !== "refresh_token" || !client.grantTypes.includes("refresh_token")) {

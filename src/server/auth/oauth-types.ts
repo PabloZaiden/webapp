@@ -91,6 +91,7 @@ export const oauthAuthorizationSchema = z.object({
   codeChallenge: z.string(),
   scopeDescriptions: z.record(z.string(), z.string()),
   state: z.string().optional(),
+  /** Request deadline until redemption; consumed-code binding retention ends with the credential family. */
   expiresAt: z.number().finite(),
   status: z.enum(["pending", "approved", "denied", "consumed"]),
   userId: z.string().optional(),
