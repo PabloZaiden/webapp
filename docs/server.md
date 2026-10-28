@@ -1,5 +1,8 @@
 # Server API
 
+For generic HTTP resource authorization and trusted in-process operation
+execution, see [resource-bound OAuth and authenticated dispatch](oauth.md).
+
 ## Store implementations
 
 `createWebAppServer` uses `sqliteWebAppStore()` by default. Inject

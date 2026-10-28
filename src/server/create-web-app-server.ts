@@ -22,8 +22,11 @@ import { createWebDocumentProvider, htmlResponse } from "./web-document";
 import { createPublicRouteDispatcher } from "./public-route-dispatch";
 import { createRouteDispatcher } from "./route-dispatch";
 import { compileRouteTable } from "./routes";
-import { errorResponse, notFound, withSecurityHeaders } from "./responses";
+import { errorResponse, notFound, responseForRequest, withSecurityHeaders } from "./responses";
 import type { DelegatedDispatchOptions } from "./delegation";
+import type { AuthenticatedDispatchOptions } from "./authenticated-dispatch";
+import { toCurrentUser } from "./auth/users";
+import { createOAuthService } from "./auth/oauth";
 import { clientPreflight, withClientCors } from "./client-cors";
 import { authErrorResponse } from "./authentication";
 import { createLogger } from "./logger";
@@ -150,6 +153,10 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     deviceAuthEnabled,
     realtimePath: wsPath,
   });
+  if (input.auth?.oauth && !passkeysEnabled) {
+    throw new Error("OAuth consent requires framework browser authentication");
+  }
+  const oauth = input.auth?.oauth ? createOAuthService(input.auth.oauth, store, config) : undefined;
   const frameworkEndpoints = createFrameworkEndpointHandler({
     config,
     store,
@@ -194,11 +201,35 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     return result.matched ? result.response : withSecurityHeaders(notFound());
   }
 
+  async function dispatchAuthenticated<TAuthorization extends object>(
+    req: Request,
+    options: AuthenticatedDispatchOptions<TAuthorization>,
+  ): Promise<Response | undefined> {
+    if (input.requestFilter && !await input.requestFilter(req)) {
+      return responseForRequest(req, withSecurityHeaders(notFound()));
+    }
+    const user = store.getUserById(options.userId);
+    if (!user || user.disabledAt) {
+      return responseForRequest(req, withSecurityHeaders(errorResponse(403, "authentication_required", "An enabled account is required")));
+    }
+    const result = await routeDispatcher.dispatch(req, undefined, undefined, {
+      ...options, actor: Object.freeze(toCurrentUser(user)),
+      validateActor() {
+        const current = store.getUserById(user.id);
+        return Boolean(current && !current.disabledAt && current.authVersion === user.authVersion && current.role === user.role);
+      },
+    });
+    return result.matched ? result.response : responseForRequest(req, withSecurityHeaders(notFound()));
+  }
+
   async function dispatchRequest(req: Request, server?: Server<WebAppWebSocketData>): Promise<Response | undefined> {
     if (input.requestFilter && !await input.requestFilter(req)) {
       return withSecurityHeaders(notFound());
     }
+
     const url = new URL(req.url);
+    const oauthResponse = await oauth?.handleRequest(req);
+    if (oauthResponse) return secureDynamicResponse(oauthResponse);
     const publicRoute = await publicRouteDispatcher.dispatch(req);
     if (publicRoute) {
       return publicRoute;
@@ -224,7 +255,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     if (!ensureWebDocument) {
       return withSecurityHeaders(notFound());
     }
-    if (authOnlyWeb && !["/", "/login", "/setup", "/device", "/account"].includes(url.pathname)) {
+    if (authOnlyWeb && !["/", "/login", "/setup", "/device", "/account", oauth?.consentPath].includes(url.pathname)) {
       return withSecurityHeaders(notFound());
     }
     return htmlResponse(await ensureWebDocument(), req);
@@ -256,6 +287,7 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
 
   const lifecycle = createServerLifecycle({
     config,
+    oauth,
     deviceAuthEnabled,
     hooks: {
       ...(input.lifecycle ?? {}),
@@ -317,5 +349,5 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     }
   }
 
-  return { config, store, realtime, handleRequest, dispatchDelegated, ...lifecycle, stop };
+  return { config, store, realtime, oauth, handleRequest, dispatchDelegated, dispatchAuthenticated, ...lifecycle, stop };
 }

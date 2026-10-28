@@ -26,6 +26,7 @@ import type {
   UserSetupLinkRecord,
   WebAppStore,
 } from "./store";
+import { memoryOAuthStore } from "./oauth-store";
 
 const MAX_MEMORY_AUDIT_EVENTS = 1_000;
 
@@ -72,6 +73,7 @@ function assertUnique(condition: boolean): void {
  * when the instance or process is discarded.
  */
 export function memoryWebAppStore(): WebAppStore {
+  const oauth = memoryOAuthStore();
   const preferences = new Map<string, string>();
   const users = new Map<string, UserRecord>();
   const setupLinks = new Map<string, UserSetupLinkRecord>();
@@ -560,7 +562,8 @@ export function memoryWebAppStore(): WebAppStore {
   }
 
   const store: WebAppStore = {
-    initialize(): void {},
+    oauth,
+    initialize(): void { oauth.initialize(); },
     getPreference,
     setPreference,
     deletePreference(key: string, userId?: string): void {

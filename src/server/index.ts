@@ -1,6 +1,7 @@
 export * from "./runtime-config";
 export * from "./routes";
 export * from "./delegation";
+export * from "./authenticated-dispatch";
 export * from "./route-catalog";
 export * from "./route-schema";
 export * from "./responses";
@@ -24,4 +25,10 @@ export * from "./auth/api-keys";
 export * from "./auth/memory-store";
 export * from "./auth/store";
 export * from "./auth/sqlite-store";
+export type {
+  OAuthAuthorizationContext, OAuthAuthorizationRecord, OAuthClient, OAuthConfig,
+  OAuthConsentInput, OAuthConsentRequest, OAuthPrincipal, OAuthService, OAuthSessionRecord, OAuthStore,
+} from "./auth/oauth-types";
+export { createOAuthClientSecret } from "./auth/oauth";
+export { parseOAuthClients } from "./auth/oauth-validation";
 export * from "./realtime/bus";

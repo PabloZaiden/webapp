@@ -3,6 +3,8 @@ import { assertScopes } from "./auth/api-keys";
 import { AuthError } from "./auth/types";
 import type { AuthenticatedRequestState } from "./auth/types";
 import type { DelegatedDispatchOptions, DelegatedInvocation, DelegatedOperation, MatchedRouteOperation } from "./delegation";
+import type { AuthenticatedDispatchOptions, AuthenticatedInvocation } from "./authenticated-dispatch";
+import type { CurrentUser } from "../contracts";
 import { authErrorResponse, enforceRouteAuth, requiresAuth, scopesFromBearer, type Authentication } from "./authentication";
 import type { RuntimeConfig } from "./runtime-config";
 import { createLogger } from "./logger";
@@ -66,21 +68,21 @@ function routeHandlerErrorResponse(error: unknown): Response {
   return failedRequest();
 }
 
-async function delegatedErrorResponse<TAuthorization extends object>(
+async function admittedErrorResponse<TAuthorization extends object>(
   error: unknown,
   operation: MatchedRouteOperation,
-  options: DelegatedDispatchOptions<TAuthorization>,
+  options: Pick<DelegatedDispatchOptions<TAuthorization>, "onError">,
 ): Promise<Response> {
   const frameworkFailure = frameworkRouteErrorResponse(error);
   if (frameworkFailure) return frameworkFailure;
   if (!options.onError) return routeHandlerErrorResponse(error);
   try {
     const response = await options.onError(error, operation);
-    if (!(response instanceof Response)) throw new TypeError("Delegated onError must return a Response");
+    if (!(response instanceof Response)) throw new TypeError("Admitted onError must return a Response");
     return response;
   } catch {
     // Error hooks may fail while handling private domain or credential data.
-    log.error("Delegated application error hook failed", { path: operation.path, method: operation.method });
+    log.error("Admitted application error hook failed", { path: operation.path, method: operation.method });
     return failedRequest();
   }
 }
@@ -97,6 +99,7 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
       req: Request,
       server?: Server<WebAppWebSocketData>,
       delegated?: DelegatedDispatchOptions<TAuthorization>,
+      authenticated?: AuthenticatedDispatchOptions<TAuthorization> & { actor: CurrentUser; validateActor: () => boolean },
     ): Promise<RouteDispatchResult> {
       const routeMatch = matchCompiledRouteTable(routes, new URL(req.url).pathname);
       if (routeMatch.kind === "no-match") {
@@ -126,11 +129,15 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
       });
       const auth: AuthenticatedRequestState | Response = delegated
         ? { kind: "delegated", user: Object.freeze({ ...delegated.actor }) }
+        : authenticated
+        ? { kind: "server", user: authenticated.actor }
         : await authentication.authorize(req, requiresAuth(routeAuth));
       if (auth instanceof Response) {
         return { matched: true, response: routeResponse(req, auth) };
       }
       let delegation: DelegatedInvocation<TAuthorization> | undefined;
+      let invocation: AuthenticatedInvocation<TAuthorization> | undefined;
+      const admitted = delegated ?? authenticated;
       try {
         if (delegated) {
           const metadata = operation.metadata.delegation;
@@ -155,6 +162,19 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
           delegation = Object.freeze({ actor: auth.user, operation: delegatedOperation, authorization });
         }
         enforceRouteAuth(routeAuth, auth, authentication);
+        if (authenticated) {
+          if (routeAuth === "public" || routeAuth === "optional") {
+            throw new AuthError("authorization_forbidden", "Authenticated dispatch requires a private operation", 403);
+          }
+          const authorization = await authenticated.authorize(operation, req);
+          if (!authenticated.validateActor()) {
+            throw new AuthError("authentication_required", "Account authorization changed", 403);
+          }
+          if (!authorization || typeof authorization !== "object") {
+            throw new AuthError("authorization_forbidden", "Operation access was not granted", 403);
+          }
+          invocation = Object.freeze({ actor: authenticated.actor, operation, authorization });
+        }
         if (matched.route.userParam) {
           const paramValue = matched.params[matched.route.userParam];
           if (!paramValue) {
@@ -166,8 +186,8 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
           assertScopes(auth.kind === "api-key" ? auth.scopes : scopesFromBearer(auth.claims), matched.route.scopes ?? []);
         }
       } catch (error) {
-        const response = delegated
-          ? await delegatedErrorResponse(error, operation, delegated)
+        const response = admitted
+          ? await admittedErrorResponse(error, operation, admitted)
           : authErrorResponse(error);
         return { matched: true, response: routeResponse(req, response) };
       }
@@ -178,9 +198,9 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
         publishDeleted: (resource, id, options = {}) => realtime.publishDeleted(resource, id, { ...options, target: { ...options.target, userId: current().id } }),
         publishSettingsChanged: (options = {}) => realtime.publishSettingsChanged({ ...options, target: { ...options.target, userId: current().id } }),
       } satisfies UserScopedRealtimePublisher<TEvent>;
-      // Delegated admission is a server-code capability, not browser credentials.
+      // Trusted transport admission is a server-code capability, not browser credentials.
       // The verified transport replaces the browser origin check only on this path.
-      const originFailure = delegated ? undefined : checkSameOrigin(req, config, auth, matched.route.sameOrigin ?? "mutations");
+      const originFailure = admitted ? undefined : checkSameOrigin(req, config, auth, matched.route.sameOrigin ?? "mutations");
       if (originFailure) {
         return { matched: true, response: routeResponse(req, originFailure) };
       }
@@ -200,17 +220,31 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
           userRealtime,
           server,
         };
-        const invoke = async () => await handler(req, context);
-        const execute = async () => dependencies.middleware
-          ? await dependencies.middleware(req, context, operation, invoke)
-          : await invoke();
+        const assertActor = () => {
+          if (authenticated && !authenticated.validateActor()) {
+            throw new AuthError("authentication_required", "Account authorization changed", 403);
+          }
+        };
+        const invoke = async () => {
+          assertActor();
+          return await handler(req, context);
+        };
+        const execute = async () => {
+          assertActor();
+          return dependencies.middleware
+            ? await dependencies.middleware(req, context, operation, invoke)
+            : await invoke();
+        };
         const response = delegated?.run && delegation
           ? await delegated.run(delegation, execute)
+          : authenticated?.run && invocation
+          ? await authenticated.run(invocation, execute)
           : await execute();
+        assertActor();
         return { matched: true, response: response ? routeResponse(req, response) : undefined };
       } catch (error) {
-        const response = delegated
-          ? await delegatedErrorResponse(error, operation, delegated)
+        const response = admitted
+          ? await admittedErrorResponse(error, operation, admitted)
           : routeHandlerErrorResponse(error);
         return { matched: true, response: routeResponse(req, response) };
       }

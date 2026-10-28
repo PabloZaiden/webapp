@@ -2,6 +2,14 @@
 
 Run this checklist before releasing a framework app or cutting a checkpoint.
 
+## Resource-bound OAuth
+
+Run the [OAuth protocol and persistence validation](oauth.md#persistence-deployment-and-validation),
+then exercise the application's real login/consent page and explicit resource
+mount. Confirm requested scope descriptions and application choices are shown
+before approval, only the configured resource accepts the issued credential,
+and scoped service credentials cannot approve or create browser sessions.
+
 ## Passkeys
 
 1. Start the app with passkeys enabled and an empty data dir.

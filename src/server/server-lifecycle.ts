@@ -12,6 +12,7 @@ import { registerProcessShutdown } from "./process-shutdown";
 
 export interface ServerLifecycleDependencies<TEvent = unknown> {
   config: RuntimeConfig;
+  oauth?: { routePaths: readonly string[]; consentPath: string };
   deviceAuthEnabled: boolean;
   hooks?: WebAppServerLifecycleHooks;
   idleTimeout: number;
@@ -110,6 +111,10 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     const entryRoute = webDocument?.bundle
       ? { [webDocument.entryPublicPath]: webDocument.bundle as never }
       : {};
+    const oauthRoutes = Object.fromEntries((dependencies.oauth?.routePaths ?? []).map(path => [path, dynamicHandler]));
+    const oauthConsentRoute = dependencies.oauth
+      ? { [dependencies.oauth.consentPath]: publicRouteHandlers[dependencies.oauth.consentPath] ?? spaDocumentRoute }
+      : {};
     const server = Bun.serve<WebAppWebSocketData>({
       hostname: config.host,
       port: config.port,
@@ -127,6 +132,8 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
         "/account": publicRouteHandlers["/account"] ?? spaDocumentRoute,
         "/*": dependencies.authOnlyWeb ? dynamicHandler : spaDocumentRoute,
         [wsPath]: dynamicHandler,
+        ...oauthConsentRoute,
+        ...oauthRoutes,
       },
       websocket: {
         open(socket) {

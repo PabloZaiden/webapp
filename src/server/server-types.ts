@@ -5,6 +5,8 @@ import type { WebAppStore } from "./auth/store";
 import type { RuntimeConfig } from "./runtime-config";
 import type { RouteTable, WebAppRouteMiddleware } from "./routes";
 import type { DelegatedDispatchOptions } from "./delegation";
+import type { AuthenticatedDispatchOptions } from "./authenticated-dispatch";
+import type { OAuthConfig, OAuthService } from "./auth/oauth-types";
 import type { WebAppStaticAssetOptions } from "../static-assets";
 
 export const WEBAPP_SOCKET_HANDLER = "webappSocketHandler";
@@ -76,6 +78,7 @@ export interface WebAppServerConfig<TEvent = unknown> {
     passkeys?: boolean | { rpName?: string; userName?: string; userDisplayName?: string };
     apiKeys?: boolean;
     deviceAuth?: boolean;
+    oauth?: OAuthConfig;
   };
   realtime?: {
     path?: string;
@@ -95,10 +98,15 @@ export interface WebAppServer<TEvent = unknown> {
   config: RuntimeConfig;
   store: WebAppStore;
   realtime: RealtimeBus<TEvent>;
+  oauth?: OAuthService;
   handleRequest(req: Request, server?: Server<WebSocketData>): Promise<Response | undefined>;
   dispatchDelegated<TAuthorization extends object>(
     req: Request,
     options: DelegatedDispatchOptions<TAuthorization>,
+  ): Promise<Response | undefined>;
+  dispatchAuthenticated<TAuthorization extends object>(
+    req: Request,
+    options: AuthenticatedDispatchOptions<TAuthorization>,
   ): Promise<Response | undefined>;
   start(): Promise<Server<WebSocketData>>;
   stop(closeActiveConnections?: boolean): Promise<void>;
