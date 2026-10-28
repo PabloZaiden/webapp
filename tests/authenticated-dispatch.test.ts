@@ -14,6 +14,8 @@ test("server-authenticated dispatch grants canonical application operations with
   const member = createUserRecord({ username: "member", role: "user" });
   for (const user of [owner, admin, member]) store.createUser(user);
   const authority = new AsyncLocalStorage<{ approved: boolean }>();
+  let middlewareWait: (() => Promise<void>) | undefined;
+  let adminMutations = 0;
   const config: RuntimeConfig = {
     appName: "Dispatch", envPrefix: "DISPATCH_TEST", host: "127.0.0.1", port: 0,
     dataDir: ".cache/tests/dispatch", logLevel: "error", logLevelFromEnv: false,
@@ -23,13 +25,21 @@ test("server-authenticated dispatch grants canonical application operations with
   const app = createWebAppServer({
     appName: config.appName, envPrefix: config.envPrefix, runtimeConfig: config,
     store, web: false, auth: { apiKeys: true },
+    routeMiddleware: async (_request, _context, _operation, invoke) => {
+      await middlewareWait?.();
+      return await invoke();
+    },
     routes: {
       "/api/admin/:id": {
         auth: "admin", sameOrigin: "always",
-        POST: (_req, context) => jsonResponse({
-          actor: context.requireAdmin().id, id: context.params["id"],
-          approved: authority.getStore()?.approved, mode: context.auth.kind,
-        }),
+        POST: (_req, context) => {
+          const actor = context.requireAdmin();
+          adminMutations++;
+          return jsonResponse({
+            actor: actor.id, id: context.params["id"],
+            approved: authority.getStore()?.approved, mode: context.auth.kind,
+          });
+        },
       },
       "/api/owner": { auth: "owner", GET: (_req, context) => jsonResponse({ actor: context.requireOwner().id }) },
       "/api/public": { auth: "public", GET: () => jsonResponse({ public: true }) },
@@ -72,13 +82,34 @@ test("server-authenticated dispatch grants canonical application operations with
       method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" },
       body: JSON.stringify({ apiKey: managed.token }),
     })))?.status).toBe(401);
-    expect((await app.dispatchAuthenticated(request(), {
-      ...approve,
-      authorize() {
+    for (const stage of ["authorize", "run", "middleware", "result"]) {
+      store.setUserRole(admin.id, "admin", new Date().toISOString());
+      const entered = Promise.withResolvers<void>();
+      const released = Promise.withResolvers<void>();
+      const wait = async () => { entered.resolve(); await released.promise; };
+      const before = adminMutations;
+      middlewareWait = stage === "middleware" ? wait : undefined;
+      try {
+        const pending = app.dispatchAuthenticated(request(), {
+          ...approve,
+          authorize: async () => { if (stage === "authorize") await wait(); return {}; },
+          run: async (_invocation, invoke) => {
+            if (stage === "run") await wait();
+            const response = await invoke();
+            if (stage === "result") await wait();
+            return response;
+          },
+        });
+        await entered.promise;
         store.setUserRole(admin.id, "user", new Date().toISOString());
-        return {};
-      },
-    }))?.status).toBe(403);
+        released.resolve();
+        expect((await pending)?.status).toBe(403);
+        expect(adminMutations).toBe(before + (stage === "result" ? 1 : 0));
+      } finally {
+        released.resolve();
+        middlewareWait = undefined;
+      }
+    }
     store.disableUser(member.id, new Date().toISOString());
     expect((await app.dispatchAuthenticated(request(), { ...approve, userId: member.id }))?.status).toBe(403);
   } finally {

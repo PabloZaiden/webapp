@@ -164,6 +164,14 @@ The framework API-key/device scope check does not apply to this server-code
 capability: its mandatory application `authorize` callback owns the admitted
 operation policy. Never expose it as an arbitrary user-ID HTTP proxy.
 
+Account checks also run when `run` hands off to middleware, immediately before
+the handler (including after asynchronous middleware), and before returning
+the result. A changed role, authentication version or disabled account denies
+the stale invocation. These are authorization handoff boundaries, not a
+rollback/cancellation system: application work that already began under valid
+authority is not undone. Long-running domain mutations must enforce their own
+transactional authorization at commit if they require stronger guarantees.
+
 ## Human consent integration
 
 The application owns the consent UI at `consentPath`; the framework owns its
@@ -192,8 +200,9 @@ authenticated state transitions:
    `consentContext` in this response, for example eligible workspace/general
    choices. It runs only after authenticated review binds the account, outside
    the synchronous store transaction, with request/account validity rechecked
-   afterward. Its JSON-only presentation result is bounded to 8 KiB and is not
-   persisted as grant authority. Do not include credentials or private secrets.
+   afterward, including the observed account role. Its JSON-only presentation
+   result is bounded to 8 KiB and is not persisted as grant authority. Do not
+   include credentials or private secrets.
 4. Render client, resource, descriptions and the application-specific choice.
    Do not automatically approve. POST `/api/oauth/consent` with JSON
    `{request, decision: "approve" | "deny", approval: {...}}`. Browser cookies
@@ -366,6 +375,12 @@ Humans revoke their own grant with
 deletion/disabling and authentication-version changes immediately invalidate
 issued credentials and consent requests; current application grants are
 reconciled by `validateAuthorization`.
+
+Presentation, consent, access verification and refresh also reject an account
+role change across asynchronous policy hooks, even though changing a role does
+not itself increment the account authentication version. The final account
+check precedes returning an OAuth principal or committing credentials; policy
+decisions made for the old role cannot authorize the new one.
 
 ## Persistence, deployment and validation
 

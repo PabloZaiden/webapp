@@ -60,17 +60,18 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
   if (!store) throw new Error("OAuth requires a WebAppStore with atomic OAuth persistence");
   store.initialize();
 
-  function account(userId: string | undefined, authVersion: number | undefined): UserRecord {
+  function account(userId: string | undefined, authVersion: number | undefined, expectedRole?: UserRecord["role"]): UserRecord {
     const user = userId ? accounts.getUserById(userId) : undefined;
-    if (!user || user.disabledAt || user.authVersion !== authVersion) {
+    if (!user || user.disabledAt || user.authVersion !== authVersion
+      || (expectedRole !== undefined && user.role !== expectedRole)) {
       oauthError("invalid_grant", "Authorization is no longer valid");
     }
     return user;
   }
 
-  function principal(session: OAuthSessionRecord): OAuthPrincipal {
+  function principal(session: OAuthSessionRecord, expectedRole?: UserRecord["role"]): OAuthPrincipal {
     return Object.freeze({
-      user: Object.freeze(toCurrentUser(account(session.userId, session.authVersion))),
+      user: Object.freeze(toCurrentUser(account(session.userId, session.authVersion, expectedRole))),
       clientId: session.clientId, resource: session.resource,
       scopes: Object.freeze([...session.scopes]),
       authorizationContext: structuredClone(session.authorizationContext), grantId: session.familyId,
@@ -83,8 +84,8 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
       && config.clients.some(client => client.clientId === session.clientId));
   }
 
-  async function admitted(session: OAuthSessionRecord): Promise<boolean> {
-    return !config.validateAuthorization || await config.validateAuthorization(principal(session)) === true;
+  async function admitted(subject: OAuthPrincipal): Promise<boolean> {
+    return !config.validateAuthorization || await config.validateAuthorization(subject) === true;
   }
 
   function challenge(error: "invalid_token" | "insufficient_scope" | undefined, scopes: readonly string[], status: number): Response {
@@ -112,15 +113,17 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
       const session = store!.getSessionByTokenHash(sha256(token));
       const now = Date.now();
       if (!validSession(session, now) || session.accessExpiresAt <= now
-        || !secureEqual(session.accessHash, sha256(token)) || !await admitted(session)) {
+        || !secureEqual(session.accessHash, sha256(token))) {
         return challenge("invalid_token", requiredScopes, 401);
       }
+      const observed = principal(session);
+      if (!await admitted(observed)) return challenge("invalid_token", requiredScopes, 401);
       // Re-read after the asynchronous application check: rotation/revocation may have won.
       const current = store!.getSessionByTokenHash(sha256(token));
       if (!validSession(current, Date.now()) || current.accessExpiresAt <= Date.now()) {
         return challenge("invalid_token", requiredScopes, 401);
       }
-      const result = principal(current);
+      const result = principal(current, observed.user.role);
       if (requiredScopes.some(scope => !result.scopes.includes(scope))) {
         return challenge("insufficient_scope", requiredScopes, 403);
       }
@@ -207,6 +210,7 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
 
   async function consentDetails(request: Request): Promise<Response> {
     const user = browserUser(request);
+    const observedRole = user.role;
     const parameters = uniqueOAuthParameters(new URL(request.url).searchParams);
     const handle = parameters.get("request") ?? "";
     const record = store!.transaction(() => {
@@ -215,7 +219,7 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
         oauthError("access_denied", "Authorization request is not available", 403);
       }
       const current = accounts.getUserById(user.id);
-      if (!current || current.disabledAt) oauthError("access_denied", "Account is not available", 403);
+      if (!current || current.disabledAt || current.role !== observedRole) oauthError("access_denied", "Account is not available", 403);
       if (record.userId && record.authVersion !== current.authVersion) oauthError("access_denied", "Authorization is no longer valid", 403);
       const bound = { ...record, userId: user.id, authVersion: current.authVersion };
       store!.saveAuthorization(bound);
@@ -235,7 +239,7 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
       if (current.status !== "pending" || current.userId !== user.id || current.authVersion !== record.authVersion) {
         oauthError("access_denied", "Authorization request is not available", 403);
       }
-      account(current.userId, current.authVersion);
+      account(current.userId, current.authVersion, observedRole);
       return protocolResponse({
         request: handle, client: { clientId: client.clientId, clientName: client.clientName },
         resource: record.resource,
@@ -248,10 +252,11 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
 
   async function consentDecision(request: Request): Promise<Response> {
     const user = browserUser(request, true);
+    const observedRole = user.role;
     const body = await parseJson(request, consentSchema, { requireContentType: true, maxBytes: 16 * 1024 });
     const record = authorization(body.request);
     if (record.status !== "pending" || record.userId !== user.id) oauthError("access_denied", "Review authorization before deciding", 403);
-    account(record.userId, record.authVersion);
+    account(record.userId, record.authVersion, observedRole);
     const client = oauthClient(config, record.clientId);
     const decision = body.decision === "approve"
       ? await config.authorizeConsent({
@@ -272,7 +277,7 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
       if (current.status !== "pending" || current.userId !== user.id || current.authVersion !== record.authVersion) {
         oauthError("access_denied", "Authorization request has already been decided", 403);
       }
-      account(current.userId, current.authVersion);
+      account(current.userId, current.authVersion, observedRole);
       if (!approval) {
         store!.saveAuthorization({ ...current, status: "denied" });
         return protocolResponse({ redirectUri: callback(current, { error: "access_denied" }) });
@@ -354,9 +359,9 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
     if (!snapshot || snapshot.clientId !== client.clientId || snapshot.issuer !== config.issuer || snapshot.resource !== config.resource) {
       oauthError("invalid_grant", "Invalid refresh token");
     }
-    account(snapshot.userId, snapshot.authVersion);
+    const observed = principal(snapshot);
     // Application policy denial/failure must not mask binding-verified replay.
-    const policy = snapshot.revokedAt !== undefined ? { allowed: false } : await admitted(snapshot).then(
+    const policy = snapshot.revokedAt !== undefined ? { allowed: false } : await admitted(observed).then(
       allowed => ({ allowed }),
       (error: unknown) => ({ error }),
     );
@@ -372,7 +377,7 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
       }
       if ("error" in policy) throw policy.error;
       if (!policy.allowed) oauthError("invalid_grant", "Authorization is no longer valid");
-      account(current.userId, current.authVersion);
+      account(current.userId, current.authVersion, observed.user.role);
       const scopes = parameters.has("scope") ? oauthScopes(parameters.get("scope")) : current.scopes;
       if (scopes.some(scope => !current.scopes.includes(scope))) oauthError("invalid_scope", "Refresh cannot widen authorization");
       store!.saveSession({ ...current, revokedAt: Date.now() });

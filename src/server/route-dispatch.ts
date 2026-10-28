@@ -220,15 +220,27 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
           userRealtime,
           server,
         };
-        const invoke = async () => await handler(req, context);
-        const execute = async () => dependencies.middleware
-          ? await dependencies.middleware(req, context, operation, invoke)
-          : await invoke();
+        const assertActor = () => {
+          if (authenticated && !authenticated.validateActor()) {
+            throw new AuthError("authentication_required", "Account authorization changed", 403);
+          }
+        };
+        const invoke = async () => {
+          assertActor();
+          return await handler(req, context);
+        };
+        const execute = async () => {
+          assertActor();
+          return dependencies.middleware
+            ? await dependencies.middleware(req, context, operation, invoke)
+            : await invoke();
+        };
         const response = delegated?.run && delegation
           ? await delegated.run(delegation, execute)
           : authenticated?.run && invocation
           ? await authenticated.run(invocation, execute)
           : await execute();
+        assertActor();
         return { matched: true, response: response ? routeResponse(req, response) : undefined };
       } catch (error) {
         const response = admitted

@@ -402,6 +402,78 @@ test("OAuth rotation, revocation, expiration and application/account grant inval
   } finally { await revoked.close(); }
 });
 
+test("OAuth account demotion invalidates in-flight human and credential policy snapshots", async () => {
+  for (const stage of ["presentation", "consent", "access", "refresh"]) {
+    const entered = Promise.withResolvers<void>();
+    const released = Promise.withResolvers<void>();
+    let armed = false;
+    let observedRole: string | undefined;
+    const wait = async (role: string) => {
+      if (!armed) return;
+      observedRole = role;
+      entered.resolve();
+      await released.promise;
+    };
+    const f = await fixture("memory", () => ({
+      getConsentContext: async ({ user }) => {
+        const approved = user.isAdmin;
+        await wait(user.role);
+        return { approved };
+      },
+      authorizeConsent: async ({ user }) => {
+        const approved = user.isAdmin;
+        await wait(user.role);
+        return approved ? {} : false;
+      },
+      validateAuthorization: async subject => {
+        const approved = subject.user.isAdmin;
+        await wait(subject.user.role);
+        return approved;
+      },
+    }));
+    try {
+      f.store.setUserRole(f.user.id, "admin", new Date().toISOString());
+      let pending: Promise<Response>;
+      let tokens: TokenResponse | undefined;
+      if (stage === "presentation" || stage === "consent") {
+        const started = await f.begin();
+        if (stage === "consent") {
+          expect((await fetch(`${f.base}/api/oauth/consent?request=${started.handle}`, {
+            headers: { cookie: f.browserCookie },
+          })).status).toBe(200);
+        }
+        armed = true;
+        pending = stage === "consent" ? f.consent(started.handle!) :
+          fetch(`${f.base}/api/oauth/consent?request=${started.handle}`, { headers: { cookie: f.browserCookie } });
+      } else {
+        const approval = await f.approve();
+        tokens = await (await f.exchange(approval.code, approval.verifier)).json() as TokenResponse;
+        armed = true;
+        pending = stage === "access" ? f.resource(tokens.access_token) : f.form("token", {
+          grant_type: "refresh_token", client_id: "desktop", resource: f.config.resource,
+          refresh_token: tokens.refresh_token,
+        });
+      }
+      await entered.promise;
+      expect(observedRole).toBe("admin");
+      f.store.setUserRole(f.user.id, "user", new Date().toISOString());
+      released.resolve();
+      expect((await pending).status).toBe(stage === "access" ? 401 : 400);
+      if (stage === "refresh" && tokens) {
+        armed = false;
+        f.store.setUserRole(f.user.id, "admin", new Date().toISOString());
+        expect((await f.form("token", {
+          grant_type: "refresh_token", client_id: "desktop", resource: f.config.resource,
+          refresh_token: tokens.refresh_token,
+        })).status).toBe(200);
+      }
+    } finally {
+      released.resolve();
+      await f.close();
+    }
+  }
+});
+
 test("OAuth confidential client binding and durable consent survive server reconstruction", async () => {
   const f = await fixture("sqlite");
   try {
