@@ -84,6 +84,8 @@ export function sqliteOAuthStore(db: Database): OAuthStore {
         );
         CREATE INDEX IF NOT EXISTS webapp_oauth_sessions_family ON webapp_oauth_sessions(family_id);
         CREATE INDEX IF NOT EXISTS webapp_oauth_sessions_user ON webapp_oauth_sessions(user_id);
+        CREATE INDEX IF NOT EXISTS webapp_oauth_authorizations_expiry ON webapp_oauth_authorizations(expires_at);
+        CREATE INDEX IF NOT EXISTS webapp_oauth_sessions_expiry ON webapp_oauth_sessions(expires_at);
       `);
     },
     transaction: operation => db.transaction(() => synchronous(operation())).immediate(),

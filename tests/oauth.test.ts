@@ -324,7 +324,10 @@ test.each(["memory", "sqlite"] as const)("OAuth HTTP consent and resource isolat
 });
 
 test("OAuth rotation, revocation, expiration and application/account grant invalidation", async () => {
-  const f = await fixture();
+  let allowExpandedScopes = true;
+  const f = await fixture("memory", () => ({
+    validateAuthorization: principal => allowExpandedScopes || !principal.scopes.includes("workspace:one"),
+  }));
   async function issued() {
     const approval = await f.approve();
     return await (await f.exchange(approval.code, approval.verifier)).json() as TokenResponse;
@@ -350,10 +353,12 @@ test("OAuth rotation, revocation, expiration and application/account grant inval
     expect((await refresh(first.refresh_token, { scope: "control general" })).status).toBe(400);
     const rotated = await (await refresh(first.refresh_token, { scope: "control" })).json() as TokenResponse;
     expect(rotated.scope).toBe("control");
+    allowExpandedScopes = false;
     expect((await f.resource(first.access_token)).status).toBe(401);
     expect((await f.resource(rotated.access_token)).status).toBe(200);
     expect((await refresh(first.refresh_token)).status).toBe(400);
     expect((await f.resource(rotated.access_token)).status).toBe(401);
+    allowExpandedScopes = true;
     const concurrent = await issued();
     const raced = await Promise.all([refresh(concurrent.refresh_token), refresh(concurrent.refresh_token)]);
     expect(raced.map(response => response.status).sort()).toEqual([200, 400]);

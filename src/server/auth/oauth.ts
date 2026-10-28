@@ -355,7 +355,11 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
       oauthError("invalid_grant", "Invalid refresh token");
     }
     account(snapshot.userId, snapshot.authVersion);
-    if (!await admitted(snapshot)) oauthError("invalid_grant", "Authorization is no longer valid");
+    // Application policy denial/failure must not mask binding-verified replay.
+    const policy = snapshot.revokedAt !== undefined ? { allowed: false } : await admitted(snapshot).then(
+      allowed => ({ allowed }),
+      (error: unknown) => ({ error }),
+    );
     return store!.transaction(() => {
       const current = store!.getSessionByTokenHash(sha256(refresh));
       if (!current || current.clientId !== client.clientId || current.expiresAt <= Date.now()) {
@@ -366,6 +370,8 @@ export function createOAuthService(input: OAuthConfig, accounts: WebAppStore, ru
         // Commit replay revocation rather than throwing and rolling it back.
         return protocolResponse({ error: "invalid_grant", error_description: "Invalid refresh token" }, 400);
       }
+      if ("error" in policy) throw policy.error;
+      if (!policy.allowed) oauthError("invalid_grant", "Authorization is no longer valid");
       account(current.userId, current.authVersion);
       const scopes = parameters.has("scope") ? oauthScopes(parameters.get("scope")) : current.scopes;
       if (scopes.some(scope => !current.scopes.includes(scope))) oauthError("invalid_scope", "Refresh cannot widen authorization");

@@ -340,6 +340,9 @@ refresh replay revoke the family. Revocation is committed even when the
 request returns `invalid_grant`. Authorization-code expiry prevents unused
 codes from issuing credentials; a consumed code with verified client, resource,
 redirect and PKCE bindings still revokes its family after code expiry.
+Binding-verified refresh replay also revokes the family before an application
+policy denial or failure can mask it, including when policy now accepts only
+the successor's narrowed scopes.
 
 `POST /api/oauth/revoke` accepts `token` and client authentication, revokes the
 matching client's entire grant family, and is intentionally idempotent for
@@ -365,7 +368,9 @@ reconciled by `validateAuthorization`.
 
 Both built-in stores implement `WebAppStore.oauth`. SQLite uses the same
 private account database and immediate transactions for consent, one-use code
-exchange, rotation and revocation. Only token/code/handle hashes are stored;
+exchange, rotation and revocation. Both OAuth tables have expiry indexes so
+cleanup does not scan all retained history while holding the writer lock.
+Only token/code/handle hashes are stored;
 there is no new signing key, crypto implementation or identity database.
 Existing framework `node:crypto` helpers supply secure randomness, SHA-256 and
 constant-time comparison. The memory store is deliberately volatile.
