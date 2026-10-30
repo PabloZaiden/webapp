@@ -2,6 +2,7 @@ import type { ClientTicketRequest, ClientTicketResponse, CurrentUser } from "../
 import { authenticateApiKey, assertScopes } from "./auth/api-keys";
 import {
   getPasskeySessionUser,
+  getPasskeySession,
   isPasskeyAuthRequired,
 } from "./auth/passkeys";
 import { verifyAccessToken } from "./auth/device-auth";
@@ -219,9 +220,9 @@ export function createAuthentication(dependencies: AuthenticationDependencies): 
       if (config.passkeyDisabled) {
         return { kind: "passkey", user: disabledAuthOwner() };
       }
-      const user = getPasskeySessionUser(req, store, config);
-      if (user) {
-        return { kind: "passkey", user };
+      const session = getPasskeySession(req, store, config);
+      if (session) {
+        return { kind: "passkey", ...session };
       }
     }
     if (passkeysEnabled && isPasskeyAuthRequired(store, config)) {

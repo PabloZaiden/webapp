@@ -14,6 +14,7 @@ export type AuthenticatedRequestState =
   | { kind: "anonymous" }
   | { kind: "delegated"; user: CurrentUser }
   | { kind: "server"; user: CurrentUser }
+  // Browser identity; passkeyId proves this session completed WebAuthn.
   | { kind: "passkey"; user: CurrentUser; passkeyId?: string }
   | { kind: "api-key"; user: CurrentUser; apiKeyId: string; scopes: string[] }
   | { kind: "bearer"; user: CurrentUser; claims: AccessTokenClaims; clientTicket?: { kind: "websocket" | "resource"; origin: string | null } };
