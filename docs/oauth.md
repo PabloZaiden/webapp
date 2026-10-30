@@ -149,8 +149,10 @@ credential or automatic escalation from OAuth scopes. A successful
 `authorize` must return an application authority object; `false`/`undefined`
 deny. The framework loads the enabled user from its account store, preserves
 normal admin/owner, ownership and `userParam` checks, and rechecks account
-version/role after asynchronous authorization. Only private application
-operations can run. No delegation metadata is required; that is the
+version/role after asynchronous authorization. Private routes are admitted by
+default; `allowPublic: true` also permits public/optional routes such as health
+and configuration, without skipping the enabled-account or mandatory per-operation
+authorization checks. No delegation metadata is required; that is the
 intentional difference from `dispatchDelegated`. The original request's
 Authorization/cookie/Origin headers confer no authority on this path.
 
@@ -158,8 +160,10 @@ The normal compiled routes, route middleware, input validation, error
 mapping, security headers, `HEAD` behavior and `requestFilter` are retained.
 `run` establishes typed application operation authority before middleware and
 the handler. `ctx.auth.kind` is `"server"` and helpers see the actual account,
-not an invented owner. Built-in framework routes, browser documents and public
-routes are never dispatched. No browser cookie or credential is minted.
+not an invented owner. Operational framework routes share this dispatcher and
+appear with application routes in `app.routeCatalog`. Private authentication,
+credential/session administration and browser documents are not dispatched.
+No browser cookie or credential is minted.
 The framework API-key/device scope check does not apply to this server-code
 capability: its mandatory application `authorize` callback owns the admitted
 operation policy. Never expose it as an arbitrary user-ID HTTP proxy.

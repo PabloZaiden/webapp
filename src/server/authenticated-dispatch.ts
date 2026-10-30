@@ -13,6 +13,8 @@ export interface AuthenticatedInvocation<TAuthorization = unknown> {
  */
 export interface AuthenticatedDispatchOptions<TAuthorization extends object> {
   userId: string;
+  /** Explicitly admit public/optional routes through the same account and operation checks. Defaults to private routes only. */
+  allowPublic?: boolean;
   authorize: (
     operation: MatchedRouteOperation,
     request: Request,

@@ -73,13 +73,13 @@ import {
   errorResponse,
   jsonResponse,
   MAX_WEBAUTHN_JSON_BODY_BYTES,
-  methodNotAllowed,
   notFound,
   parseJson,
   successResponse,
 } from "./responses";
 import type { WebSocketData } from "./realtime/bus";
 import { scheduleProcessShutdown } from "./process-shutdown";
+import { defineRoutes, type RouteContext } from "./routes";
 
 const MAX_API_KEY_AUTH_BODY_BYTES = 4 * 1024;
 
@@ -135,12 +135,12 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
     return auth;
   }
 
-  async function configResponse(req: Request): Promise<Response> {
-    const auth = await authorize(req, false, true);
-    if (auth instanceof Response) return auth;
+  async function configResponse(req: Request, context: RouteContext): Promise<Response> {
+    const auth = context.auth;
+    if (auth.kind === "api-key") assertScopes(auth.scopes, []);
     const user = authentication.currentUser(auth) ?? authentication.configUser(req);
     const passkeyAuth = passkeyStatus(req, store, config, passkeysEnabled);
-    if (auth.kind === "bearer" || auth.kind === "api-key") {
+    if (auth.kind === "bearer" || auth.kind === "api-key" || auth.kind === "server") {
       passkeyAuth.authenticated = true;
       passkeyAuth.passkeyRequired = false;
       passkeyAuth.bootstrapRequired = false;
@@ -189,16 +189,111 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
     return authentication.requireAdmin(auth);
   }
 
+  const routes = defineRoutes({
+    "/api/health": {
+      auth: "public", sameOrigin: "never", tags: ["diagnostics"],
+      description: "Read server health and the running application version.",
+      operations: { GET: { automation: { policy: "read" } } },
+      GET: () => successResponse({ ok: true, version }),
+    },
+    "/api/config": {
+      auth: "public", sameOrigin: "never", tags: ["configuration"],
+      description: "Read public application configuration and the current authenticated user.",
+      operations: { GET: { automation: { policy: "read" } } },
+      GET: configResponse,
+    },
+    "/api/preferences/theme": {
+      auth: "user", sameOrigin: "mutations", tags: ["preferences"],
+      description: "Read or update the current user's theme preference.",
+      operations: {
+        GET: { automation: { policy: "read" } },
+        PUT: { requestSchema: themePreferenceRequestSchema, automation: { policy: "write" } },
+      },
+      GET: (_req, context) => jsonResponse({
+        theme: store.getThemePreference(context.requireUser().id) ?? DEFAULT_THEME_PREFERENCE,
+      }),
+      async PUT(req, context) {
+        const body = await parseJson(req, themePreferenceRequestSchema);
+        store.setThemePreference(body.theme, context.requireUser().id);
+        return successResponse({ theme: body.theme });
+      },
+    },
+    "/api/preferences/log-level": {
+      auth: "admin", sameOrigin: "mutations", tags: ["preferences", "diagnostics"],
+      description: "Read or update the server log level unless controlled by environment.",
+      operations: {
+        GET: { automation: { policy: "read" } },
+        PUT: { requestSchema: logLevelPreferenceRequestSchema, automation: { policy: "write" } },
+      },
+      GET: () => jsonResponse({
+        level: resolveEffectiveLogLevel(config, store.getLogLevelPreference()),
+        fromEnv: config.logLevelFromEnv,
+      }),
+      async PUT(req) {
+        if (config.logLevelFromEnv) return errorResponse(409, "log_level_from_env", "Log level is controlled by environment");
+        const body = await parseJson(req, logLevelPreferenceRequestSchema);
+        store.setLogLevelPreference(body.level);
+        setLogLevel(body.level);
+        onLogLevelChange?.(body.level);
+        return successResponse({ level: body.level });
+      },
+    },
+    "/api/server/logs": {
+      auth: "admin", sameOrigin: "mutations", tags: ["diagnostics"],
+      description: "Read captured server logs when in-memory capture is enabled.",
+      operations: { GET: { automation: { policy: "read" } } },
+      GET() {
+        const enabled = serverLogs.isEnabled();
+        return jsonResponse({ enabled, logs: enabled ? serverLogs.getEntries() : [] });
+      },
+    },
+    "/api/server/logs/settings": {
+      auth: "admin", sameOrigin: "mutations", tags: ["diagnostics"],
+      description: "Enable or disable in-memory server log capture.",
+      operations: {
+        PUT: { requestSchema: serverLogSettingsRequestSchema, automation: { policy: "write" } },
+      },
+      async PUT(req) {
+        const body = await parseJson(req, serverLogSettingsRequestSchema);
+        const previousEnabled = store.getServerLogsEnabledPreference() ?? false;
+        store.setServerLogsEnabledPreference(body.enabled);
+        try {
+          serverLogs.setEnabled(body.enabled);
+        } catch (error) {
+          const errors: unknown[] = [error];
+          try {
+            serverLogs.setEnabled(previousEnabled);
+          } catch (restoreError) {
+            errors.push(restoreError);
+          }
+          try {
+            store.setServerLogsEnabledPreference(previousEnabled);
+          } catch (restoreError) {
+            errors.push(restoreError);
+          }
+          if (errors.length > 1) throw new AggregateError(errors, "Unable to update server-log capture setting");
+          throw error;
+        }
+        return successResponse({ enabled: serverLogs.isEnabled() });
+      },
+    },
+    "/api/server/kill": {
+      auth: "admin", sameOrigin: "mutations", tags: ["maintenance"],
+      description: "Shut down the server process, interrupting its active connections.",
+      operations: {
+        POST: { automation: { policy: "confirm", reason: "Shuts down the application server and interrupts active work.", completion: "admission" } },
+      },
+      POST() {
+        scheduleProcessShutdown();
+        return successResponse({ success: true, message: "Server is shutting down" });
+      },
+    },
+  });
+
   async function handleBuiltIn(req: Request, server?: Server<WebSocketData>): Promise<Response | undefined> {
     const url = new URL(req.url);
     const path = url.pathname;
     try {
-      if (path === "/api/health" && req.method === "GET") {
-        return successResponse({ ok: true, version });
-      }
-      if (path === "/api/config" && req.method === "GET") {
-        return await configResponse(req);
-      }
       if (deviceAuthEnabled && path === "/api/auth/client-ticket" && req.method === "POST") {
         const auth = await authorize(req, true, true);
         if (auth instanceof Response) return auth;
@@ -485,97 +580,6 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         ensureAdmin(auth);
         return jsonResponse(store.listAuditEvents(100));
       }
-      if (path === "/api/preferences/theme") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        const user = authentication.requireUser(auth);
-        if (req.method === "GET") {
-          return jsonResponse({ theme: store.getThemePreference(user.id) ?? DEFAULT_THEME_PREFERENCE });
-        }
-        if (req.method === "PUT") {
-          const originFailure = checkSameOrigin(req, config, auth, "mutations");
-          if (originFailure) return originFailure;
-          const body = await parseJson(req, themePreferenceRequestSchema);
-          store.setThemePreference(body.theme, user.id);
-          return successResponse({ theme: body.theme });
-        }
-      }
-      if (path === "/api/preferences/log-level") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        ensureAdmin(auth);
-        if (req.method === "GET") {
-          return jsonResponse({
-            level: resolveEffectiveLogLevel(config, store.getLogLevelPreference()),
-            fromEnv: config.logLevelFromEnv,
-          });
-        }
-        if (req.method === "PUT") {
-          const originFailure = checkSameOrigin(req, config, auth, "mutations");
-          if (originFailure) return originFailure;
-          if (config.logLevelFromEnv) return errorResponse(409, "log_level_from_env", "Log level is controlled by environment");
-          const body = await parseJson(req, logLevelPreferenceRequestSchema);
-          store.setLogLevelPreference(body.level);
-          setLogLevel(body.level);
-          onLogLevelChange?.(body.level);
-          return successResponse({ level: body.level });
-        }
-      }
-      if (path === "/api/server/logs") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        ensureAdmin(auth);
-        if (req.method !== "GET") {
-          return methodNotAllowed();
-        }
-        const enabled = serverLogs.isEnabled();
-        return jsonResponse({
-          enabled,
-          logs: enabled ? serverLogs.getEntries() : [],
-        });
-      }
-      if (path === "/api/server/logs/settings") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        ensureAdmin(auth);
-        if (req.method !== "PUT") {
-          return methodNotAllowed();
-        }
-        const originFailure = checkSameOrigin(req, config, auth, "mutations");
-        if (originFailure) return originFailure;
-        const body = await parseJson(req, serverLogSettingsRequestSchema);
-        const previousEnabled = store.getServerLogsEnabledPreference() ?? false;
-        store.setServerLogsEnabledPreference(body.enabled);
-        try {
-          serverLogs.setEnabled(body.enabled);
-        } catch (error) {
-          const errors: unknown[] = [error];
-          try {
-            serverLogs.setEnabled(previousEnabled);
-          } catch (restoreError) {
-            errors.push(restoreError);
-          }
-          try {
-            store.setServerLogsEnabledPreference(previousEnabled);
-          } catch (restoreError) {
-            errors.push(restoreError);
-          }
-          if (errors.length > 1) {
-            throw new AggregateError(errors, "Unable to update server-log capture setting");
-          }
-          throw error;
-        }
-        return successResponse({ enabled: serverLogs.isEnabled() });
-      }
-      if (path === "/api/server/kill" && req.method === "POST") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        ensureAdmin(auth);
-        const originFailure = checkSameOrigin(req, config, auth, "mutations");
-        if (originFailure) return originFailure;
-        scheduleProcessShutdown();
-        return successResponse({ success: true, message: "Server is shutting down" });
-      }
       if (
         deviceAuthEnabled
         && ensureWebDocument
@@ -590,5 +594,5 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
     return undefined;
   }
 
-  return { handleBuiltIn };
+  return { handleBuiltIn, routes };
 }

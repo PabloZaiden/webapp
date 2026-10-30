@@ -33,6 +33,7 @@ import { createLogger } from "./logger";
 import { serverForRewrittenRequest } from "./rewritten-request-server";
 import { CLIENT_TICKET_PARAMETER } from "./auth/client-tickets";
 import { AuthError } from "./auth/types";
+import { createRouteCatalog } from "./route-catalog";
 
 export const MAX_SERVER_IDLE_TIMEOUT_SECONDS = 255;
 export const DEFAULT_SERVER_IDLE_TIMEOUT_SECONDS = MAX_SERVER_IDLE_TIMEOUT_SECONDS;
@@ -110,7 +111,6 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
   }
   const authOnlyWeb = input.web !== false && input.web?.mode === "auth";
   const log = createLogger("webapp:requests");
-  const routes = compileRouteTable(input.routes ?? {});
   const store = input.store ?? sqliteWebAppStore({ dataDir: config.dataDir });
   store.initialize();
   let serverLogsEnabled = store.getServerLogsEnabledPreference() ?? false;
@@ -172,6 +172,9 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     serverLogs,
     ensureWebDocument,
   });
+  const routeTable = { ...input.routes, ...frameworkEndpoints.routes };
+  const routes = compileRouteTable(routeTable);
+  const routeCatalog = createRouteCatalog(routeTable);
   const publicRouteDispatcher = createPublicRouteDispatcher({
     publicRoutes,
     generatedRoutePaths: documentProvider?.generatedRoutePaths ?? new Set(),
@@ -349,5 +352,5 @@ export function createWebAppServer<TEvent = unknown>(input: WebAppServerConfig<T
     }
   }
 
-  return { config, store, realtime, oauth, handleRequest, dispatchDelegated, dispatchAuthenticated, ...lifecycle, stop };
+  return { config, store, realtime, oauth, routeCatalog, handleRequest, dispatchDelegated, dispatchAuthenticated, ...lifecycle, stop };
 }
