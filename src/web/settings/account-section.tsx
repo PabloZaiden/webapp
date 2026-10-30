@@ -91,7 +91,6 @@ export function AccountSection({ config, refresh, setError, category }: AccountS
           ) : null}
           <CheckboxField
             label="Preserve logs"
-            hint="Stored in a temporary file."
             checked={config.inMemoryLogs.enabled}
             disabled={serverLogsSaving}
             onChange={(event) => void updateServerLogs(event.currentTarget.checked)}

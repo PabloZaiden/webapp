@@ -197,6 +197,10 @@ hook and server preference default to Dark; existing Light/System choices are
 preserved. Validate both themes, keyboard, zoom and touch. Ordinary controls
 must not require consumer CSS to get accessible targets or matching styles.
 Keep operational UI to labels, values, actions, statuses and actionable errors.
+Do not use setting subtitles or hints as feature documentation. Behavior,
+authorization and storage explanations belong in the relevant guides, not
+repeated underneath controls. Retain helper text only for valid/safe input or
+irreversible consequences, including useful input constraints and counters.
 Do not display internal or operational identifiers unless needed for an action,
 and never use UUID fallback names. Required warnings remain visible.
 
