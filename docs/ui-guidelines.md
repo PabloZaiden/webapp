@@ -48,6 +48,12 @@ twice without a distinct user-facing reason.
 
 ## Mobile breakpoint and viewport synchronization
 
+The mobile drawer applies at viewport widths of 800 CSS pixels or less. Above
+800px, the desktop sidebar and main content can be used together, including on
+compact wide displays with a lateral system area. Safe-area clearance remains
+independent of this breakpoint; it does not reduce the desktop sidebar width
+or remove protection for system controls.
+
 The framework owns the mobile shell breakpoint. `MOBILE_BREAKPOINT_PX` and `MOBILE_MEDIA_QUERY` are exported from `@pablozaiden/webapp/web` for application JavaScript that needs to coordinate with the shell; do not add an independent `innerWidth` threshold for shell behavior. The generated document initializes the `data-wapp-mobile` marker on the root element before the client and styles load, and `WebAppRoot` keeps it synchronized with media-query changes. Custom CSS that follows the framework mobile mode should use that marker rather than repeating a numeric media query.
 
 `WebAppRoot` follows `visualViewport` resize/scroll, window resize, orientation changes, focus boundaries, and mobile media-query changes. CSS `100dvh` is the authoritative height when the browser supports dynamic viewport units, except while an editable control is focused and the visual viewport is materially shorter because the on-screen keyboard is open. In that keyboard state, the hook temporarily overrides the shell height with the measured visual viewport so the keyboard cannot cover the app. The visual-viewport pixel value remains the normal fallback for browsers without `100dvh`. Two named, bounded retries catch the post-event layout pass and the end of keyboard, browser-chrome, or rotation transitions when no further geometry event is emitted. These retries are implementation fallbacks, not general synchronization primitives, and are cancelled with the associated animation frame and listeners when the root is unmounted.

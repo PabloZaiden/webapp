@@ -1,4 +1,4 @@
-export const MOBILE_BREAKPOINT_PX = 900;
+export const MOBILE_BREAKPOINT_PX = 800;
 export const MOBILE_MEDIA_QUERY = `(max-width: ${MOBILE_BREAKPOINT_PX}px)`;
 export const MOBILE_STATE_ATTRIBUTE = "data-wapp-mobile";
 
