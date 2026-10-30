@@ -124,7 +124,14 @@ Apps can append structured custom sections:
 `render` remains available as an escape hatch for custom controls inside a section. Prefer structured `rows` for simple settings because the framework keeps spacing, typography and danger-zone styling consistent.
 
 Row content is inline by default, with compact controls and actions aligned
-right of the label. Use `Select` or `SelectField` with an appropriate field
+right of the label. The label and controls share a vertically centered row
+when space permits; otherwise the controls wrap below the label and stay
+right-aligned instead of collapsing the label column. This follows the row's
+available width independently of the desktop/mobile shell breakpoint.
+Put a setting's field in `content` and its buttons in `actions`, not in a stacked
+form inside `content`. If they share a native form, wrap `SettingsFieldRow` in
+that form so the input remains aligned with the label.
+Use `Select` or `SelectField` with an appropriate field
 width rather than stretching short values. Inline `Select` controls size to
 their options so adjacent actions stay on the same line when they fit; use
 `fieldWidth="full"` when a select should stretch. Compact select rows retain
