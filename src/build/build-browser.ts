@@ -60,7 +60,7 @@ export async function buildWebAppBrowser(options: BuildBrowserOptions): Promise<
   const outdir = resolve(cacheDir, "output");
   const renderer = resolve(cacheDir, "webapp-renderer-prelude.ts");
   try {
-    writeFileSync(renderer, `import { createRoot } from ${JSON.stringify(reactDomClientPath.replaceAll("\\", "/"))};
+    writeFileSync(renderer, `import { createRoot } from ${JSON.stringify(reactDomClientPath)};
 import { configureWebAppRenderer, initializeWebAppClient } from "@pablozaiden/webapp/web";
 configureWebAppRenderer(createRoot);
 await initializeWebAppClient();

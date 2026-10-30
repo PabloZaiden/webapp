@@ -66,10 +66,9 @@ configuration; a detached static host does not become the passkey RP origin.
 
 The server export provides `ensurePrivateDirectory`,
 `securePrivateDirectory`, and `securePrivateFile` for application-owned
-credentials or key material stored beside framework state. POSIX hosts apply
-and verify owner-only modes. Windows hosts replace inherited permissions with a
-protected ACL granting full control only to the current user SID, then verify
-the resulting owner and access rules. Protection failures throw; callers must
+credentials or key material stored beside framework state. Hosts apply
+and verify owner-only modes (`0700` for directories, `0600` for files).
+Protection failures throw; callers must
 not continue with a success-shaped fallback.
 
 Use `createWebAppServer` with `defineRoutes`. Route patterns support exact path
@@ -481,7 +480,7 @@ shutdown exits with status 0. Put application-owned worker, subprocess and
 subscription cleanup in the lifecycle hooks rather than installing competing
 process signal handlers. Normal `app.stop()` removes that server's process
 registration and does not exit the process. Forced termination such as
-`SIGKILL` or Windows `taskkill /F` cannot run graceful hooks.
+`SIGKILL` cannot run graceful hooks.
 
 ## Server logging
 

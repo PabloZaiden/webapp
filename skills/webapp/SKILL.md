@@ -54,7 +54,7 @@ the application being built; they are not expected to exist beside this skill.
 - PWA is enabled by default. Lightweight examples may use generated initials icons, but production apps should set `web.icons` with favicon, Apple-touch, and 192x192/512x512 manifest PNGs. Icon paths are relative to the app package root.
 - For an API/WebSocket-only process, `web: false` avoids generating the browser app. Use `requestFilter` only in this mode to deny requests before framework routes and websocket upgrades; returning `false` gives a 404. Do not rely on it to filter a web-serving app, where Bun can serve frontend assets outside the request dispatcher.
 - Keep the product as one app and one binary with subcommands (`serve`, `version`, app-specific commands, and optional framework-backed `auth`/`api`/`schema` commands). Do not split web/server/CLI into separate apps or binaries unless there is a real package boundary.
-- Preserve macOS and Linux support on x64 and arm64. The detached lifecycle also supports Windows; use the framework's exported `BUN_COMPILE_TARGETS` when validating binary targets instead of hard-coding them. Docker images should target Linux with an explicit platform/artifact mapping.
+- Preserve macOS and Linux support on x64 and arm64; use the framework's exported `BUN_COMPILE_TARGETS` when validating binary targets instead of hard-coding them. Use WSL for a Linux environment. Docker images should target Linux with an explicit platform/artifact mapping.
 - Use `Bun.WebView` from Bun 1.4+ for browser automation and screenshots; do not add external browser automation packages or launch a browser directly from an application.
 - When screenshots are captured to validate a visual change, review them against the specific goal; capture alone is not validation.
 - Configure env through a single uppercase `envPrefix`; read framework env as `{PREFIX}_...`.
@@ -142,7 +142,7 @@ the application being built; they are not expected to exist beside this skill.
 - Lifecycle process ownership checks must refuse to stop an unrecognized
   process that occupies the configured port. Keep PID/log writes atomic and
   use the framework's state-directory and locking helpers.
-- The detached lifecycle supports Linux, macOS, and Windows. Validate build
+- The detached lifecycle supports Linux and macOS. Validate build
   targets with `BUN_COMPILE_TARGETS`; Docker's supported example mapping is
   Linux `amd64` to `bun-linux-x64` and Linux `arm64` to `bun-linux-arm64`.
 

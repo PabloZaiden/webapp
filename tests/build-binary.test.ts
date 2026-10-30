@@ -63,7 +63,7 @@ test("builds and manages the Kitchen Sink example as a standalone binary", async
   const exampleDirectory = resolve("examples/kitchen-sink");
   const binaryPath = resolve(
     exampleDirectory,
-    `dist/kitchen-sink${process.platform === "win32" ? ".exe" : ""}`,
+    "dist/kitchen-sink",
   );
   const dataDirectory = resolve(".cache/tests", `compiled-kitchen-sink-${crypto.randomUUID()}`);
   const port = await freePort();
@@ -167,7 +167,7 @@ test("serves development assets and embeds the published frontend unchanged in a
   const directory = resolve(".cache/tests", `configured-assets-${crypto.randomUUID()}`);
   const entrypoint = join(directory, "server.ts");
   const assetDirectory = join(directory, "assets");
-  const binary = join(directory, process.platform === "win32" ? "asset-host.exe" : "asset-host");
+  const binary = join(directory, "asset-host");
   const worker = `self.onmessage = () => self.postMessage("ready");`;
   const sourcemap = JSON.stringify({ version: 3, sources: [], names: [], mappings: "" });
   const runtimeDirectory = join(directory, "runtime");
@@ -213,8 +213,6 @@ process.on("SIGTERM", async () => { await app.stop(true); process.exit(0); });
           ASSET_HOST_DATA_DIR: join(directory, `data-${mode}`),
           ASSET_HOST_DISABLE_PASSKEY: "true",
           TMPDIR: runtimeDirectory,
-          TMP: runtimeDirectory,
-          TEMP: runtimeDirectory,
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -232,7 +230,7 @@ process.on("SIGTERM", async () => { await app.stop(true); process.exit(0); });
           expect(await document.text()).toBe(await Bun.file(join(clientDirectory, "index.html")).text());
           for await (const path of new Bun.Glob("**/*").scan({ cwd: clientDirectory, onlyFiles: true })) {
             if (path === "webapp-client.json") continue;
-            const response = await fetch(new URL(path.replaceAll("\\", "/"), `${baseUrl}/`), { signal: AbortSignal.timeout(5_000) });
+            const response = await fetch(new URL(path, `${baseUrl}/`), { signal: AbortSignal.timeout(5_000) });
             expect(response.status, path).toBe(200);
             expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(await Bun.file(join(clientDirectory, path)).arrayBuffer()));
           }

@@ -82,8 +82,7 @@ for (const scenario of [
   { trigger: "HTTP", failure: false },
   { trigger: "SIGTERM", failure: true },
 ] as const) {
-  const scenarioTest = process.platform === "win32" && scenario.trigger === "SIGTERM" ? test.skip : test;
-  scenarioTest(`gracefully closes all servers on ${scenario.trigger}${scenario.failure ? " with a cleanup failure" : ""}`, async () => {
+  test(`gracefully closes all servers on ${scenario.trigger}${scenario.failure ? " with a cleanup failure" : ""}`, async () => {
     const directory = resolve(".cache/tests", `process-shutdown-${crypto.randomUUID()}`);
     await mkdir(directory, { recursive: true });
     const fixturePath = resolve(directory, "app.ts");

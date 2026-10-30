@@ -77,11 +77,9 @@ Use the framework lifecycle hooks for owned workers and subprocesses. The
 authenticated server shutdown action also awaits cleanup; forced OS process-tree
 termination cannot do so. See [server lifecycle hooks](server.md#server-lifecycle-hooks).
 
-The detached lifecycle supports Linux, macOS, and Windows. On Windows it uses
-the built-in `powershell.exe` process APIs to identify listeners and command
-lines, then `taskkill.exe` to terminate the verified process tree. Missing
-system utilities or an unreadable command line fail closed instead of stopping
-an unrecognized process.
+The detached lifecycle supports Linux and macOS. Use WSL for a Linux
+environment. Missing system utilities or an unreadable command line fail
+closed instead of stopping an unrecognized process.
 
 `serve up --dev` requires a configured, existing `development.source-path`.
 The application-provided build adapter runs before the current server is
@@ -432,5 +430,4 @@ await store.withLock(async () => {
 ```
 
 Credential directories and files fail closed unless their private access can
-be applied and verified. POSIX filesystems use `0700` and `0600`; Windows uses
-a protected ACL that grants full control only to the current user.
+be applied and verified. Directories use `0700` and files use `0600`.

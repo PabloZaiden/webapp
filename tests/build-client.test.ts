@@ -75,7 +75,7 @@ body { font-family: Test; }`);
       for (const entry of readdirSync(output, { recursive: true, withFileTypes: true })) {
         if (!entry.isFile()) continue;
         const filePath = join(entry.parentPath, entry.name);
-        const publicPath = relative(output, filePath).replaceAll("\\", "/");
+        const publicPath = relative(output, filePath);
         const response = await fetch(new URL(publicPath, documentUrl), { signal: AbortSignal.timeout(5_000) });
         expect(response.status, publicPath).toBe(200);
         expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(await Bun.file(filePath).arrayBuffer()));
