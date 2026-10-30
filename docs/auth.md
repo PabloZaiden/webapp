@@ -67,6 +67,20 @@ PATCH: (_req, ctx) => {
 stored owner, or creates an owner named `admin` when no owner exists. Use it
 only with disposable or otherwise controlled data.
 
+### Verified passkey provenance
+
+`ctx.auth.kind === "passkey"` identifies a browser session, not necessarily
+WebAuthn authentication: API-key browser sign-in and disabled authentication
+use that kind too. Routes that require a verified passkey must additionally
+require `ctx.auth.passkeyId`.
+
+The framework signs the registered passkey ID into sessions issued after
+successful WebAuthn registration or authentication, and exposes it only while
+that passkey still belongs to the authenticated user. API-key sessions and
+disabled authentication never carry it. Existing browser sessions remain valid
+for ordinary routes, but sessions issued before this provenance was recorded
+must sign in again with a passkey before using a passkey-only operation.
+
 ### Current user in application UI
 
 Components rendered inside `WebAppRoot` can read the current user with the public
@@ -154,7 +168,8 @@ offers **Authenticate with API key**. The browser submits the key through the
 same-origin `POST /api/passkey-auth/api-key` endpoint. A valid `*`-scoped key
 can be user-owned or server-managed; key provenance does not affect eligibility.
 Limited-scope keys are rejected because the result is an unrestricted
-passkey-equivalent browser session.
+browser session with unrestricted account access, but without verified passkey
+provenance.
 
 Successful exchange issues the same signed `webapp_passkey_session` cookie as
 passkey authentication. It is `HttpOnly`, `SameSite=Strict`, and uses the

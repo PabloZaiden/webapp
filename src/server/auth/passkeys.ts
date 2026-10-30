@@ -7,7 +7,7 @@ import {
   type RegistrationResponseJSON,
 } from "@simplewebauthn/server";
 import { isIP } from "node:net";
-import type { PasskeyAuthStatusResponse } from "../../contracts";
+import type { CurrentUser, PasskeyAuthStatusResponse } from "../../contracts";
 import type { RuntimeConfig } from "../runtime-config";
 import type { StoredPasskey, UserRecord, WebAppStore } from "./store";
 import { hmacSha256, isExpired, nowIso, randomToken, secureEqual, sha256 } from "./crypto";
@@ -37,6 +37,7 @@ interface SessionPayload extends SignedCookiePayload {
   nonce: string;
   userId: string;
   authVersion: number;
+  passkeyId?: string;
 }
 
 function getSecret(store: WebAppStore): string {
@@ -98,13 +99,14 @@ function expiredCookie(req: Request, config: RuntimeConfig, name: string, secure
   return cookieHeader(req, config, name, "", 0, secure);
 }
 
-export function createBrowserSessionHeaders(req: Request, store: WebAppStore, config: RuntimeConfig, user: UserRecord): Headers {
+export function createBrowserSessionHeaders(req: Request, store: WebAppStore, config: RuntimeConfig, user: UserRecord, passkeyId?: string): Headers {
   const origin = getRequestOriginInfo(req, config);
   const secret = getSecret(store);
   const payload: SessionPayload = {
     nonce: randomToken(16),
     userId: user.id,
     authVersion: user.authVersion,
+    passkeyId,
     expiresAt: Date.now() + SESSION_TTL_SECONDS * 1000,
   };
   const headers = new Headers();
@@ -203,10 +205,13 @@ function persistPasskey(store: WebAppStore, passkey: StoredPasskey, updatedAt: s
   throw new AuthError("registration_failed", "Passkey registration could not be saved", 400);
 }
 
-export function getPasskeySessionUser(req: Request, store: WebAppStore, config: RuntimeConfig) {
+export function getPasskeySession(req: Request, store: WebAppStore, config: RuntimeConfig): {
+  user: CurrentUser;
+  passkeyId?: string;
+} | undefined {
   if (config.passkeyDisabled) {
     const owner = store.getOwnerUser();
-    return owner ? toCurrentUser(owner) : undefined;
+    return owner ? { user: toCurrentUser(owner) } : undefined;
   }
   const secret = store.getPreference(SECRET_KEY);
   if (!secret) {
@@ -220,7 +225,14 @@ export function getPasskeySessionUser(req: Request, store: WebAppStore, config: 
   if (!user || user.disabledAt || user.authVersion !== session.authVersion) {
     return undefined;
   }
-  return toCurrentUser(user);
+  const passkeyId = typeof session.passkeyId === "string"
+    ? store.listPasskeys(user.id).find((passkey) => passkey.id === session.passkeyId)?.id
+    : undefined;
+  return { user: toCurrentUser(user), passkeyId };
+}
+
+export function getPasskeySessionUser(req: Request, store: WebAppStore, config: RuntimeConfig) {
+  return getPasskeySession(req, store, config)?.user;
 }
 
 export function hasPasskeySession(req: Request, store: WebAppStore, config: RuntimeConfig): boolean {
@@ -268,7 +280,7 @@ export async function completeBootstrapRegistration(req: Request, store: WebAppS
   const passkey = await verifyPasskey(req, config, response, owner, challenge);
   store.createUser(owner);
   const updatedUser = persistPasskey(store, passkey, passkey.updatedAt);
-  const headers = createBrowserSessionHeaders(req, store, config, updatedUser);
+  const headers = createBrowserSessionHeaders(req, store, config, updatedUser, passkey.id);
   audit(store, { eventType: "owner_created", targetUserId: owner.id });
   return headers;
 }
@@ -289,7 +301,7 @@ export async function completeOwnerPasskeySetup(req: Request, store: WebAppStore
   }
   const passkey = await verifyPasskey(req, config, response, owner, challenge);
   const updatedUser = persistPasskey(store, passkey, passkey.updatedAt);
-  const headers = createBrowserSessionHeaders(req, store, config, updatedUser);
+  const headers = createBrowserSessionHeaders(req, store, config, updatedUser, passkey.id);
   audit(store, { eventType: "owner_passkey_configured", targetUserId: owner.id });
   return headers;
 }
@@ -348,7 +360,7 @@ export async function completeSetupRegistration(req: Request, store: WebAppStore
         throw new AuthError("registration_failed", "Passkey setup could not be completed", 400);
     }
   }
-  const headers = createBrowserSessionHeaders(req, store, config, result.user);
+  const headers = createBrowserSessionHeaders(req, store, config, result.user, passkey.id);
   audit(store, { eventType: link.kind === "reset" ? "user_reset_completed" : "user_invite_completed", targetUserId: user.id });
   return headers;
 }
@@ -400,7 +412,7 @@ export async function completeAuthentication(req: Request, store: WebAppStore, c
   store.updatePasskeyUsage(passkey.credentialId, verification.authenticationInfo.newCounter, timestamp);
   store.markUserLogin(user.id, timestamp);
   audit(store, { eventType: "user_login", actorUserId: user.id });
-  return createBrowserSessionHeaders(req, store, config, user);
+  return createBrowserSessionHeaders(req, store, config, user, passkey.id);
 }
 
 export function logoutHeaders(req: Request, config: RuntimeConfig): Headers {
