@@ -163,7 +163,7 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
         }
         enforceRouteAuth(routeAuth, auth, authentication);
         if (authenticated) {
-          if (routeAuth === "public" || routeAuth === "optional") {
+          if ((routeAuth === "public" || routeAuth === "optional") && !authenticated.allowPublic) {
             throw new AuthError("authorization_forbidden", "Authenticated dispatch requires a private operation", 403);
           }
           const authorization = await authenticated.authorize(operation, req);

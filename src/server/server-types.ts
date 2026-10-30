@@ -8,6 +8,7 @@ import type { DelegatedDispatchOptions } from "./delegation";
 import type { AuthenticatedDispatchOptions } from "./authenticated-dispatch";
 import type { OAuthConfig, OAuthService } from "./auth/oauth-types";
 import type { WebAppStaticAssetOptions } from "../static-assets";
+import type { RouteCatalogEntry } from "./route-catalog";
 
 export const WEBAPP_SOCKET_HANDLER = "webappSocketHandler";
 
@@ -99,6 +100,8 @@ export interface WebAppServer<TEvent = unknown> {
   store: WebAppStore;
   realtime: RealtimeBus<TEvent>;
   oauth?: OAuthService;
+  /** Canonical application and operational framework routes; excludes private authentication protocols. */
+  readonly routeCatalog: readonly RouteCatalogEntry[];
   handleRequest(req: Request, server?: Server<WebSocketData>): Promise<Response | undefined>;
   dispatchDelegated<TAuthorization extends object>(
     req: Request,

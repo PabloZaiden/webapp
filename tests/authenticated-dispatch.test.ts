@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
-  createManagedApiKey, createWebAppServer, jsonResponse, memoryWebAppStore,
+  createManagedApiKey, createWebAppServer, findRouteCatalogEntry, jsonResponse, memoryWebAppStore,
   type RuntimeConfig,
 } from "@pablozaiden/webapp/server";
 import { createUserRecord, toCurrentUser } from "../src/server/auth/users";
@@ -24,6 +24,7 @@ test("server-authenticated dispatch grants canonical application operations with
   };
   const app = createWebAppServer({
     appName: config.appName, envPrefix: config.envPrefix, runtimeConfig: config,
+    version: "running-test-version",
     store, web: false, auth: { apiKeys: true },
     routeMiddleware: async (_request, _context, _operation, invoke) => {
       await middlewareWait?.();
@@ -43,6 +44,7 @@ test("server-authenticated dispatch grants canonical application operations with
       },
       "/api/owner": { auth: "owner", GET: (_req, context) => jsonResponse({ actor: context.requireOwner().id }) },
       "/api/public": { auth: "public", GET: () => jsonResponse({ public: true }) },
+      "/health": { auth: "public", GET: () => jsonResponse({ application: true }) },
     },
   });
   const request = (path = "/api/admin/a%20b", method = "POST") => new Request(`http://localhost${path}`, {
@@ -50,6 +52,23 @@ test("server-authenticated dispatch grants canonical application operations with
   });
   const approve = { userId: admin.id, authorize: () => ({ approved: true }) };
   try {
+    const server = await app.start();
+    const health = await fetch(new URL("/api/health", server.url), {
+      headers: { authorization: "Bearer expired-or-invalid-probe-token" },
+    });
+    expect(await health.json()).toMatchObject({ ok: true, version: "running-test-version" });
+    expect(await (await fetch(new URL("/health", server.url))).json()).toEqual({ application: true });
+    expect(findRouteCatalogEntry(app.routeCatalog, "health")?.entry.path).toBe("/health");
+    expect(findRouteCatalogEntry(app.routeCatalog, "/api/health")?.entry.path).toBe("/api/health");
+    expect(findRouteCatalogEntry(app.routeCatalog, "/api/health")?.entry.methods).toEqual(["GET"]);
+    expect(findRouteCatalogEntry(app.routeCatalog, "/api/api-keys")).toBeUndefined();
+    const diagnostic = request("/api/health", "GET");
+    expect((await app.dispatchAuthenticated(diagnostic, approve))?.status).toBe(403);
+    expect((await app.dispatchAuthenticated(diagnostic, { ...approve, allowPublic: true, authorize: () => false }))?.status).toBe(403);
+    const admittedHealth = await app.dispatchAuthenticated(diagnostic, { ...approve, allowPublic: true });
+    expect(await admittedHealth?.json()).toMatchObject({ ok: true, version: "running-test-version" });
+    const admittedConfig = await app.dispatchAuthenticated(request("/api/config", "GET"), { ...approve, allowPublic: true });
+    expect(await admittedConfig?.json()).toMatchObject({ currentUser: { id: admin.id }, version: "running-test-version" });
     const response = await app.dispatchAuthenticated(request(), {
       ...approve,
       authorize(operation) {

@@ -123,18 +123,17 @@ export function findRouteCatalogEntry(catalog: readonly RouteCatalogEntry[], inp
       const specificity = compareRoutePatterns(left.patterns.api, right.patterns.api);
       return specificity || left.entry.path.localeCompare(right.entry.path);
     });
-  for (const { entry, patterns } of sorted) {
-    const apiMatch = matchCompiledRoutePattern(patterns.api, apiPath);
-    if (apiMatch.kind === "matched") {
-      return { entry, path: apiPath, params: apiMatch.params };
-    }
-    const cliMatch = matchCompiledRoutePattern(patterns.cli, cliPath);
-    if (cliMatch.kind === "matched") {
-      return {
-        entry,
-        path: buildCompiledRoutePath(patterns.api, cliMatch.captures),
-        params: cliMatch.params,
-      };
+  const apiFirst = input.trim().startsWith("/") || input.trim().startsWith("api/");
+  for (const surface of apiFirst ? ["api", "cli"] as const : ["cli", "api"] as const) {
+    for (const { entry, patterns } of sorted) {
+      const match = matchCompiledRoutePattern(patterns[surface], surface === "api" ? apiPath : cliPath);
+      if (match.kind === "matched") {
+        return {
+          entry,
+          path: surface === "api" ? apiPath : buildCompiledRoutePath(patterns.api, match.captures),
+          params: match.params,
+        };
+      }
     }
   }
   return undefined;

@@ -228,6 +228,20 @@ output; it does not generate prose documentation automatically:
 
 Use `createRouteCatalog(routes)` and `findRouteCatalogEntry(catalog, input)` to power app CLI commands without maintaining a second route catalog.
 
+For the running server's complete operational inventory, use `app.routeCatalog`.
+It combines application routes with canonical framework health, public
+configuration, preferences, server logs/settings and shutdown routes. The same
+definitions own their HTTP handlers, schemas, roles and automation policies.
+Framework routes take precedence at their reserved paths. Private authentication,
+account/key/session administration, OAuth and raw realtime protocols remain
+outside this operational catalog. Catalog presence is not authorization: consumers
+must enforce their grants and the declared automation policy.
+Existing application CLI aliases retain precedence: a conflicting framework alias
+is namespaced with `framework/` instead of preventing server startup. Catalog
+lookup prefers exact API paths for path-shaped input and CLI aliases for shorthand
+input. Ordinary HTTP health probes remain credential-independent; authenticated
+dispatch still requires the account and per-operation authorization.
+
 ### Per-method operation contracts
 
 `RouteOperationMetadata` declares `description`, `requestSchema`, `querySchema`,
