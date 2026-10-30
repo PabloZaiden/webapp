@@ -15,8 +15,6 @@ export const BUN_COMPILE_TARGETS = [
   "bun-linux-arm64",
   "bun-darwin-x64",
   "bun-darwin-arm64",
-  "bun-windows-x64",
-  "bun-windows-arm64",
 ] as const;
 
 export type BunCompileTarget = (typeof BUN_COMPILE_TARGETS)[number];
@@ -130,9 +128,7 @@ import ${JSON.stringify(entrypoint)};
       }
       throw new Error("Binary build failed");
     }
-    if (process.platform !== "win32" && !options.target?.startsWith("bun-windows")) {
-      chmodSync(options.outfile, 0o755);
-    }
+    chmodSync(options.outfile, 0o755);
   } finally {
     rmSync(cacheDir, { recursive: true, force: true });
   }

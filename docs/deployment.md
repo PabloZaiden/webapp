@@ -54,8 +54,8 @@ compatible.
 
 The current portable binary transport serializes the complete manifest into
 the executable. Bun 1.4 native `compile.assets`/`--asset` embedding is not
-enabled until its `$bunfs` path behavior is validated across Linux, macOS, and
-Windows targets; it must not create a second path model. Do not embed an
+enabled until its `$bunfs` path behavior is validated across Linux and macOS
+targets; it must not create a second path model. Do not embed an
 application or workspace directory as a public directory. Public files remain
 limited to browser build outputs, explicitly configured public-asset bundles,
 and framework-generated routes. External browser source maps are retained as

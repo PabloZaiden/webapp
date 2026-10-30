@@ -39,15 +39,12 @@ async function readProcessStream(
 async function runUtility(
   command: string,
   args: readonly string[],
-  environment?: Record<string, string>,
 ): Promise<ProcessCommandResult> {
   let child: ReturnType<typeof Bun.spawn>;
   try {
     child = Bun.spawn([command, ...args], {
-      env: environment ? { ...process.env, ...environment } : undefined,
       stdout: "pipe",
       stderr: "pipe",
-      windowsHide: true,
     });
   } catch (error) {
     if (errorCode(error) === "ENOENT") {
@@ -123,7 +120,6 @@ function spawnDetached(input: {
     env: input.environment,
     detached: true,
     stdio: ["ignore", input.logFd, input.logFd],
-    windowsHide: true,
   });
 }
 
@@ -171,88 +167,7 @@ async function readPosixProcessCommand(pid: number): Promise<string | undefined>
   return ps.stdout.trim() || undefined;
 }
 
-const WINDOWS_INSPECT_PORT_SCRIPT = [
-  "$ErrorActionPreference = 'Stop'",
-  "$port = [int]$env:WEBAPP_INSPECT_PORT",
-  "$pids = @(Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object { $_.LocalPort -eq $port } | Select-Object -ExpandProperty OwningProcess -Unique | Sort-Object)",
-  "[Console]::Out.Write(($pids -join [Environment]::NewLine))",
-].join("\n");
-
-const WINDOWS_PROCESS_COMMAND_SCRIPT = [
-  "$ErrorActionPreference = 'Stop'",
-  "$pidValue = [int]$env:WEBAPP_INSPECT_PID",
-  "$target = Get-CimInstance -ClassName Win32_Process -Filter ('ProcessId = ' + $pidValue)",
-  "if ($null -ne $target -and $null -ne $target.CommandLine) {",
-  "  [Console]::Out.Write($target.CommandLine)",
-  "}",
-].join("\n");
-
-async function runWindowsPowerShell(
-  script: string,
-  environment: Record<string, string>,
-): Promise<string> {
-  const result = await runUtility("powershell.exe", [
-    "-NoLogo",
-    "-NoProfile",
-    "-NonInteractive",
-    "-Command",
-    script,
-  ], environment);
-  if (result.notFound) {
-    throw new Error("Unable to inspect Windows processes because powershell.exe is unavailable");
-  }
-  if (result.status !== 0) {
-    throw new Error(
-      `Windows process inspection failed${result.stderr.trim() ? `: ${result.stderr.trim()}` : ""}`,
-    );
-  }
-  return result.stdout.trim();
-}
-
-async function inspectWindowsPort(port: number): Promise<PortInspection> {
-  const output = await runWindowsPowerShell(WINDOWS_INSPECT_PORT_SCRIPT, {
-    WEBAPP_INSPECT_PORT: String(port),
-  });
-  return { pids: parsePidList(output, "Get-NetTCPConnection") };
-}
-
-async function readWindowsProcessCommand(pid: number): Promise<string | undefined> {
-  const output = await runWindowsPowerShell(WINDOWS_PROCESS_COMMAND_SCRIPT, {
-    WEBAPP_INSPECT_PID: String(pid),
-  });
-  return output || undefined;
-}
-
-async function terminateWindowsProcess(pid: number, _force: boolean): Promise<void> {
-  const result = await runUtility("taskkill.exe", [
-    "/PID",
-    String(pid),
-    "/T",
-    "/F",
-  ]);
-  if (result.notFound) {
-    throw new Error("Unable to stop the Windows process because taskkill.exe is unavailable");
-  }
-  if (result.status !== 0 && processIsAlive(pid)) {
-    const details = [result.stderr.trim(), result.stdout.trim()].filter(Boolean).join("; ");
-    throw new Error(
-      `Unable to stop process ${String(pid)}${details ? `: ${details}` : ""}`,
-    );
-  }
-}
-
-export function createServerProcessPlatform(
-  platform: NodeJS.Platform = process.platform,
-): ServerProcessPlatform {
-  if (platform === "win32") {
-    return {
-      inspectPort: inspectWindowsPort,
-      readProcessCommand: readWindowsProcessCommand,
-      isProcessAlive: processIsAlive,
-      terminateProcess: terminateWindowsProcess,
-      spawnDetached,
-    };
-  }
+export function createServerProcessPlatform(): ServerProcessPlatform {
   return {
     inspectPort: inspectPosixPort,
     readProcessCommand: readPosixProcessCommand,

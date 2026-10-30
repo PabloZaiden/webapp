@@ -1,6 +1,6 @@
 import { closeSync, existsSync, openSync } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import {
   WEB_APP_CONFIG_VERSION,
   parsePort,
@@ -166,9 +166,7 @@ function lifecyclePaths(config: RuntimeConfig): ServerLifecyclePaths {
 
 function currentServerCommand(): WebAppServerCommand {
   const main = typeof Bun.main === "string" ? Bun.main : "";
-  const normalizedMain = main.replaceAll("\\", "/");
-  const compiledMain = normalizedMain.startsWith("/$bunfs/")
-    || /^[A-Za-z]:\/~BUN\//i.test(normalizedMain);
+  const compiledMain = main.startsWith("/$bunfs/");
   if (main && !compiledMain && existsSync(main)) {
     return [process.execPath, main, "serve"];
   }
@@ -376,26 +374,19 @@ function processCommandMatches(
 ): boolean {
   const executable = expected[0]!;
   const executableName = basename(executable);
-  const windows = process.platform === "win32";
-  const containsArgument = (part: string, caseInsensitive = false): boolean => {
+  const containsArgument = (part: string): boolean => {
     const escaped = part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(
       `(?:^|\\s|['"])${escaped}(?:$|\\s|['"])`,
-      caseInsensitive ? "i" : "",
     ).test(commandLine);
   };
-  const hasExecutable = containsArgument(executable, windows)
+  const hasExecutable = containsArgument(executable)
     || commandLine.split(/\s+/).some((part) => {
       const candidate = basename(part.replace(/^['"]|['"]$/g, ""));
-      return windows
-        ? candidate.toLowerCase() === executableName.toLowerCase()
-        : candidate === executableName;
+      return candidate === executableName;
     });
   if (!hasExecutable) return false;
-    return expected.slice(1).every((part) => containsArgument(
-      part,
-      windows && (isAbsolute(part) || part.includes("/") || part.includes("\\")),
-    ));
+  return expected.slice(1).every(containsArgument);
 }
 
 function serveCommandDescription(

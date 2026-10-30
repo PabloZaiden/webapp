@@ -90,7 +90,7 @@ export function defaultAppDirectoryName(envPrefix: string): string {
 }
 
 function assertAppDirectoryName(name: string): string {
-  if (!name || name === "." || name === ".." || name.includes("/") || name.includes("\\")) {
+  if (!name || name === "." || name === ".." || name.includes("/")) {
     throw new Error(`appDirectoryName must be a single directory name; received "${name}"`);
   }
   return name;
