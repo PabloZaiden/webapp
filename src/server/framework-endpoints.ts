@@ -189,12 +189,13 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
     return authentication.requireAdmin(auth);
   }
 
+  const healthResponse = () => successResponse({ ok: true, version });
   const routes = defineRoutes({
     "/api/health": {
       auth: "public", sameOrigin: "never", tags: ["diagnostics"],
       description: "Read server health and the running application version.",
       operations: { GET: { automation: { policy: "read" } } },
-      GET: () => successResponse({ ok: true, version }),
+      GET: healthResponse,
     },
     "/api/config": {
       auth: "public", sameOrigin: "never", tags: ["configuration"],
@@ -294,6 +295,9 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
     const url = new URL(req.url);
     const path = url.pathname;
     try {
+      if (path === "/api/health" && req.method === "GET") {
+        return healthResponse();
+      }
       if (deviceAuthEnabled && path === "/api/auth/client-ticket" && req.method === "POST") {
         const auth = await authorize(req, true, true);
         if (auth instanceof Response) return auth;
