@@ -519,7 +519,6 @@ export function createJsonFileStore<T>(input: {
     const explicit = input.envHome ? process.env[input.envHome]?.trim() : undefined;
     const home = input.home ?? (
       process.env["HOME"]?.trim()
-      || process.env["USERPROFILE"]?.trim()
       || homedir()
     );
     if (explicit) return explicit;
