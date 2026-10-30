@@ -119,9 +119,7 @@ export function resolveAppDataDir(input: {
   if (explicit) {
     return resolve(explicit);
   }
-  const home = environment["HOME"]?.trim()
-    || environment["USERPROFILE"]?.trim()
-    || homedir();
+  const home = environment["HOME"]?.trim() || homedir();
   if (!home) {
     throw new Error("HOME is not set");
   }
