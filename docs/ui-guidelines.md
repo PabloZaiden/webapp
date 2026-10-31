@@ -179,6 +179,11 @@ other long values. Full-width fields fill their container, including the
 input/select itself; short and normal controls retain their compact limits.
 Settings panels and lists fill the remaining width beside category navigation;
 do not constrain an entire Settings section to a form-reading width.
+Settings rows wrap according to their actual label and control widths, not
+a fixed label reservation or a device-specific breakpoint. If a control group
+is too wide, let its fields and actions wrap inside the panel while preserving
+readable labels, action order and right alignment. Native forms and nested
+control wrappers must be able to shrink with the available panel width.
 Keep `Page layout="form"` for explicitly bounded forms, not general lists.
 Use `SettingsLayout` inside `Page layout="full"` for entity settings with the
 same desktop category navigation and mobile selector as global Settings.

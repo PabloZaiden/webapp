@@ -128,6 +128,11 @@ right of the label. The label and controls share a vertically centered row
 when space permits; otherwise the controls wrap below the label and stay
 right-aligned instead of collapsing the label column. This follows the row's
 available width independently of the desktop/mobile shell breakpoint.
+Labels use their content width rather than reserving a fixed label column.
+When the control group itself cannot fit on one line, fields and actions
+wrap within the row's available width; action groups keep their order and
+right alignment. Forms inside section/group panels can shrink with the panel
+instead of imposing an intrinsic minimum width or overflowing it.
 Put a setting's field in `content` and its buttons in `actions`, not in a stacked
 form inside `content`. If they share a native form, wrap `SettingsFieldRow` in
 that form so the input remains aligned with the label.
