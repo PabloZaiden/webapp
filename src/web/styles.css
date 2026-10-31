@@ -2047,7 +2047,8 @@ textarea::placeholder {
   margin-left: auto;
 }
 
-.wapp-settings-field-control > * {
+.wapp-settings-field-control > *,
+.wapp-settings-field-control .wapp-row-actions {
   min-width: 0;
   max-width: 100%;
 }
