@@ -221,6 +221,7 @@ output; it does not generate prose documentation automatically:
 | `requestSchema`, `querySchema`, `responseSchema` | Optional schema objects for CLI/schema output; use the same runtime `requestSchema` with `parseJson` when a route accepts a body |
 | `operations` | Optional `Partial<Record<HttpMethod, RouteOperationMetadata>>` refinements for each registered method |
 | `automation` | Optional explicit automation policy; inherited by method metadata |
+| `actorInvalidation` | Preserve a successful receipt for an intentional mutation of the actor identified by `userParameter`; pre-handler and future admission checks remain required |
 | `delegation` | Explicit resource/action contract for trusted server-code delegation; default deny, method `false` removes an inherited grant |
 | `partialResults` | Optional `{ header: string }` declaring incomplete aggregate response metadata |
 | `catalog: false` | Exclude a route from generated catalogs |
@@ -232,9 +233,16 @@ It combines application routes with canonical framework health, public
 configuration, preferences, server logs/settings and shutdown routes. The same
 definitions own their HTTP handlers, schemas, roles and automation policies.
 Framework routes take precedence at their reserved paths. Private authentication,
-account/key/session administration, OAuth and raw realtime protocols remain
-outside this operational catalog. Catalog presence is not authorization: consumers
+account/key/session administration is also catalogued when its feature is enabled,
+with default-excluded automation and an explicit application-execution policy.
+OAuth authentication and raw realtime protocols remain outside the operational
+catalog. Catalog presence is not authorization: consumers
 must enforce their grants and the declared automation policy.
+`automation.execution` can declare raw inputs, file/private outputs and exact
+lowercase `requestHeaders` for an explicitly admitted application execution.
+Private file transports must freeze inputs before approval and must not return
+credential contents to the model. Declared headers cannot override authentication,
+origin or transport headers.
 Existing application CLI aliases retain precedence: a conflicting framework alias
 is namespaced with `framework/` instead of preventing server startup. Catalog
 lookup prefers exact API paths for path-shaped input and CLI aliases for shorthand

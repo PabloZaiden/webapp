@@ -161,9 +161,13 @@ mapping, security headers, `HEAD` behavior and `requestFilter` are retained.
 `run` establishes typed application operation authority before middleware and
 the handler. `ctx.auth.kind` is `"server"` and helpers see the actual account,
 not an invented owner. Operational framework routes share this dispatcher and
-appear with application routes in `app.routeCatalog`. Private authentication,
-credential/session administration and browser documents are not dispatched.
-No browser cookie or credential is minted.
+appear with application routes in `app.routeCatalog`. Account/key/session
+administration also uses the canonical dispatcher, with default-excluded
+automation and an explicit `automation.execution` policy. Applications must
+independently authorize an execution before selecting that policy and keep
+private responses outside model-visible output. Private authentication protocols
+and browser documents are not dispatched. The dispatcher itself never mints
+a browser cookie or credential.
 The framework API-key/device scope check does not apply to this server-code
 capability: its mandatory application `authorize` callback owns the admitted
 operation policy. Never expose it as an arbitrary user-ID HTTP proxy.
@@ -171,7 +175,11 @@ operation policy. Never expose it as an arbitrary user-ID HTTP proxy.
 Account checks also run when `run` hands off to middleware, immediately before
 the handler (including after asynchronous middleware), and before returning
 the result. A changed role, authentication version or disabled account denies
-the stale invocation. These are authorization handoff boundaries, not a
+the stale invocation. A canonical `actorInvalidation` declaration can preserve
+the successful receipt of an intentional mutation of that same account, such
+as self-demotion, reset or deletion; pre-handler checks still apply, failed
+operations get no exception, and subsequent invocations must authenticate again.
+These are authorization handoff boundaries, not a
 rollback/cancellation system: application work that already began under valid
 authority is not undone. Long-running domain mutations must enforce their own
 transactional authorization at commit if they require stronger guarantees.

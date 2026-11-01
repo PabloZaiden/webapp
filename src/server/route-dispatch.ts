@@ -240,7 +240,10 @@ export function createRouteDispatcher<TEvent = unknown>(dependencies: RouteDispa
           : authenticated?.run && invocation
           ? await authenticated.run(invocation, execute)
           : await execute();
-        assertActor();
+        const invalidation = operation.metadata.actorInvalidation;
+        const ownInvalidation = response?.ok && authenticated && invalidation
+          && operation.params[invalidation.userParameter] === authenticated.actor.id;
+        if (!ownInvalidation) assertActor();
         return { matched: true, response: response ? routeResponse(req, response) : undefined };
       } catch (error) {
         const response = admitted

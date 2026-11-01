@@ -91,6 +91,7 @@ function catalogEntry<TEvent>(compiled: CompiledRoute<TEvent>): RouteCatalogEntr
     automation: compiled.route.automation,
     delegation: compiled.route.delegation,
     partialResults: compiled.route.partialResults,
+    actorInvalidation: compiled.route.actorInvalidation,
     operations: compiled.route.operations,
   };
   compiledCatalogEntries.set(entry, compiled.patterns);

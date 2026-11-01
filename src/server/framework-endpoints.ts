@@ -1,12 +1,9 @@
 import type { Server } from "bun";
-import type { CurrentUser, LogLevelName, WebAppConfigResponse } from "../contracts";
+import type { LogLevelName, WebAppConfigResponse } from "../contracts";
 import { DEFAULT_THEME_PREFERENCE } from "../contracts";
 import {
   authenticateApiKey,
   assertScopes,
-  createApiKey,
-  deleteApiKey,
-  listApiKeys,
 } from "./auth/api-keys";
 import {
   approveDevice,
@@ -17,8 +14,6 @@ import {
   exchangeRefreshToken,
   getDeviceVerificationDetails,
   jwks,
-  listAuthSessions,
-  revokeAuthSession,
   revokeRefreshToken,
 } from "./auth/device-auth";
 import {
@@ -37,10 +32,8 @@ import {
   logoutHeaders,
   passkeyStatus,
 } from "./auth/passkeys";
-import { audit, assertValidUsername, createSetupLinkRecord, createUserRecord, summarizeUser } from "./auth/users";
-import { nowIso, randomToken } from "./auth/crypto";
 import type { WebAppStore } from "./auth/store";
-import { getRequestBaseUrl, getRequestOriginInfo } from "./auth/request-origin";
+import { getRequestOriginInfo } from "./auth/request-origin";
 import type { Authentication } from "./authentication";
 import { authErrorResponse, scopesFromBearer, tokenError } from "./authentication";
 import { checkSameOrigin } from "./same-origin";
@@ -50,8 +43,6 @@ import {
   authenticationResponseSchema,
   clientTicketRequestSchema,
   apiKeyAuthenticationRequestSchema,
-  createApiKeyRequestSchema,
-  createUserRequestSchema,
   deviceAuthorizationRequestSchema,
   deviceCodeActionRequestSchema,
   serverLogSettingsRequestSchema,
@@ -64,7 +55,6 @@ import {
   setupVerificationSchema,
   themePreferenceRequestSchema,
   tokenRequestSchema,
-  userRoleRequestSchema,
 } from "./request-schemas";
 import { resolveEffectiveLogLevel, type RuntimeConfig } from "./runtime-config";
 import { setLogLevel } from "./logger";
@@ -73,13 +63,13 @@ import {
   errorResponse,
   jsonResponse,
   MAX_WEBAUTHN_JSON_BODY_BYTES,
-  notFound,
   parseJson,
   successResponse,
 } from "./responses";
 import type { WebSocketData } from "./realtime/bus";
 import { scheduleProcessShutdown } from "./process-shutdown";
 import { defineRoutes, type RouteContext } from "./routes";
+import { createFrameworkAccountRoutes } from "./framework-account-routes";
 
 const MAX_API_KEY_AUTH_BODY_BYTES = 4 * 1024;
 
@@ -171,26 +161,9 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
     return jsonResponse({ ...(extendConfigResponse?.(req, base) ?? {}), ...base });
   }
 
-  function setupUrl(req: Request, token: string): string {
-    const url = new URL(`${getRequestBaseUrl(req, config)}/setup`);
-    url.search = `?token=${encodeURIComponent(token)}`;
-    url.hash = "";
-    return url.toString();
-  }
-
-  function createSetupLink(req: Request, userId: string, kind: "invite" | "reset" | "owner-reset", actorUserId?: string) {
-    const token = randomToken(32);
-    const record = createSetupLinkRecord({ userId, token, kind, createdByUserId: actorUserId });
-    store.createSetupLink(record);
-    return { url: setupUrl(req, token), expiresAt: record.expiresAt };
-  }
-
-  function ensureAdmin(auth: Parameters<Authentication["currentUser"]>[0]): CurrentUser {
-    return authentication.requireAdmin(auth);
-  }
-
   const healthResponse = () => successResponse({ ok: true, version });
   const routes = defineRoutes({
+    ...createFrameworkAccountRoutes({ store, config, passkeysEnabled, apiKeysEnabled, deviceAuthEnabled }),
     "/api/health": {
       auth: "public", sameOrigin: "never", tags: ["diagnostics"],
       description: "Read server health and the running application version.",
@@ -410,27 +383,6 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         if (originFailure) return originFailure;
         return addHeaders(successResponse(), deletePasskey(req, store, config, authentication.requireUser(auth).id));
       }
-      if (apiKeysEnabled && path === "/api/api-keys" && req.method === "GET") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        return jsonResponse(listApiKeys(store, authentication.requireUser(auth).id));
-      }
-      if (apiKeysEnabled && path === "/api/api-keys" && req.method === "POST") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        const originFailure = checkSameOrigin(req, config, auth, "mutations");
-        if (originFailure) return originFailure;
-        return jsonResponse(createApiKey(store, authentication.requireUser(auth), await parseJson(req, createApiKeyRequestSchema)));
-      }
-      const apiKeyDelete = /^\/api\/api-keys\/([^/]+)$/.exec(path);
-      if (apiKeysEnabled && apiKeyDelete && req.method === "DELETE") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        const originFailure = checkSameOrigin(req, config, auth, "mutations");
-        if (originFailure) return originFailure;
-        deleteApiKey(store, authentication.requireUser(auth).id, decodeURIComponent(apiKeyDelete[1]!));
-        return successResponse();
-      }
       if (deviceAuthEnabled && path === "/api/auth/device" && req.method === "POST") {
         const body = await parseJson(req, deviceAuthorizationRequestSchema);
         return jsonResponse(createDeviceAuthorization(req, store, config, body));
@@ -482,107 +434,11 @@ export function createFrameworkEndpointHandler(dependencies: FrameworkEndpointDe
         revokeRefreshToken(store, body.refreshToken);
         return successResponse();
       }
-      if (deviceAuthEnabled && path === "/api/auth/sessions" && req.method === "GET") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        return jsonResponse(listAuthSessions(store, authentication.requireUser(auth).id));
-      }
-      const sessionDelete = /^\/api\/auth\/sessions\/([^/]+)$/.exec(path);
-      if (deviceAuthEnabled && sessionDelete && req.method === "DELETE") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        const originFailure = checkSameOrigin(req, config, auth, "mutations");
-        if (originFailure) return originFailure;
-        return revokeAuthSession(store, authentication.requireUser(auth).id, decodeURIComponent(sessionDelete[1]!)) ? successResponse() : notFound();
-      }
       if (deviceAuthEnabled && path === "/.well-known/jwks.json" && req.method === "GET") {
         return jsonResponse(await jwks(store));
       }
       if (deviceAuthEnabled && path === "/.well-known/openid-configuration" && req.method === "GET") {
         return jsonResponse(discovery(req, config));
-      }
-      if (passkeysEnabled && path === "/api/users" && req.method === "GET") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        ensureAdmin(auth);
-        return jsonResponse(store.listUsers().map(summarizeUser));
-      }
-      if (passkeysEnabled && path === "/api/users" && req.method === "POST") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        const actor = ensureAdmin(auth);
-        const originFailure = checkSameOrigin(req, config, auth, "mutations");
-        if (originFailure) return originFailure;
-        const body = await parseJson(req, createUserRequestSchema);
-        const username = assertValidUsername(body.username ?? "");
-        if (store.getUserByUsername(username)) {
-          return errorResponse(409, "username_exists", "Username already exists");
-        }
-        const user = createUserRecord({ username, role: body.role ?? "user" });
-        store.createUser(user);
-        const setupLink = createSetupLink(req, user.id, "invite", actor.id);
-        audit(store, { eventType: "user_created", actorUserId: actor.id, targetUserId: user.id, metadata: { role: user.role } });
-        return jsonResponse({ user: summarizeUser(store.getUserById(user.id) ?? user), setupLink }, { status: 201 });
-      }
-      const userRolePatch = /^\/api\/users\/([^/]+)\/role$/.exec(path);
-      if (passkeysEnabled && userRolePatch && req.method === "PATCH") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        const actor = ensureAdmin(auth);
-        const originFailure = checkSameOrigin(req, config, auth, "mutations");
-        if (originFailure) return originFailure;
-        const userId = decodeURIComponent(userRolePatch[1]!);
-        const target = store.getUserById(userId);
-        if (!target) return notFound();
-        if (target.role === "owner") return errorResponse(409, "owner_immutable", "Owner role cannot be changed");
-        const body = await parseJson(req, userRoleRequestSchema);
-        const role = body.role;
-        store.setUserRole(userId, role, nowIso());
-        audit(store, { eventType: "user_role_changed", actorUserId: actor.id, targetUserId: userId, metadata: { role } });
-        return jsonResponse(summarizeUser(store.getUserById(userId) ?? target));
-      }
-      const userReset = /^\/api\/users\/([^/]+)\/reset$/.exec(path);
-      if (passkeysEnabled && userReset && req.method === "POST") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        const actor = ensureAdmin(auth);
-        const originFailure = checkSameOrigin(req, config, auth, "mutations");
-        if (originFailure) return originFailure;
-        const userId = decodeURIComponent(userReset[1]!);
-        const target = store.getUserById(userId);
-        if (!target) return notFound();
-        if (target.role === "owner") return errorResponse(409, "owner_immutable", "Owner cannot be reset");
-        const timestamp = nowIso();
-        store.deletePendingSetupLinksForUser(userId, timestamp);
-        store.deletePasskeysForUser(userId);
-        store.deleteApiKeysForUser(userId);
-        store.revokeRefreshSessionsForUser(userId, timestamp);
-        store.incrementUserAuthVersion(userId, timestamp);
-        const setupLink = createSetupLink(req, userId, "reset", actor.id);
-        audit(store, { eventType: "user_reset", actorUserId: actor.id, targetUserId: userId });
-        return jsonResponse({ user: summarizeUser(store.getUserById(userId) ?? target), setupLink });
-      }
-      const userDelete = /^\/api\/users\/([^/]+)$/.exec(path);
-      if (passkeysEnabled && userDelete && req.method === "DELETE") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        const actor = ensureAdmin(auth);
-        const originFailure = checkSameOrigin(req, config, auth, "mutations");
-        if (originFailure) return originFailure;
-        const userId = decodeURIComponent(userDelete[1]!);
-        const target = store.getUserById(userId);
-        if (!target) return notFound();
-        if (target.role === "owner") return errorResponse(409, "owner_immutable", "Owner cannot be deleted");
-        store.deleteApiKeysForUser(userId);
-        if (!store.deleteUser(userId)) return notFound();
-        audit(store, { eventType: "user_deleted", actorUserId: actor.id, metadata: { deletedUserId: userId, username: target.username } });
-        return successResponse();
-      }
-      if (passkeysEnabled && path === "/api/audit-events" && req.method === "GET") {
-        const auth = await authorize(req, true);
-        if (auth instanceof Response) return auth;
-        ensureAdmin(auth);
-        return jsonResponse(store.listAuditEvents(100));
       }
       if (
         deviceAuthEnabled
