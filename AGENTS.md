@@ -21,7 +21,12 @@
 
 ## Browser and UI validation
 
-- Use `Bun.WebView` from Bun 1.4+ for browser automation and screenshot capture. Let Bun resolve Chromium from `PATH`; do not launch a browser directly from a platform-specific path.
+- Use `Bun.WebView` from Bun 1.4+ for browser automation and screenshot capture.
+  On Linux, resolve Chromium with `Bun.which("chromium")` and pass `backend.path`;
+  do not rely on automatic browser discovery or hard-code an executable path. Preserve
+  the default WebKit backend on macOS. Follow the
+  [skill's browser diagnostics](skills/webapp/SKILL.md#browser-selection-and-startup-diagnostics)
+  before declaring capture blocked.
 - When taking screenshots to validate a visual change, review the screenshots against the specific goal; capturing them is not enough.
 - Don't overwrite existing screenshots unless the user explicitly asks for it. When taking screenshots to validate a visual change, store them either in a temporary location or in a git-ignored folder.
 - Validate that functional changes actually work with `Bun.WebView`, exercising the affected UI flow end-to-end, unless the change is very simple and has no meaningful browser-facing behavior.

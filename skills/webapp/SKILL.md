@@ -1,6 +1,6 @@
 ---
 name: webapp
-version: 0.5.11
+version: 0.5.12
 description: 'Build, modify, validate, and ship apps using @pablozaiden/webapp. Use when creating Bun/React apps or API-only services; adding routes, auth, settings, realtime, CLI, sidebar UI, Docker, GitHub Actions, or validating apps with Bun.WebView.'
 ---
 
@@ -162,6 +162,10 @@ experimental Bun API, so keep the harness small and disposable.
 On Linux, use Chromium (or another Chrome-family browser) available through
 `PATH`. The repository devcontainer installs the Chrome for Testing headless
 shell and exposes it as `chromium`, so no executable path should be hard-coded.
+Resolve that executable with `Bun.which("chromium")` and pass it as
+`backend.path`. Follow the
+[browser-selection and startup diagnostics](#browser-selection-and-startup-diagnostics)
+before declaring capture unavailable.
 On macOS, the default backend is the system `WKWebView`; this is not Safari and
 does not require a browser download. The Chrome backend is available on macOS
 too, but the WebKit backend is the default there.
@@ -190,10 +194,14 @@ if (!appUrl || !outputDir) {
 }
 
 const useChrome = process.platform !== "darwin";
+const chromePath = useChrome ? Bun.which("chromium") : undefined;
+if (useChrome && !chromePath) {
+  throw new Error("Chromium is required on PATH for WebView validation");
+}
 const chromeArgs =
   process.env.WEBAPP_WEBVIEW_NO_SANDBOX === "1" ? ["--no-sandbox"] : [];
 const backend = useChrome
-  ? { type: "chrome", url: false, argv: chromeArgs }
+  ? { type: "chrome", url: false, path: chromePath, argv: chromeArgs }
   : "webkit";
 
 await using view = new Bun.WebView({
@@ -310,6 +318,27 @@ Review every screenshot against the requested visual behavior; capturing a file
 without inspecting it is not validation. Keep screenshots, browser profiles,
 and harness files in temporary or git-ignored locations. Do not overwrite
 checked-in reference captures unless the task explicitly asks for an update.
+
+### Browser selection and startup diagnostics
+
+`backend.url: false` prevents attaching to an existing Chrome process; it does
+not select the executable. Always provide the PATH-resolved `backend.path` for
+Chrome validation. Automatic discovery can select a stale system
+`chromium-browser` Snap launcher even when the valid `chromium` on `PATH`
+passes `--version`.
+
+Before declaring capture unavailable because of `Chrome process closed the pipe`:
+
+1. Record `Bun.version`, `process.execPath`, and the selected browser path.
+   Do not substitute a Bun version change for checking the selected browser.
+2. Set `backend.stderr: "inherit"` in the disposable harness to expose the
+   browser's actual startup error. Select the existing valid browser rather
+   than installing Snap or replacing a shared global installation.
+3. Verify a minimal `Bun.WebView` navigation and a valid screenshot before
+   retrying the application capture. Version output alone is not validation.
+
+Keep these adjustments in disposable tooling, not application code. If capture
+is still blocked, record the selected executables and startup diagnostics.
 
 ## Minimum server shape
 
