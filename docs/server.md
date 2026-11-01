@@ -232,8 +232,10 @@ It combines application routes with canonical framework health, public
 configuration, preferences, server logs/settings and shutdown routes. The same
 definitions own their HTTP handlers, schemas, roles and automation policies.
 Framework routes take precedence at their reserved paths. Private authentication,
-account/key/session administration, OAuth and raw realtime protocols remain
-outside this operational catalog. Catalog presence is not authorization: consumers
+account/key/session administration is also catalogued when its feature is enabled,
+with default-excluded automation and an explicit application-execution policy.
+OAuth authentication and raw realtime protocols remain outside the operational
+catalog. Catalog presence is not authorization: consumers
 must enforce their grants and the declared automation policy.
 Existing application CLI aliases retain precedence: a conflicting framework alias
 is namespaced with `framework/` instead of preventing server startup. Catalog

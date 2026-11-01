@@ -161,9 +161,13 @@ mapping, security headers, `HEAD` behavior and `requestFilter` are retained.
 `run` establishes typed application operation authority before middleware and
 the handler. `ctx.auth.kind` is `"server"` and helpers see the actual account,
 not an invented owner. Operational framework routes share this dispatcher and
-appear with application routes in `app.routeCatalog`. Private authentication,
-credential/session administration and browser documents are not dispatched.
-No browser cookie or credential is minted.
+appear with application routes in `app.routeCatalog`. Account/key/session
+administration also uses the canonical dispatcher, with default-excluded
+automation and an explicit `automation.execution` policy. Applications must
+independently authorize an execution before selecting that policy and keep
+private responses outside model-visible output. Private authentication protocols
+and browser documents are not dispatched. The dispatcher itself never mints
+a browser cookie or credential.
 The framework API-key/device scope check does not apply to this server-code
 capability: its mandatory application `authorize` callback owns the admitted
 operation policy. Never expose it as an arbitrary user-ID HTTP proxy.

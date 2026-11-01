@@ -93,6 +93,13 @@ export type RouteAutomationCredential = {
 
 export interface RouteAutomationMetadata {
   policy: "read" | "write" | "confirm" | "excluded";
+  /** Optional policy for an application-admitted execution, never a credential grant. */
+  execution?: {
+    policy: "read" | "write" | "confirm";
+    requestFormat?: "raw";
+    responseFormat?: "file";
+    privateResponse?: boolean;
+  };
   reason?: string;
   hiddenInputs?: readonly string[];
   hiddenQuery?: readonly string[];

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
-  createManagedApiKey, createWebAppServer, findRouteCatalogEntry, jsonResponse, memoryWebAppStore,
+  createManagedApiKey, createWebAppServer, findRouteCatalogEntry, jsonResponse, memoryWebAppStore, resolveRouteOperation,
   type RuntimeConfig,
 } from "@pablozaiden/webapp/server";
 import { createUserRecord, toCurrentUser } from "../src/server/auth/users";
@@ -61,7 +61,10 @@ test("server-authenticated dispatch grants canonical application operations with
     expect(findRouteCatalogEntry(app.routeCatalog, "health")?.entry.path).toBe("/health");
     expect(findRouteCatalogEntry(app.routeCatalog, "/api/health")?.entry.path).toBe("/api/health");
     expect(findRouteCatalogEntry(app.routeCatalog, "/api/health")?.entry.methods).toEqual(["GET"]);
-    expect(findRouteCatalogEntry(app.routeCatalog, "/api/api-keys")).toBeUndefined();
+    const keys = findRouteCatalogEntry(app.routeCatalog, "/api/api-keys")!;
+    expect(resolveRouteOperation(keys.entry, "GET").automation).toMatchObject({
+      policy: "excluded", execution: { policy: "read" },
+    });
     const diagnostic = request("/api/health", "GET");
     expect((await app.dispatchAuthenticated(diagnostic, approve))?.status).toBe(403);
     expect((await app.dispatchAuthenticated(diagnostic, { ...approve, allowPublic: true, authorize: () => false }))?.status).toBe(403);
@@ -87,7 +90,13 @@ test("server-authenticated dispatch grants canonical application operations with
     expect((await app.dispatchAuthenticated(request("/api/owner", "GET"), approve))?.status).toBe(403);
     expect((await app.dispatchAuthenticated(request("/api/owner", "GET"), { ...approve, userId: owner.id }))?.status).toBe(200);
     expect((await app.dispatchAuthenticated(request("/api/public", "GET"), approve))?.status).toBe(403);
-    expect((await app.dispatchAuthenticated(request("/api/api-keys", "GET"), approve))?.status).toBe(404);
+    const admittedKeys = await app.dispatchAuthenticated(request("/api/api-keys", "GET"), approve);
+    expect(admittedKeys?.status).toBe(200);
+    expect(await admittedKeys?.json()).toEqual([]);
+    expect(admittedKeys?.headers.has("set-cookie")).toBe(false);
+    expect((await app.dispatchAuthenticated(request("/api/api-keys", "GET"), {
+      ...approve, authorize: () => false,
+    }))?.status).toBe(403);
     expect((await app.dispatchAuthenticated(request(), { ...approve, userId: "missing" }))?.status).toBe(403);
     const delegatedAdmin = await app.dispatchDelegated(request(), { actor: { ...admin, isAdmin: true, isOwner: false }, authorize: () => ({}) });
     expect(delegatedAdmin?.status).toBe(403);
