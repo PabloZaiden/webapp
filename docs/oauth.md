@@ -175,7 +175,11 @@ operation policy. Never expose it as an arbitrary user-ID HTTP proxy.
 Account checks also run when `run` hands off to middleware, immediately before
 the handler (including after asynchronous middleware), and before returning
 the result. A changed role, authentication version or disabled account denies
-the stale invocation. These are authorization handoff boundaries, not a
+the stale invocation. A canonical `actorInvalidation` declaration can preserve
+the successful receipt of an intentional mutation of that same account, such
+as self-demotion, reset or deletion; pre-handler checks still apply, failed
+operations get no exception, and subsequent invocations must authenticate again.
+These are authorization handoff boundaries, not a
 rollback/cancellation system: application work that already began under valid
 authority is not undone. Long-running domain mutations must enforce their own
 transactional authorization at commit if they require stronger guarantees.

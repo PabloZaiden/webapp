@@ -99,6 +99,7 @@ export interface RouteAutomationMetadata {
     requestFormat?: "raw";
     responseFormat?: "file";
     privateResponse?: boolean;
+    requestHeaders?: readonly string[];
   };
   reason?: string;
   hiddenInputs?: readonly string[];
@@ -116,6 +117,8 @@ export interface RouteOperationMetadata {
   /** Default deny; an operation may explicitly override an inherited grant with false. */
   delegation?: RouteDelegationMetadata | false;
   partialResults?: PartialResultMetadata;
+  /** Preserve a successful receipt when this operation intentionally invalidates its own actor. */
+  actorInvalidation?: { userParameter: string };
 }
 
 export interface RouteMetadata extends RouteOperationMetadata {
@@ -134,6 +137,7 @@ export function resolveRouteOperationMetadata(route: RouteMetadata, method: Http
     automation: route.automation,
     delegation: route.delegation,
     partialResults: route.partialResults,
+    actorInvalidation: route.actorInvalidation,
     ...route.operations?.[method],
   };
 }
@@ -255,6 +259,21 @@ function compileRoute<TEvent>(pattern: string, route: RouteDefinition<TEvent>): 
   }
   if (route.userParam !== undefined && !patterns.api.captures.some((capture) => capture.name === route.userParam)) {
     invalidRouteDefinition(pattern, `userParam "${route.userParam}" is not declared in the API path`);
+  }
+  for (const method of methods) {
+    const metadata = resolveRouteOperationMetadata(route, method);
+    const invalidation = metadata.actorInvalidation;
+    if (invalidation && !patterns.api.captures.some((capture) => capture.name === invalidation.userParameter)) {
+      invalidRouteDefinition(pattern, `actorInvalidation userParameter "${invalidation.userParameter}" is not declared in the API path`);
+    }
+    for (const header of metadata.automation?.execution?.requestHeaders ?? []) {
+      if (header !== header.toLowerCase() || !/^[!#$%&'*+.^_`|~0-9a-z-]+$/.test(header)
+        || ["authorization", "proxy-authorization", "cookie", "host", "origin", "referer",
+          "content-type", "content-length", "connection", "forwarded"].includes(header)
+        || header.startsWith("x-forwarded-") || header.startsWith("sec-")) {
+        invalidRouteDefinition(pattern, `execution requestHeaders must not override authentication, origin or transport headers`);
+      }
+    }
   }
   return {
     pattern,

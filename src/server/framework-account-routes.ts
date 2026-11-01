@@ -13,7 +13,7 @@ const REASON = "Account administration requires explicit application execution a
 const READ: RouteAutomationMetadata = { policy: "excluded", reason: REASON, execution: { policy: "read" } };
 const CONFIRM: RouteAutomationMetadata = { policy: "excluded", reason: REASON, execution: { policy: "confirm" } };
 const PRIVATE_CONFIRM: RouteAutomationMetadata = {
-  policy: "excluded", reason: REASON, execution: { policy: "confirm", privateResponse: true },
+  policy: "excluded", reason: REASON, execution: { policy: "confirm", privateResponse: true, responseFormat: "file" },
 };
 
 export function createFrameworkAccountRoutes(options: {
@@ -95,7 +95,7 @@ export function createFrameworkAccountRoutes(options: {
     "/api/users/:id/role": {
       auth: "admin", sameOrigin: "mutations", tags: ["account", "users"],
       description: "Change a non-owner account's role.",
-      operations: { PATCH: { requestSchema: userRoleRequestSchema, automation: CONFIRM } },
+      operations: { PATCH: { requestSchema: userRoleRequestSchema, automation: CONFIRM, actorInvalidation: { userParameter: "id" } } },
       async PATCH(req, ctx) {
         const actor = ctx.requireAdmin();
         const userId = ctx.params["id"]!;
@@ -111,7 +111,7 @@ export function createFrameworkAccountRoutes(options: {
     "/api/users/:id/reset": {
       auth: "admin", sameOrigin: "mutations", tags: ["account", "users"],
       description: "Reset a non-owner account's credentials and issue a private setup link.",
-      operations: { POST: { automation: PRIVATE_CONFIRM } },
+      operations: { POST: { automation: PRIVATE_CONFIRM, actorInvalidation: { userParameter: "id" } } },
       POST(req, ctx) {
         const actor = ctx.requireAdmin();
         const userId = ctx.params["id"]!;
@@ -132,7 +132,7 @@ export function createFrameworkAccountRoutes(options: {
     "/api/users/:id": {
       auth: "admin", sameOrigin: "mutations", tags: ["account", "users"],
       description: "Delete a non-owner account and its API keys.",
-      operations: { DELETE: { automation: CONFIRM } },
+      operations: { DELETE: { automation: CONFIRM, actorInvalidation: { userParameter: "id" } } },
       DELETE(_req, ctx) {
         const actor = ctx.requireAdmin();
         const userId = ctx.params["id"]!;
@@ -141,7 +141,8 @@ export function createFrameworkAccountRoutes(options: {
         if (target.role === "owner") return errorResponse(409, "owner_immutable", "Owner cannot be deleted");
         store.deleteApiKeysForUser(userId);
         if (!store.deleteUser(userId)) return notFound();
-        audit(store, { eventType: "user_deleted", actorUserId: actor.id, metadata: { deletedUserId: userId, username: target.username } });
+        audit(store, { eventType: "user_deleted", actorUserId: userId === actor.id ? undefined : actor.id,
+          metadata: { deletedUserId: userId, username: target.username } });
         return successResponse();
       },
     },

@@ -6,7 +6,7 @@ import {
 } from "@pablozaiden/webapp/server";
 import { createUserRecord, toCurrentUser } from "../src/server/auth/users";
 
-test("server-authenticated dispatch grants canonical application operations without issuing credentials", async () => {
+test("server-authenticated dispatch grants canonical operations and preserves deliberate account mutation receipts", async () => {
   const store = memoryWebAppStore();
   store.initialize();
   const owner = createUserRecord({ username: "owner", role: "owner" });
@@ -25,7 +25,7 @@ test("server-authenticated dispatch grants canonical application operations with
   const app = createWebAppServer({
     appName: config.appName, envPrefix: config.envPrefix, runtimeConfig: config,
     version: "running-test-version",
-    store, web: false, auth: { apiKeys: true },
+    store, web: false, auth: { apiKeys: true, passkeys: true },
     routeMiddleware: async (_request, _context, _operation, invoke) => {
       await middlewareWait?.();
       return await invoke();
@@ -140,6 +140,20 @@ test("server-authenticated dispatch grants canonical application operations with
     }
     store.disableUser(member.id, new Date().toISOString());
     expect((await app.dispatchAuthenticated(request(), { ...approve, userId: member.id }))?.status).toBe(403);
+    store.setUserRole(admin.id, "admin", new Date().toISOString());
+    const demoted = await app.dispatchAuthenticated(new Request(`http://localhost/api/users/${admin.id}/role`, {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "user" }),
+    }), approve);
+    expect(demoted?.status).toBe(200);
+    expect(await demoted?.json()).toMatchObject({ id: admin.id, role: "user" });
+    expect((await app.dispatchAuthenticated(request(), approve))?.status).toBe(403);
+    store.setUserRole(admin.id, "admin", new Date().toISOString());
+    const reset = await app.dispatchAuthenticated(request(`/api/users/${admin.id}/reset`), approve);
+    expect(reset?.status).toBe(200);
+    expect(await reset?.json()).toMatchObject({ setupLink: { url: expect.any(String) } });
+    const deleted = await app.dispatchAuthenticated(request(`/api/users/${admin.id}`, "DELETE"), approve);
+    expect(deleted?.status).toBe(200);
+    expect((await app.dispatchAuthenticated(request(), approve))?.status).toBe(403);
   } finally {
     await app.stop(true);
   }
