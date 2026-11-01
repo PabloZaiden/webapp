@@ -1,12 +1,17 @@
 ---
 name: webapp
-version: 0.5.11
+version: 0.5.12
 description: 'Build, modify, validate, and ship apps using @pablozaiden/webapp. Use when creating Bun/React apps or API-only services; adding routes, auth, settings, realtime, CLI, sidebar UI, Docker, GitHub Actions, or validating apps with Bun.WebView.'
 ---
 
 # Webapp framework skill
 
 Use this skill when building an app with `@pablozaiden/webapp`.
+
+Maintain this skill in `PabloZaiden/webapp` at `skills/webapp/SKILL.md`, then
+synchronize complete downstream copies. Never change only an application's
+copy or add application-specific sections to it; those belong in the
+application's own guides.
 
 ## Repository-local references
 
@@ -29,12 +34,17 @@ at its root, not relative to this skill file or an installed skill bundle:
   cover binary builds, Docker, and CI/CD templates.
 - [`docs/auth-validation.md`](https://github.com/PabloZaiden/webapp/blob/main/docs/auth-validation.md)
   contains the manual passkey, API-key, and device-auth checklist.
+- [`docs/remote-clients.md`](https://github.com/PabloZaiden/webapp/blob/main/docs/remote-clients.md)
+  covers static/external clients, resource ownership and native integration.
 
 Paths such as `.github/workflows/pr.yml` in this document are files to create in
 the application being built; they are not expected to exist beside this skill.
 
 ## Rules
 
+- Consume first-party webapp/installer packages from GitHub commits or tags, not npm. Prefer immutable SHAs and update manifests/lockfiles together; final integrations do not require intermediate releases.
+- Build main binaries with installer's `release_channel: latest`; keep stable installs as the default and let latest builds retain their update channel. Use framework `update --channel latest|stable`, not app-owned updater logic.
+- Pass the application's build `version` to `buildWebAppClient` for static clients; preserve it when changing bootstrap mode so sidebar/About identify the client without a server.
 - Treat a UI app as one Bun server that serves React, API routes, and websockets together. Use `web: false` only for API/WebSocket-only processes.
 - Do not add Vite or a standalone client dev server.
 - Use `bun --hot src/index.ts serve` for dev.
@@ -62,8 +72,10 @@ the application being built; they are not expected to exist beside this skill.
 - Prefer the framework shell, settings and auth conventions when in doubt.
 - Frontend entrypoints should use `renderWebApp(<App />)` from `@pablozaiden/webapp/web`, not `ReactDOMClient.createRoot(...)`, so hot reload reuses the existing React root.
 - Prefer `appJson` and `appFetch` from `@pablozaiden/webapp/web` for normal browser API calls; they preserve configured URLs, credentials, auth-required events, and `WebAppApiError` handling. Use `appRequest` only when you need a raw `Response` and custom handling, such as downloads; it does not apply the default credentials, auth-required events, or error normalization. Use the framework URL helpers for links, history, and websocket URLs so they honor reverse-proxy `publicBasePath` values.
+- For browser-only applications, use the framework's explicit external session/request/realtime/duplex/resource/save seams. Do not synthesize config, users or server endpoints, intercept global fetch/WebSocket, or recreate the shell. Use the `enabled` option of `useLiveQuery` to gate unavailable host capabilities. Integrated, detached-API and external bootstrap modes reuse one compiled frontend.
+- Dispose owned resource URL handles on replacement, stale completion and unmount. Use `appSaveResource` for downloads rather than treating every resource as a browser URL; external hosts may stream to disk and require an explicit export. Never report a share sheet or download-anchor invocation as a confirmed saved file.
 - Treat apps as multi-user by default. App data should include an owner/current-user id unless the route is deliberately public or global-admin.
-- Native hosts can implement `window.webappNativeResourceSaver` for `appSaveResource()` handoff after normal selected-server validation and ticket acquisition. Validate caller/destination in the host, propagate failures, and treat acceptance as a handoff, not a confirmed save. External-client saving remains owned by its adapter.
+- Native hosts can implement `window.webappNativeResourceSaver` for `appSaveResource()` handoff after normal selected-server validation and ticket acquisition. Use this explicit hook, not a document click listener: the framework's download anchor may be detached. Validate caller/destination in the host without transferring bearer credentials, propagate failures, and treat acceptance as a handoff, not a confirmed save. External-client saving remains owned by its adapter.
 - In server routes prefer declarative `auth: "user"`, `auth: "admin"` or `auth: "owner"` and use `ctx.requireUser()`, `ctx.requireAdmin()`, `ctx.requireOwner()`, `ctx.assertUser(userId)`, `ctx.filterOwned(records)` and `ctx.requireOwned(record)` instead of ad-hoc auth checks.
 - Treat TypeScript types as compile-time guidance, not input validation. Use `parseJson(req, schema)` for runtime body validation; `requestSchema` route metadata alone does not validate handler input. Define explicit create/update inputs and assign only allowlisted fields instead of mass-assigning request bodies. Return intentional 4xx responses for malformed or invalid input.
 - Add route metadata (`description`, `cliPath`, `tags`, schemas) directly to `defineRoutes` entries when an app needs CLI API discovery; use `createRouteCatalog` instead of maintaining a separate API catalog.
@@ -86,7 +98,7 @@ the application being built; they are not expected to exist beside this skill.
 - Do not reimplement framework dialogs/modals. Framework dialogs handle Enter as confirm/primary action and Escape as cancel/close.
 - Mark destructive menu items with `destructive: true`; delete-labelled actions are treated defensively, rendered red, and ordered last by the framework.
 - Do not add app-local shell/header action menus for active entities. If the action belongs to a task/chat/agent/session/workspace/server sidebar entity, put it on that node's `actions`.
-- Use semantic header primary actions so the framework can move them into the existing menu when actions and notifications compete for title space; never duplicate or clip actions or deform icon/sidebar buttons.
+- Use semantic header primary actions so the framework can move them into the existing menu when actions and notifications compete for title space; never duplicate or clip actions or deform icon/sidebar buttons. Let titles/subtitles truncate instead.
 - For user-owned live updates, prefer `ctx.userRealtime.publishEntityChanged(resource, id)` / `publishChanged(resource)` and `useLiveQuery` for initial loading plus live refresh, or `useRealtimeRefresh({ resources, refresh })` for an existing loader. Use global `ctx.realtime` only for public/global-admin events or server-validated non-user scopes.
 - Use app-owned websocket upgrade handlers only for raw transports such as terminals, VNC or port-forward proxies; keep normal app state on framework realtime.
 - For verified remote principals, use server-only `app.dispatchDelegated` with explicit route/method `delegation` metadata and an application grant callback. Keep the guest `CurrentUser` separate from resource storage authority; install typed domain context in `run`, never impersonate an owner or trust delegation headers. See `docs/delegation.md`.
@@ -101,7 +113,7 @@ the application being built; they are not expected to exist beside this skill.
 - Prefer structured `settings.sections[].rows` for settings; keep `render` only as an escape hatch.
 - Follow the [UI guidelines](https://github.com/PabloZaiden/webapp/blob/main/docs/ui-guidelines.md): feature explanations belong in documentation, not setting subtitles or hints.
 - Put each setting's field in `content` and its buttons in `actions`, not in a stacked field/footer inside `content`. Wrap `SettingsFieldRow` in a shared native form when needed. The framework centers label and controls when they fit and wraps controls below the label when space is constrained; do not patch row alignment with consumer CSS.
-- Settings labels use their content width; fields, nested control wrappers and action groups shrink/wrap within the available row width. Preserve readable labels and right-aligned action order instead of forcing inline controls or changing the shell breakpoint.
+- Settings labels use their content width; fields, nested forms/control wrappers and action groups shrink/wrap within the actual panel width. Preserve readable labels and right-aligned action order instead of forcing inline controls or changing the shell breakpoint. Fix generic sizing upstream, not through consumer CSS or a device-specific breakpoint.
 - Inline `SettingsFieldRow` checkbox content stays in a compact right-hand column on mobile, even with wrapping descriptions. Put `CheckboxField` or a raw checkbox directly in `content`; do not recreate boolean-row layouts or hide necessary descriptions to keep controls aligned.
 - Reuse `SettingsLayout` inside `Page layout="full"` for entity settings categories. It shares global Settings navigation without owning routes or drafts; keep draft children mounted across category changes. `Input`/`Select` accept `fieldWidth` for controls already labeled by `SettingsFieldRow`.
 - Let Settings sections/panels/lists fill the remaining content width. Bound short/normal controls rather than entire operational sections; use `fieldWidth="full"` for long inputs/selects that should fill their container, and `Page layout="form"` only for explicitly bounded form pages.
@@ -110,6 +122,36 @@ the application being built; they are not expected to exist beside this skill.
 - Test user-visible functionality and behavior, not implementation details such as internal class names, DOM structure or component internals.
 - Keep TypeScript checks strict; package scripts and every CI/release workflow must invoke the canonical `bun run typecheck` command.
 - When creating a production-ready app, add the Dockerfile and GitHub Actions from `docs/github-actions.md`: PR typecheck/build/test/dev-smoke/Docker-smoke, main GHCR Docker image, binary release, and Docker release.
+
+## Native hosts and layout
+
+Follow the [UI guidelines](https://github.com/PabloZaiden/webapp/blob/main/docs/ui-guidelines.md#mobile-breakpoint-and-viewport-synchronization)
+and [native integration seams](https://github.com/PabloZaiden/webapp/blob/main/docs/remote-clients.md#native-integration-seam).
+
+- The mobile drawer applies at 800 CSS pixels and below; wider viewports use
+  the desktop shell, including compact unfolded displays. Coordinate with the
+  exported breakpoint and root mobile marker rather than adding a
+  device-specific threshold. Sidebar width and safe-area clearance are independent.
+- Native hosts fill the window and follow the page background. The shared
+  framework protects header and route content from safe areas, including lateral
+  system bars; full-page tools own bottom clearance and main overlays own their
+  safe-area padding. Do not add a second native safe-area constraint or keyboard
+  resize, or hard-code device dimensions.
+- Keyboard viewport sizing is independent of the mobile breakpoint: wide tablets
+  and unfolded displays must keep their composer above an on-screen keyboard too.
+- Native toolbar presentation replaces existing web actions only after host
+  acceptance. Keep callbacks and business logic in the web UI; never transfer
+  credentials or authorization through the bridge. Include the existing logo/Home
+  action and omit the entire sidebar header after acceptance. Reuse the bundled
+  raster logo; unsupported layouts retain the web controls.
+- Hosts can report public reserved-region geometry through the optional
+  `NativeToolbarHost.getLayout`, independently of toolbar acceptance. Use that
+  contract rather than consumer CSS overrides or guessed device dimensions.
+  Keep conventional safe-area fallback for centered notches, zoom and
+  unavailable/stale geometry. Ordinary sidebar opening focuses its panel;
+  only an explicit search request should focus Search.
+- When a full-page composer owns bottom clearance, combine its ordinary spacing
+  with the system inset using `max`, not additive nested padding.
 
 ## Server state and lifecycle
 
@@ -143,6 +185,10 @@ the application being built; they are not expected to exist beside this skill.
 - Lifecycle process ownership checks must refuse to stop an unrecognized
   process that occupies the configured port. Keep PID/log writes atomic and
   use the framework's state-directory and locking helpers.
+- Framework servers await lifecycle hooks on macOS/Linux `SIGINT`/`SIGTERM`
+  and authenticated server shutdown. Keep owned worker/subprocess cleanup in
+  those hooks; do not install competing app signal handlers. Failed process
+  cleanup logs errors and exits nonzero. Forced OS termination cannot run hooks.
 - The detached lifecycle supports Linux and macOS. Validate build
   targets with `BUN_COMPILE_TARGETS`; Docker's supported example mapping is
   Linux `amd64` to `bun-linux-x64` and Linux `arm64` to `bun-linux-arm64`.
@@ -162,6 +208,10 @@ experimental Bun API, so keep the harness small and disposable.
 On Linux, use Chromium (or another Chrome-family browser) available through
 `PATH`. The repository devcontainer installs the Chrome for Testing headless
 shell and exposes it as `chromium`, so no executable path should be hard-coded.
+Resolve that executable with `Bun.which("chromium")` and pass it as
+`backend.path`. Follow the
+[browser-selection and startup diagnostics](#browser-selection-and-startup-diagnostics)
+before declaring capture unavailable.
 On macOS, the default backend is the system `WKWebView`; this is not Safari and
 does not require a browser download. The Chrome backend is available on macOS
 too, but the WebKit backend is the default there.
@@ -190,10 +240,14 @@ if (!appUrl || !outputDir) {
 }
 
 const useChrome = process.platform !== "darwin";
+const chromePath = useChrome ? Bun.which("chromium") : undefined;
+if (useChrome && !chromePath) {
+  throw new Error("Chromium is required on PATH for WebView validation");
+}
 const chromeArgs =
   process.env.WEBAPP_WEBVIEW_NO_SANDBOX === "1" ? ["--no-sandbox"] : [];
 const backend = useChrome
-  ? { type: "chrome", url: false, argv: chromeArgs }
+  ? { type: "chrome", url: false, path: chromePath, argv: chromeArgs }
   : "webkit";
 
 await using view = new Bun.WebView({
@@ -310,6 +364,27 @@ Review every screenshot against the requested visual behavior; capturing a file
 without inspecting it is not validation. Keep screenshots, browser profiles,
 and harness files in temporary or git-ignored locations. Do not overwrite
 checked-in reference captures unless the task explicitly asks for an update.
+
+### Browser selection and startup diagnostics
+
+`backend.url: false` prevents attaching to an existing Chrome process; it does
+not select the executable. Always provide the PATH-resolved `backend.path` for
+Chrome validation. Automatic discovery can select a stale system
+`chromium-browser` Snap launcher even when the valid `chromium` on `PATH`
+passes `--version`.
+
+Before declaring capture unavailable because of `Chrome process closed the pipe`:
+
+1. Record `Bun.version`, `process.execPath`, and the selected browser path.
+   Do not substitute a Bun version change for checking the selected browser.
+2. Set `backend.stderr: "inherit"` in the disposable harness to expose the
+   browser's actual startup error. Select the existing valid browser rather
+   than installing Snap or replacing a shared global installation.
+3. Verify a minimal `Bun.WebView` navigation and a valid screenshot before
+   retrying the application capture. Version output alone is not validation.
+
+Keep these adjustments in disposable tooling, not application code. If capture
+is still blocked, record the selected executables and startup diagnostics.
 
 ## Minimum server shape
 
