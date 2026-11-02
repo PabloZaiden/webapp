@@ -23,6 +23,7 @@ export interface WebAppClientSession {
   enabled: boolean;
   ready: boolean;
   endpoint?: string;
+  authorizationEndpoint?: string;
   apiEndpoint?: string;
   authenticated: boolean;
   generation: number;
@@ -134,7 +135,10 @@ export async function initializeClientSession(): Promise<void> {
       }
       connection = resolved;
       credentials = saved;
-      update({ ready: true, apiEndpoint: resolved?.apiBaseUrl, authenticated: saved !== undefined, error: undefined });
+      update({
+        ready: true, authorizationEndpoint: resolved?.authorizationBaseUrl,
+        apiEndpoint: resolved?.apiBaseUrl, authenticated: saved !== undefined, error: undefined,
+      });
     } catch (error) {
       if (state.generation === generation) update({
         ready: true, error: error instanceof Error ? error : new Error(String(error)),
