@@ -130,7 +130,7 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
         "/": publicRouteHandlers["/"] ?? spaDocumentRoute,
         "/login": publicRouteHandlers["/login"] ?? spaDocumentRoute,
         "/account": publicRouteHandlers["/account"] ?? spaDocumentRoute,
-        "/*": dependencies.authOnlyWeb ? dynamicHandler : spaDocumentRoute,
+        "/*": dependencies.authOnlyWeb || !webDocument ? dynamicHandler : spaDocumentRoute,
         [wsPath]: dynamicHandler,
         ...oauthConsentRoute,
         ...oauthRoutes,
