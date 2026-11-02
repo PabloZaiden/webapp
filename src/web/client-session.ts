@@ -218,16 +218,22 @@ export function cancelClientLogin(): void { login?.abort(); }
 
 export async function logoutClient(): Promise<void> {
   const endpoint = state.endpoint;
+  const destination = connection;
   let previous = credentials;
   login?.abort();
   try {
     if (endpoint) await withClientCredentialLock(endpoint, async () => {
-      previous = await readClientCredentials(store, endpoint) ?? previous;
+      const current = await readClientCredentials(store, endpoint) ?? previous;
+      if (current && (!destination || current.connectionIdentity !== destination.identity
+        || (previous && current.clientId !== previous.clientId))) {
+        throw new ClientAuthorizationError("The saved connection changed. Choose the server again.", "session_changed", 400);
+      }
+      previous = current;
       await store.remove(endpoint);
     });
     if (previous) {
-      if (!connection) throw new Error("The selected connection is unavailable.");
-      await revokeClientCredentials(previous, connection.apiBaseUrl);
+      if (!destination) throw new Error("The selected connection is unavailable.");
+      await revokeClientCredentials(previous, destination.apiBaseUrl);
     }
     window.location.reload();
   } catch (error) {
@@ -256,7 +262,8 @@ async function refreshSession(previous: WebAppClientCredentials): Promise<string
   const renew = async () => {
     if (!connection) throw new Error("The selected connection is unavailable.");
     const saved = await readClientCredentials(store, previous.baseUrl);
-    if (!saved || saved.clientId !== previous.clientId) {
+    if (!saved || saved.clientId !== previous.clientId || saved.connectionIdentity !== connection.identity
+      || saved.connectionIdentity !== previous.connectionIdentity) {
       throw new ClientAuthorizationError("The browser session changed. Sign in again.", "session_changed", 400);
     }
     const next = saved.accessToken !== previous.accessToken && saved.expiresAt > Date.now() + 15_000
@@ -279,7 +286,9 @@ async function refreshSession(previous: WebAppClientCredentials): Promise<string
       && [400, 401].includes(error.status)) {
       await withClientCredentialLock(previous.baseUrl, async () => {
         const saved = await readClientCredentials(store, previous.baseUrl);
-        if (saved?.clientId === previous.clientId) await store.remove(previous.baseUrl);
+        if (saved?.clientId === previous.clientId && saved.connectionIdentity === previous.connectionIdentity) {
+          await store.remove(previous.baseUrl);
+        }
       });
       invalidateClientSession();
     }
