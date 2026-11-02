@@ -383,7 +383,7 @@ test("supports a headless server with a deny-by-default request surface", async 
     envPrefix: "TEST_E2E_HEADLESS_REQUEST_FILTER",
     dataDir,
     store: memoryWebAppStore(),
-    auth: { passkeys: false },
+    auth: { passkeys: false, apiKeys: false, deviceAuth: false },
     web: false,
     publicRoutes: {
       "/diagnostics.json": JSON.stringify({ exposed: true }),
@@ -394,6 +394,10 @@ test("supports a headless server with a deny-by-default request surface", async 
         sameOrigin: "never",
         GET: () => jsonResponse({ ok: true }),
       },
+      "/api/private": {
+        auth: "user",
+        GET: () => jsonResponse({ private: true }),
+      },
       "/api/blocked": {
         auth: "public",
         sameOrigin: "never",
@@ -402,7 +406,7 @@ test("supports a headless server with a deny-by-default request surface", async 
     }),
     requestFilter: (request) => {
       const path = new URL(request.url).pathname;
-      return path === "/api/health" || path === "/api/worker";
+      return path === "/api/health" || path === "/api/worker" || path === "/api/private";
     },
   });
 
@@ -413,6 +417,15 @@ test("supports a headless server with a deny-by-default request surface", async 
     const worker = await fetch(`${running.baseUrl}/api/worker`);
     expect(worker.status).toBe(200);
     expect(await worker.json()).toEqual({ ok: true });
+    const transported = await fetch(`${running.baseUrl}/api/worker?webapp_ticket=upstream-ticket`, {
+      headers: { authorization: bearer("upstream-session") },
+    });
+    expect(transported.status).toBe(200);
+    expect(await transported.json()).toEqual({ ok: true });
+    const privateRoute = await fetch(`${running.baseUrl}/api/private?webapp_ticket=upstream-ticket`, {
+      headers: { authorization: bearer("upstream-session") },
+    });
+    expect(privateRoute.status).toBe(401);
     expect(await Bun.file(resolve(dataDir, "webapp.sqlite")).exists()).toBe(false);
 
     for (const path of ["/", "/projects", "/api/config", "/api/blocked", "/diagnostics.json"]) {

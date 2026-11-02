@@ -68,6 +68,13 @@ the relationship between those URLs. Resolution failures do not fall back to
 the authorization server. This is normal remote account mode, not an external
 session or an alternative user store. Without a resolver, behavior is unchanged.
 
+A transport-only server can explicitly disable all three framework account
+mechanisms (`passkeys`, `apiKeys`, `deviceAuth`). In that configuration it leaves
+upstream bearer headers and resource/socket ticket parameters uninterpreted:
+they grant no local principal or protected-route access. Its transport handler
+must forward them only to the intended authentication owner. Servers with any
+framework authentication mechanism enabled retain normal credential checks.
+
 Default browser credential storage uses localStorage scoped to the exact API URL
 and client deployment directory. Treat the static origin as trusted application
 code: tokens are not encrypted or HttpOnly, and scripts served there can access

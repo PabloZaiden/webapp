@@ -177,6 +177,7 @@ export function authErrorResponse(error: unknown): Response {
 
 export function createAuthentication(dependencies: AuthenticationDependencies): Authentication {
   const { store, config, passkeysEnabled, apiKeysEnabled, deviceAuthEnabled } = dependencies;
+  const enabled = passkeysEnabled || apiKeysEnabled || deviceAuthEnabled;
   async function verifyBearer(token: string): Promise<Extract<AuthenticatedRequestState, { kind: "bearer" }>> {
     if (!deviceAuthEnabled) throw new AuthError("invalid_token", "Device authentication is disabled", 401);
     const claims = await verifyAccessToken(store, config, token);
@@ -197,6 +198,7 @@ export function createAuthentication(dependencies: AuthenticationDependencies): 
   }
 
   async function authorize(req: Request, required: boolean): Promise<AuthenticatedRequestState | Response> {
+    if (!enabled) return { kind: "anonymous" };
     const ticket = clientTickets.authentication(req);
     if (ticket) return ticket;
     const token = bearerToken(req);
@@ -253,7 +255,7 @@ export function createAuthentication(dependencies: AuthenticationDependencies): 
 
   return {
     authorize,
-    prepareRequest: clientTickets.prepare,
+    prepareRequest: async (req) => enabled ? await clientTickets.prepare(req) : req,
     issueClientTicket(req, auth, input) {
       const token = bearerToken(req);
       if (auth.kind !== "bearer" || auth.clientTicket || !token) {
