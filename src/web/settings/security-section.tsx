@@ -18,6 +18,9 @@ export interface SecuritySectionProps {
 }
 
 export function SecuritySection({ config, refresh }: SecuritySectionProps) {
+  const session = getClientSession();
+  const accountUrl = session.authorizationEndpoint
+    ? new URL("account", `${session.authorizationEndpoint}/`).toString() : appPath("/account");
   const [error, setError] = useState<string>();
   const [createdToken, setCreatedToken] = useState<string>();
   const [apiKeyToDelete, setApiKeyToDelete] = useState<ApiKeySummary>();
@@ -116,8 +119,8 @@ export function SecuritySection({ config, refresh }: SecuritySectionProps) {
     <>
       <SettingsFieldRow title="Passkey" description={config.passkeyAuth.passkeyConfigured ? "Configured" : "Not configured"} actions={
         <div className="wapp-row-actions">
-          {getClientSession().enabled ? (
-            <a href={appPath("/account")} target="_blank" rel="noopener noreferrer">Manage on server</a>
+          {session.enabled ? (
+            <a href={accountUrl} target="_blank" rel="noopener noreferrer">Manage on server</a>
           ) : config.passkeyAuth.passkeyConfigured ? (
             <>
               <Button type="button" onClick={() => void logout()}>Logout</Button>

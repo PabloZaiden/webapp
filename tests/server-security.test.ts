@@ -95,6 +95,7 @@ async function startServer(input: {
   publicRoutes?: WebAppServerConfig["publicRoutes"];
   web?: WebAppServerConfig["web"];
   requestFilter?: WebAppServerConfig["requestFilter"];
+  websockets?: WebAppServerConfig["websockets"];
   passkeyDisabled?: boolean;
 }): Promise<{
   app: ReturnType<typeof createWebAppServer>;
@@ -122,6 +123,7 @@ async function startServer(input: {
     runtimeConfig,
     web: input.web ?? testWeb,
     requestFilter: input.requestFilter,
+    websockets: input.websockets,
     store,
     auth: input.auth,
     publicRoutes: input.publicRoutes,
@@ -383,8 +385,9 @@ test("supports a headless server with a deny-by-default request surface", async 
     envPrefix: "TEST_E2E_HEADLESS_REQUEST_FILTER",
     dataDir,
     store: memoryWebAppStore(),
-    auth: { passkeys: false },
+    auth: { passkeys: false, apiKeys: false, deviceAuth: false },
     web: false,
+    websockets: { transport: { open: socket => { socket.send("upstream-ready"); }, message() {} } },
     publicRoutes: {
       "/diagnostics.json": JSON.stringify({ exposed: true }),
     },
@@ -394,6 +397,19 @@ test("supports a headless server with a deny-by-default request surface", async 
         sameOrigin: "never",
         GET: () => jsonResponse({ ok: true }),
       },
+      "/api/private": {
+        auth: "user",
+        GET: () => jsonResponse({ private: true }),
+      },
+      "/transport/socket": {
+        auth: "public",
+        sameOrigin: "never",
+        GET(req, ctx) {
+          if (ctx.auth.kind !== "anonymous") return new Response("Unexpected local account", { status: 403 });
+          return ctx.server?.upgrade(req, { data: { webappSocketHandler: "transport" } })
+            ? undefined : new Response("Transport unavailable", { status: 503 });
+        },
+      },
       "/api/blocked": {
         auth: "public",
         sameOrigin: "never",
@@ -402,7 +418,7 @@ test("supports a headless server with a deny-by-default request surface", async 
     }),
     requestFilter: (request) => {
       const path = new URL(request.url).pathname;
-      return path === "/api/health" || path === "/api/worker";
+      return path === "/api/health" || path === "/api/worker" || path === "/api/private" || path === "/transport/socket";
     },
   });
 
@@ -413,6 +429,24 @@ test("supports a headless server with a deny-by-default request surface", async 
     const worker = await fetch(`${running.baseUrl}/api/worker`);
     expect(worker.status).toBe(200);
     expect(await worker.json()).toEqual({ ok: true });
+    const transported = await fetch(`${running.baseUrl}/api/worker?webapp_ticket=upstream-ticket`, {
+      headers: { authorization: bearer("upstream-session") },
+    });
+    expect(transported.status).toBe(200);
+    expect(await transported.json()).toEqual({ ok: true });
+    const privateRoute = await fetch(`${running.baseUrl}/api/private?webapp_ticket=upstream-ticket`, {
+      headers: { authorization: bearer("upstream-session") },
+    });
+    expect(privateRoute.status).toBe(401);
+    const socket = new WebSocket(`${running.baseUrl.replace("http:", "ws:")}/transport/socket?webapp_ticket=upstream-ticket`);
+    try {
+      const message = await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("Transport socket did not open")), 5_000);
+        socket.addEventListener("message", event => { clearTimeout(timer); resolve(String(event.data)); }, { once: true });
+        socket.addEventListener("error", () => { clearTimeout(timer); reject(new Error("Transport socket was rejected")); }, { once: true });
+      });
+      expect(message).toBe("upstream-ready");
+    } finally { socket.close(); }
     expect(await Bun.file(resolve(dataDir, "webapp.sqlite")).exists()).toBe(false);
 
     for (const path of ["/", "/projects", "/api/config", "/api/blocked", "/diagnostics.json"]) {

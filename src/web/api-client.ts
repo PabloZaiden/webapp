@@ -331,7 +331,7 @@ function apiBaseUrl(): string | undefined {
   const session = getClientSession();
   if (!session.enabled) return configuredApiBaseUrl;
   if (!session.endpoint) throw new Error("Choose an API server first.");
-  return session.endpoint;
+  return session.apiEndpoint ?? session.endpoint;
 }
 
 function assertSelectedApiUrl(url: URL): URL {
