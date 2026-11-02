@@ -1,6 +1,6 @@
 ---
 name: webapp
-version: 0.5.16
+version: 0.5.15
 description: 'Build, modify, validate, and ship apps using @pablozaiden/webapp. Use when creating Bun/React apps or API-only services; adding routes, auth, settings, realtime, CLI, sidebar UI, Docker, GitHub Actions, or validating apps with Bun.WebView.'
 ---
 
@@ -45,7 +45,6 @@ the application being built; they are not expected to exist beside this skill.
 - Consume first-party webapp/installer packages from GitHub commits or tags, not npm. Prefer immutable SHAs and update manifests/lockfiles together; final integrations do not require intermediate releases.
 - Build main binaries with installer's `release_channel: latest`; keep stable installs as the default and let latest builds retain their update channel. Use framework `update --channel latest|stable`, not app-owned updater logic.
 - Pass the application's build `version` to `buildWebAppClient` for static clients; preserve it when changing bootstrap mode so sidebar/About identify the client without a server.
-- For remote account gateways, use `remote.resolveConnection` to separate initial device authorization from authenticated API transport. Validate discovery and bind saved credentials with a stable destination `identity`; never substitute external-mode guest state or fall back to direct API traffic. See `docs/remote-clients.md`.
 - Treat a UI app as one Bun server that serves React, API routes, and websockets together. Use `web: false` only for API/WebSocket-only processes.
 - Do not add Vite or a standalone client dev server.
 - Use `bun --hot src/index.ts serve` for dev.

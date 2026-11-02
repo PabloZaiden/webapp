@@ -8,23 +8,12 @@ import { readStorage, writeStorage } from "./storage";
 export interface WebAppRemoteClientOptions {
   credentialStore?: WebAppClientCredentialStore;
   openAuthorizationUrl?: (url: string) => void | Promise<void>;
-  resolveConnection?: (endpoint: string) => Promise<WebAppRemoteConnection>;
-}
-
-/** Separate initial account authorization from the authenticated API transport. */
-export interface WebAppRemoteConnection {
-  authorizationBaseUrl: string;
-  apiBaseUrl: string;
-  /** Stable authenticated destination binding, checked before reusing credentials. */
-  identity?: string;
 }
 
 export interface WebAppClientSession {
   enabled: boolean;
   ready: boolean;
   endpoint?: string;
-  authorizationEndpoint?: string;
-  apiEndpoint?: string;
   authenticated: boolean;
   generation: number;
   error?: Error;
@@ -34,8 +23,6 @@ let state: WebAppClientSession = { enabled: false, ready: true, authenticated: f
 let credentials: WebAppClientCredentials | undefined;
 let store = browserClientCredentialStore;
 let nativeOpen: WebAppRemoteClientOptions["openAuthorizationUrl"];
-let resolveConnection: WebAppRemoteClientOptions["resolveConnection"];
-let connection: WebAppRemoteConnection | undefined;
 let hydration: Promise<void> | undefined;
 let refresh: Promise<string> | undefined;
 let login: AbortController | undefined;
@@ -65,10 +52,6 @@ export function configureRemoteClient(defaultEndpoint?: string, options: WebAppR
     store = options.credentialStore;
   }
   if (options.openAuthorizationUrl) nativeOpen = options.openAuthorizationUrl;
-  if (options.resolveConnection) {
-    if (hydration) throw new Error("Configure connection resolution before rendering the application.");
-    resolveConnection = options.resolveConnection;
-  }
   if (state.enabled) return;
   try {
     const saved = readStorage(clientStorageKey("endpoint"));
@@ -127,18 +110,10 @@ export async function initializeClientSession(): Promise<void> {
     const endpoint = state.endpoint;
     const generation = state.generation;
     try {
-      const resolved = endpoint ? await resolveClientConnection(endpoint) : undefined;
       const saved = endpoint ? await readClientCredentials(store, endpoint) : undefined;
       if (state.generation !== generation) return;
-      if (saved && saved.connectionIdentity !== resolved?.identity) {
-        throw new Error("The selected connection belongs to a different server. Sign out or choose the server again.");
-      }
-      connection = resolved;
       credentials = saved;
-      update({
-        ready: true, authorizationEndpoint: resolved?.authorizationBaseUrl,
-        apiEndpoint: resolved?.apiBaseUrl, authenticated: saved !== undefined, error: undefined,
-      });
+      update({ ready: true, authenticated: saved !== undefined, error: undefined });
     } catch (error) {
       if (state.generation === generation) update({
         ready: true, error: error instanceof Error ? error : new Error(String(error)),
@@ -148,22 +123,8 @@ export async function initializeClientSession(): Promise<void> {
   await hydration;
 }
 
-async function resolveClientConnection(endpoint: string): Promise<WebAppRemoteConnection> {
-  const resolved = resolveConnection ? await resolveConnection(endpoint)
-    : { authorizationBaseUrl: endpoint, apiBaseUrl: endpoint };
-  if (resolved.identity !== undefined && (typeof resolved.identity !== "string" || !resolved.identity.trim())) {
-    throw new Error("The connection returned an invalid server identity.");
-  }
-  return {
-    authorizationBaseUrl: normalizeClientEndpoint(resolved.authorizationBaseUrl),
-    apiBaseUrl: normalizeClientEndpoint(resolved.apiBaseUrl),
-    ...(resolved.identity ? { identity: resolved.identity } : {}),
-  };
-}
-
 export async function selectClientEndpoint(endpoint: string): Promise<void> {
   const normalized = normalizeClientEndpoint(endpoint);
-  await resolveClientConnection(normalized);
   const previous = state.endpoint;
   if (previous) await withClientCredentialLock(previous, async () => { await store.remove(previous); });
   const result = writeStorage(clientStorageKey("endpoint"), normalized);
@@ -177,16 +138,14 @@ export function hasNativeAuthorizationBrowser(): boolean { return nativeOpen !==
 
 export async function loginClient(onVerification: (info: { url: string; code: string }) => void): Promise<void> {
   const endpoint = state.endpoint;
-  if (!endpoint || !connection || !state.ready || state.error) throw new Error("Choose an available API server first.");
+  if (!endpoint) throw new Error("Choose an API server first.");
   login?.abort();
   const controller = new AbortController();
   login = controller;
   const generation = state.generation;
   try {
     const next = await authorizeClient({
-      baseUrl: connection.authorizationBaseUrl,
-      credentialBaseUrl: endpoint,
-      connectionIdentity: connection.identity,
+      baseUrl: endpoint,
       signal: controller.signal,
       onVerification(info) {
         onVerification(info);
@@ -218,23 +177,14 @@ export function cancelClientLogin(): void { login?.abort(); }
 
 export async function logoutClient(): Promise<void> {
   const endpoint = state.endpoint;
-  const destination = connection;
   let previous = credentials;
   login?.abort();
   try {
     if (endpoint) await withClientCredentialLock(endpoint, async () => {
-      const current = await readClientCredentials(store, endpoint) ?? previous;
-      if (current && (!destination || current.connectionIdentity !== destination.identity
-        || (previous && current.clientId !== previous.clientId))) {
-        throw new ClientAuthorizationError("The saved connection changed. Choose the server again.", "session_changed", 400);
-      }
-      previous = current;
+      previous = await readClientCredentials(store, endpoint) ?? previous;
       await store.remove(endpoint);
     });
-    if (previous) {
-      if (!destination) throw new Error("The selected connection is unavailable.");
-      await revokeClientCredentials(previous, destination.apiBaseUrl);
-    }
+    if (previous) await revokeClientCredentials(previous);
     window.location.reload();
   } catch (error) {
     credentials = undefined;
@@ -260,14 +210,12 @@ export async function clientAccessToken(rejectedToken?: string): Promise<string>
 async function refreshSession(previous: WebAppClientCredentials): Promise<string> {
   const generation = state.generation;
   const renew = async () => {
-    if (!connection) throw new Error("The selected connection is unavailable.");
     const saved = await readClientCredentials(store, previous.baseUrl);
-    if (!saved || saved.clientId !== previous.clientId || saved.connectionIdentity !== connection.identity
-      || saved.connectionIdentity !== previous.connectionIdentity) {
+    if (!saved || saved.clientId !== previous.clientId) {
       throw new ClientAuthorizationError("The browser session changed. Sign in again.", "session_changed", 400);
     }
     const next = saved.accessToken !== previous.accessToken && saved.expiresAt > Date.now() + 15_000
-      ? saved : await refreshClientCredentials(saved, connection.apiBaseUrl);
+      ? saved : await refreshClientCredentials(saved);
     if (state.generation !== generation || state.endpoint !== next.baseUrl) {
       throw new Error("The selected server changed while renewing authorization.");
     }
@@ -286,9 +234,7 @@ async function refreshSession(previous: WebAppClientCredentials): Promise<string
       && [400, 401].includes(error.status)) {
       await withClientCredentialLock(previous.baseUrl, async () => {
         const saved = await readClientCredentials(store, previous.baseUrl);
-        if (saved?.clientId === previous.clientId && saved.connectionIdentity === previous.connectionIdentity) {
-          await store.remove(previous.baseUrl);
-        }
+        if (saved?.clientId === previous.clientId) await store.remove(previous.baseUrl);
       });
       invalidateClientSession();
     }
