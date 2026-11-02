@@ -55,6 +55,19 @@ authorization link. Cancel stops polling and pending credential-lock admission;
 credentials written during cancellation are removed instead of signing in.
 Changing servers also stops polling.
 
+Applications with an authenticated API gateway may configure
+`remote.resolveConnection(endpoint)` before rendering. Return
+`{ authorizationBaseUrl, apiBaseUrl, identity? }`: initial device-code
+authorization uses the first URL, while authenticated requests, tickets,
+WebSockets, refresh and revocation use the second. Both preserve their own
+path prefixes and require HTTPS outside localhost. The selected endpoint stays
+the storage namespace and connection-screen value. A stable `identity` binds
+saved credentials to the resolved destination; a mismatch fails explicitly
+before credentials are reused. The application must validate discovery and
+the relationship between those URLs. Resolution failures do not fall back to
+the authorization server. This is normal remote account mode, not an external
+session or an alternative user store. Without a resolver, behavior is unchanged.
+
 Default browser credential storage uses localStorage scoped to the exact API URL
 and client deployment directory. Treat the static origin as trusted application
 code: tokens are not encrypted or HttpOnly, and scripts served there can access
