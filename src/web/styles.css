@@ -1954,6 +1954,14 @@ textarea::placeholder {
   justify-self: end;
 }
 
+.wapp-settings-container {
+  container: wapp-settings / inline-size;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
 .wapp-settings {
   flex: 1;
   min-height: 0;
@@ -1999,6 +2007,21 @@ textarea::placeholder {
 
 .wapp-settings-content {
   min-width: 0;
+}
+
+@container wapp-settings (max-width: 800px) {
+  .wapp-settings {
+    display: block;
+  }
+
+  .wapp-settings-nav {
+    display: none;
+  }
+
+  .wapp-settings-category-select {
+    display: block;
+    margin-bottom: 1.25rem;
+  }
 }
 
 .wapp-settings-field {

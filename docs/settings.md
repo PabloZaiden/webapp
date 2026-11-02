@@ -20,6 +20,13 @@ Settings groups controls into **General**, **Account & access**,
 `section.category`; sections without a category join **General**. Section and
 row scope rules determine which application-defined settings are shown.
 
+Category navigation follows the width available to `SettingsLayout`, after the
+sidebar and safe-area clearance. At 800 CSS pixels or less it uses the Category
+dropdown; wider layouts keep the category list beside the content. Opening or
+closing the desktop sidebar can switch that presentation without changing the
+selected category or remounting its content. Entity settings using
+`SettingsLayout` share this behavior; the shell's mobile breakpoint is unchanged.
+
 Settings remembers the last opened category in browser storage per app and,
 for remote clients, per connected server. Reopening Settings without an
 explicit category restores that choice, including after a page reload.
