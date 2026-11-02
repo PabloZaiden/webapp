@@ -66,8 +66,10 @@ desktop scrolling when no keyboard adjustment is active. Detection accounts for
 visual-viewport scale so pinch zoom alone is not treated as a keyboard, while
 keyboard avoidance still works when zoom and a keyboard coexist.
 
-Settings categories follow the framework mobile mode. List rows may respond to
-their available width without changing shell behavior. Do not add global touch
+Settings categories use the Category dropdown when their layout has at most
+800 CSS pixels available, including with the desktop sidebar open. Wider
+Settings layouts keep the category list. This does not change shell behavior.
+List rows may also respond to their available width. Do not add global touch
 handlers or arbitrary sleeps; use existing event-driven viewport lifecycle.
 
 ### Edge-to-edge hosts and safe areas
@@ -186,7 +188,7 @@ readable labels, action order and right alignment. Native forms and nested
 control wrappers must be able to shrink with the available panel width.
 Keep `Page layout="form"` for explicitly bounded forms, not general lists.
 Use `SettingsLayout` inside `Page layout="full"` for entity settings with the
-same desktop category navigation and mobile selector as global Settings.
+same width-responsive category navigation as global Settings.
 Supply categories, the selected category and its change handler; the layout
 does not own routing, authentication, draft state or mounting policy. Keep
 draft-owning children mounted across category changes. Use `SettingsFieldRow`
