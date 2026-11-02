@@ -81,8 +81,6 @@ function waitForAuthorization(interval: number, signal: AbortSignal): Promise<vo
 
 export async function authorizeClient(input: {
   baseUrl: string;
-  credentialBaseUrl?: string;
-  connectionIdentity?: string;
   signal: AbortSignal;
   onVerification(info: { url: string; code: string }): void;
 }): Promise<WebAppClientCredentials> {
@@ -99,11 +97,11 @@ export async function authorizeClient(input: {
   while (true) {
     await waitForAuthorization(interval, signal);
     try {
-      return { ...tokenCredentials(input.credentialBaseUrl ?? input.baseUrl, clientId, await authRequest(input.baseUrl, "/api/auth/token", {
+      return tokenCredentials(input.baseUrl, clientId, await authRequest(input.baseUrl, "/api/auth/token", {
         grant_type: "urn:ietf:params:oauth:grant-type:device_code",
         device_code: device.device_code,
         client_id: clientId,
-      }, signal)), ...(input.connectionIdentity ? { connectionIdentity: input.connectionIdentity } : {}) };
+      }, signal));
     } catch (error) {
       if (!(error instanceof ClientAuthorizationError)) throw error;
       if (error.code === "slow_down") interval += 5_000;
@@ -112,14 +110,14 @@ export async function authorizeClient(input: {
   }
 }
 
-export async function refreshClientCredentials(credentials: WebAppClientCredentials, apiBaseUrl = credentials.baseUrl): Promise<WebAppClientCredentials> {
-  return { ...tokenCredentials(credentials.baseUrl, credentials.clientId, await authRequest(apiBaseUrl, "/api/auth/token", {
+export async function refreshClientCredentials(credentials: WebAppClientCredentials): Promise<WebAppClientCredentials> {
+  return tokenCredentials(credentials.baseUrl, credentials.clientId, await authRequest(credentials.baseUrl, "/api/auth/token", {
     grant_type: "refresh_token",
     refresh_token: credentials.refreshToken,
     client_id: credentials.clientId,
-  })), ...(credentials.connectionIdentity ? { connectionIdentity: credentials.connectionIdentity } : {}) };
+  }));
 }
 
-export async function revokeClientCredentials(credentials: WebAppClientCredentials, apiBaseUrl = credentials.baseUrl): Promise<void> {
-  await authRequest(apiBaseUrl, "/api/auth/revoke", { refreshToken: credentials.refreshToken });
+export async function revokeClientCredentials(credentials: WebAppClientCredentials): Promise<void> {
+  await authRequest(credentials.baseUrl, "/api/auth/revoke", { refreshToken: credentials.refreshToken });
 }

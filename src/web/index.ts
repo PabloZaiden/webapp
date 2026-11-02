@@ -15,7 +15,7 @@ export * from "./api-client";
 export { initializeWebAppClient } from "./client-bootstrap";
 export {
   clientScopedStorageKey, getClientSession, getClientStorageScope, logoutClient,
-  type WebAppClientSession, type WebAppRemoteClientOptions, type WebAppRemoteConnection,
+  type WebAppClientSession, type WebAppRemoteClientOptions,
 } from "./client-session";
 export type { WebAppClientCredentials, WebAppClientCredentialStore } from "./client-credentials";
 export { ResourceImage } from "./resource-image";

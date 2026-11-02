@@ -7,7 +7,6 @@ const credentialsSchema = z.object({
   accessToken: z.string().min(1),
   refreshToken: z.string().min(1),
   expiresAt: z.number().finite(),
-  connectionIdentity: z.string().min(1).optional(),
 });
 
 export type WebAppClientCredentials = z.infer<typeof credentialsSchema>;
