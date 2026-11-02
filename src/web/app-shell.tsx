@@ -323,12 +323,12 @@ export function AppShell({
         {!nativeToolbar ? <div className="wapp-sidebar-header">
           <button
             type="button"
-            className={`wapp-brand${hasAppIcon ? " wapp-brand-with-icon" : ""}`}
-            aria-label={hasAppIcon ? appName : undefined}
-            title={hasAppIcon ? appName : undefined}
+            className={`wapp-brand ${hasAppIcon ? "wapp-brand-with-icon" : "wapp-icon-button wapp-sidebar-top-button"}`}
+            aria-label={appName}
+            title={appName}
             onClick={navigateHome}
           >
-            {hasAppIcon ? <img src={appIconSource} alt="" /> : appName}
+            {hasAppIcon ? <img src={appIconSource} alt="" /> : <Icon name="home" />}
           </button>
           <div className="wapp-sidebar-actions">
             {topActions.length ? (
