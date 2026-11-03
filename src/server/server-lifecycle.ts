@@ -3,6 +3,7 @@ import { createLogger } from "./logger";
 import type { RealtimeBus, RealtimeConnectionOptions } from "./realtime/bus";
 import type {
   WebAppServerLifecycleHooks,
+  WebAppServerOptions,
   WebAppWebSocketData,
   WebAppServerConfig,
 } from "./server-types";
@@ -15,6 +16,7 @@ export interface ServerLifecycleDependencies<TEvent = unknown> {
   hooks?: WebAppServerLifecycleHooks;
   idleTimeout: number;
   tls?: Bun.TLSOptions | Bun.TLSOptions[];
+  websocket?: WebAppServerOptions["websocket"];
   publicRoutes: Readonly<Record<string, unknown>>;
   appWebsockets: NonNullable<WebAppServerConfig["websockets"]>;
   wsPath: string;
@@ -35,6 +37,7 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     hooks,
     idleTimeout,
     tls,
+    websocket,
     publicRoutes,
     appWebsockets,
     wsPath,
@@ -112,6 +115,8 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
         ...documentRoutes,
       },
       websocket: {
+        backpressureLimit: websocket?.backpressureLimit,
+        closeOnBackpressureLimit: websocket?.closeOnBackpressureLimit,
         open(socket) {
           const handler = customHandler(socket);
           if (socket.data.webappSocketHandler) {
