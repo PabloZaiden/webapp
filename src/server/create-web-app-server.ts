@@ -4,7 +4,7 @@ import { readRuntimeConfig } from "./runtime-config";
 import type { WebAppServer, WebAppServerConfig, WebAppWebSocketData } from "./server-types";
 import { createServerLifecycle } from "./server-lifecycle";
 import { createLogger, setLogLevel } from "./logger";
-import { createWebDocumentProvider, htmlResponse } from "./web-document";
+import { createWebDocumentProvider, htmlResponse, withDocumentBase } from "./web-document";
 import { createPublicRouteDispatcher } from "./public-route-dispatch";
 import { createRouteDispatcher } from "./route-dispatch";
 import { compileRouteTable } from "./routes";
@@ -113,13 +113,14 @@ export function createWebAppServer<TEvent = unknown, TIdentity = unknown>(
       // Bun only transforms HTML bundles on its native routes, not Server.fetch.
       // Native development documents therefore use this server's public bundle
       // route after app admission; compiled documents need no internal request.
-      return await fetch(new URL(document.entryPublicPath, server.url), {
+      const response = await fetch(new URL(document.entryPublicPath, server.url), {
         headers: { accept: "text/html" },
         redirect: "error",
         ...(server.url.protocol === "https:" ? { tls: { rejectUnauthorized: false } } : {}),
       });
+      return withDocumentBase(response, req, config);
     }
-    return await htmlResponse(document, req);
+    return withDocumentBase(await htmlResponse(document, req), req, config);
   }
 
   async function handleRequest(req: Request, server?: Server<WebAppWebSocketData>): Promise<Response | undefined> {

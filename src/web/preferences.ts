@@ -31,7 +31,14 @@ export function configureWebAppPreferences(next: WebAppPreferenceOptions = {}): 
 
 /** Storage is accessed only when the application explicitly selects this adapter. */
 export function createBrowserPreferenceAdapter(storage?: Storage): WebAppPreferenceAdapter {
-  const selected = storage ?? window.localStorage;
+  let selected: Storage;
+  try {
+    selected = storage ?? window.localStorage;
+  } catch (error) {
+    if (!(error instanceof DOMException) || error.name !== "SecurityError") throw error;
+    console.warn("[webapp] Browser preference storage is unavailable; using memory-only preferences.", error);
+    return memoryAdapter();
+  }
   return {
     getItem: key => selected.getItem(key),
     setItem: (key, value) => { selected.setItem(key, value); },

@@ -55,6 +55,7 @@ Notes TODO's optional password/session example is enabled only with:
 
 ```bash
 NOTES_TODO_AUTH=password \
+NOTES_TODO_HOST=localhost \
 NOTES_TODO_ENROLL_PASSWORD='an operator-selected long password' \
 bun run dev:notes-todo
 ```
@@ -63,6 +64,8 @@ The operator authorizes first enrollment at startup; remove the enrollment
 environment secret after creation. Login/change/logout are app-owned endpoints.
 There is no public signup, recovery or email. Use HTTPS/public origin settings
 for remote deployment; authentication bonuses allow HTTP only on loopback.
+Set `NOTES_TODO_PUBLIC_BASE_URL` when binding outside loopback. Auth state
+uses an owner-only data directory and database.
 An optional demo webhook requires `NOTES_TODO_WEBHOOK_TOKEN`.
 
 Use [server](server.md), [auth bonuses](auth.md), [Settings/preferences](settings.md),

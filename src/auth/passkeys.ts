@@ -28,7 +28,7 @@ export interface PasskeyChallenge {
 export interface PasskeyAuthOptions extends PasskeyCeremonyOptions {
   challengeTtlSeconds?: number;
   getIdentity(id: string): PasskeyIdentity | undefined | Promise<PasskeyIdentity | undefined>;
-  listCredentials(identityId?: string): PasskeyCredential[] | Promise<PasskeyCredential[]>;
+  listCredentials(identityId: string): PasskeyCredential[] | Promise<PasskeyCredential[]>;
   getCredential(credentialId: string): PasskeyCredential | undefined | Promise<PasskeyCredential | undefined>;
   saveChallenge(challenge: Readonly<PasskeyChallenge>): void | Promise<void>;
   /** Atomically consumes exactly one matching, unexpired intended-use challenge. */
@@ -95,7 +95,7 @@ export function createPasskeyAuth(options: PasskeyAuthOptions) {
     async beginAuthentication(req: Request, identityId?: string) {
       await allow(req, "authentication", identityId);
       const user = identityId === undefined ? undefined : await identity(identityId);
-      const credentials = await options.listCredentials(user?.id);
+      const credentials = user ? await options.listCredentials(user.id) : [];
       const authentication = await ceremonies.beginAuthentication(credentials);
       return { challengeId: await saveChallenge(authentication.challenge, "authentication", user), options: authentication };
     },

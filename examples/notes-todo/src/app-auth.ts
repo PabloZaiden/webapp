@@ -1,18 +1,32 @@
 import { Database } from "bun:sqlite";
+import { closeSync, existsSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { AuthBonusError, createBrowserSessions, createPasswordAuth } from "@pablozaiden/webapp/auth";
-import { errorResponse, jsonResponse, parseJson, type RuntimeConfig } from "@pablozaiden/webapp/server";
+import { ensurePrivateDirectory, errorResponse, jsonResponse, parseJson, securePrivateFile, type RuntimeConfig } from "@pablozaiden/webapp/server";
 
 const passwordInput = z.object({ password: z.string().max(1024) });
 const changeInput = z.object({ currentPassword: z.string().max(1024), nextPassword: z.string().max(1024) });
 const stored = z.object({ hash: z.string(), version: z.number().int().nonnegative() });
 
+function authenticationOrigin(config: RuntimeConfig): string {
+  if (config.publicBaseUrl) return new URL(config.publicBaseUrl).origin;
+  const host = config.host === "::1" ? "[::1]" : config.host;
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(host)) {
+    throw new Error("Password-enabled Notes requires NOTES_TODO_PUBLIC_BASE_URL when not bound to loopback.");
+  }
+  return new URL(`http://${host}:${config.port}`).origin;
+}
+
 /** Explicit sample app persistence and identity policy, never imported by the core. */
 export function createNotesAuth(dataDir: string, config: RuntimeConfig) {
   if (process.env["NOTES_TODO_AUTH"] !== "password") return undefined;
-  const origin = config.publicBaseUrl ? new URL(config.publicBaseUrl).origin : `http://localhost:${config.port}`;
-  const db = new Database(join(dataDir, "example-auth.sqlite"), { create: true });
+  const origin = authenticationOrigin(config);
+  ensurePrivateDirectory(dataDir);
+  const path = join(dataDir, "example-auth.sqlite");
+  if (!existsSync(path)) closeSync(openSync(path, "wx", 0o600));
+  securePrivateFile(path);
+  const db = new Database(path, { create: true });
   db.exec("CREATE TABLE IF NOT EXISTS auth_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
   const read = (key: string) => (db.query("SELECT value FROM auth_state WHERE key = ?").get(key) as { value: string } | null)?.value;
   const write = (key: string, value: string) => db.query("INSERT INTO auth_state (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(key, value);

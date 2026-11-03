@@ -50,6 +50,10 @@ authorization boundary.
 
 Native development documents use Bun's mounted HTML bundle/asset/HMR pipeline
 after app dispatch. Compiled documents reuse embedded client artifacts.
+Runtime document caches and opt-in log capture use private OS temporary
+locations, not a writable application directory. Nested document fallbacks
+resolve bootstrap/assets from the configured deployment base, including
+explicit reverse-proxy prefixes; static client directories remain relocatable.
 `createWebDocumentProvider` and `htmlResponse` are available for app-owned
 document composition.
 

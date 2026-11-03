@@ -120,7 +120,7 @@ const app = createWebAppServer({
         await passkeys.finishRegistration(req, "member", body.challengeId, body.response as unknown as RegistrationResponseJSON);
         return jsonResponse({ ok: true });
       }
-      if (path === "/passkeys/login/options") return jsonResponse(await passkeys.beginAuthentication(req, "member"));
+      if (path === "/passkeys/login/options") return jsonResponse(await passkeys.beginAuthentication(req));
       if (path === "/passkeys/login") {
         const body = await parseJson(req, passkeyInput);
         const found = await passkeys.finishAuthentication(req, body.challengeId, body.response as unknown as AuthenticationResponseJSON);

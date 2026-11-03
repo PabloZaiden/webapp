@@ -45,6 +45,8 @@ initializeWebAppTheme();
 
 `WebAppPreferenceAdapter` has synchronous `getItem`, `setItem`, `removeItem`.
 The browser adapter accesses only its explicitly selected Storage.
+If browser policy denies access with a SecurityError, it reports the failure and
+uses memory-only preferences so startup remains usable.
 `clientScopedStorageKey` retains the `:client:<encoded-scope>` format; an empty
 scope leaves keys unchanged. Apps preserve prior namespaces rather than
 inventing migration keys. Scope defaults to the current neutral runtime.

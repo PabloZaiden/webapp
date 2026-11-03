@@ -69,7 +69,8 @@ test("optional app-owned passwords, passkeys and browser sessions survive proces
     expect((await post("/passkeys/register", { challengeId: registration.challengeId, response: device.registration(registration.options.challenge) }, { "x-enroll": "authorized" })).status).toBe(200);
     await stop();
     await start();
-    const authentication = await (await post("/passkeys/login/options")).json() as { challengeId: string; options: { challenge: string } };
+    const authentication = await (await post("/passkeys/login/options")).json() as { challengeId: string; options: { challenge: string; allowCredentials?: unknown[] } };
+    expect(authentication.options.allowCredentials ?? []).toHaveLength(0);
     const body = { challengeId: authentication.challengeId, response: await device.authentication(authentication.options.challenge) };
     const passkeyLogin = await post("/passkeys/login", body);
     expect(passkeyLogin.status).toBe(200);

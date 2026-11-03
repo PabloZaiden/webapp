@@ -1,5 +1,6 @@
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Logger, type ILogObj, type ILogObjMeta, type IMeta, type Transport } from "tslog";
 import {
   DEFAULT_LOG_LEVEL,
@@ -38,9 +39,7 @@ function removeServerLogDirectory(): void {
 }
 
 function createServerLogFile(): { directory: string; filePath: string } {
-  const root = resolve(".cache", "webapp");
-  mkdirSync(root, { recursive: true });
-  const directory = mkdtempSync(join(root, "server-logs-"));
+  const directory = mkdtempSync(join(tmpdir(), "webapp-server-logs-"));
   const filePath = join(directory, "server-logs.jsonl");
   serverLogDirectory = directory;
   serverLogFilePath = filePath;

@@ -80,7 +80,7 @@ The app supplies exact `origin`, `rpID`, `rpName`, required `allowAttempt`, and:
 | Callback | Contract |
 | --- | --- |
 | `getIdentity(id)` | Enabled `PasskeyIdentity` or undefined |
-| `listCredentials(identityId?)` / `getCredential(credentialId)` | App-owned credential material |
+| `listCredentials(identityId)` / `getCredential(credentialId)` | App-owned credential material |
 | `saveChallenge(record)` | Persist intended-use, expiring challenge |
 | `consumeChallenge(id,purpose)` | Atomically consume one matching, unexpired challenge |
 | `saveCredential(credential,expectedIdentityVersion)` | Atomically register/replace and check epoch; return false on conflict, true if unchanged, or the exact committed epoch if advanced |
@@ -97,6 +97,9 @@ store contract is required.
 The app carries that opaque ID to
 `finishRegistration(req,id,challengeId,response)` or
 `finishAuthentication(req,challengeId,response)`.
+Without an identity selection, authentication uses discoverable credentials and
+does not enumerate stored descriptors. Non-discoverable credentials use an
+identity-specific flow.
 Finish returns the verified/CAS identity snapshot plus credential information,
 never a post-verification reread that might upgrade old proof to a new epoch.
 Bind it to `sessions.create(id,{expectedVersion:identity.version})`.
@@ -141,6 +144,9 @@ Notes TODO demonstrates app-owned SQLite password/session state **only** when
 `NOTES_TODO_ENROLL_PASSWORD`; no HTTP registration endpoint is created.
 Remove that environment secret after enrollment. Authentication is otherwise
 off in this explicitly public development example.
+The authentication database/directory are owner-only. Loopback authentication
+uses the configured hostname; non-loopback binds require
+`NOTES_TODO_PUBLIC_BASE_URL`.
 
 These are new opt-in token/session formats, not compatibility shims for old
 Webapp accounts. Apps preserving old cookies/keys/tables should move their

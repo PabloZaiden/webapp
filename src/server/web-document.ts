@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { PublicRouteDefinition, WebAppDocumentConfig } from "./server-types";
@@ -7,6 +8,7 @@ import { collectWebAppStaticAssets, readWebAppStaticAssets, type WebAppStaticAss
 import {
   generateWebAppDocumentAssets,
   generateWebAppHtml,
+  escapeHtml,
   iconConfig,
   pathExtension,
   pwaEnabled,
@@ -79,9 +81,7 @@ function cleanupDocumentCacheDirs(): void {
 
 function createDocumentCacheDir(envPrefix: string): string {
   const segment = envPrefix.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "app";
-  const root = resolve(".cache", "webapp", segment);
-  mkdirSync(root, { recursive: true });
-  const cacheDir = realpathSync(mkdtempSync(join(root, "webapp-document-")));
+  const cacheDir = realpathSync(mkdtempSync(join(tmpdir(), `${segment}-webapp-document-`)));
   documentCacheDirs.add(cacheDir);
   if (!documentCacheCleanupRegistered) {
     documentCacheCleanupRegistered = true;
@@ -109,6 +109,25 @@ function requestLooksLikeNavigation(req?: Request): boolean {
 export async function htmlResponse(document: WebDocument, req?: Request): Promise<Response> {
   if (!requestLooksLikeNavigation(req)) return withSecurityHeaders(notFound());
   return withSecurityHeaders(new Response(document.html, { headers: { "content-type": "text/html; charset=utf-8" } }));
+}
+
+export function withDocumentBase(response: Response, req: Request, config: RuntimeConfig): Response {
+  if (!response.headers.get("content-type")?.includes("text/html")) return response;
+  const prefix = getRequestOriginInfo(req, config).pathPrefix.replace(/\/+$/, "");
+  const base = `${prefix}/`;
+  if (new URL(".", req.url).pathname === base) return response;
+  return new HTMLRewriter()
+    .on("head", { element(element) { element.prepend(`<base href="${escapeHtml(base)}">`, { html: true }); } })
+    .on("script[src], link[href]", {
+      element(element) {
+        const attribute = element.tagName === "script" ? "src" : "href";
+        const value = element.getAttribute(attribute);
+        if (prefix && value?.startsWith("/") && !value.startsWith("//")) {
+          element.setAttribute(attribute, `${prefix}${value}`);
+        }
+      },
+    })
+    .transform(response);
 }
 
 function hasOwnPublicRoute(publicRoutes: Record<string, PublicRouteDefinition>, path: string): boolean {
