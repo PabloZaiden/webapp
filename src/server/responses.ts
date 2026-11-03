@@ -1,5 +1,9 @@
-import { z } from "zod";
 import type { WebAppErrorResponse } from "../contracts";
+
+export interface JsonValidationIssue { path: readonly PropertyKey[]; code: string; message: string }
+export interface JsonValidator<T> {
+  safeParse(value: unknown): { success: true; data: T } | { success: false; error: { issues: readonly JsonValidationIssue[] } };
+}
 
 export const DEFAULT_JSON_BODY_MAX_BYTES = 64 * 1024;
 export const MAX_WEBAUTHN_JSON_BODY_BYTES = 256 * 1024;
@@ -90,7 +94,7 @@ export class InvalidRequestBodyError extends Error {
   readonly status = 400;
   readonly details: RequestBodyValidationIssue[];
 
-  constructor(error: z.ZodError) {
+  constructor(error: { issues: readonly JsonValidationIssue[] }) {
     super("Request body failed validation");
     this.name = "InvalidRequestBodyError";
     this.details = error.issues.map((issue) => ({
@@ -114,7 +118,7 @@ export function requestBodyErrorResponse(error: unknown): Response | undefined {
   return undefined;
 }
 
-function validateJson<TSchema extends z.ZodTypeAny>(value: unknown, schema: TSchema): z.infer<TSchema> {
+function validateJson<T>(value: unknown, schema: JsonValidator<T>): T {
   const result = schema.safeParse(value);
   if (!result.success) {
     throw new InvalidRequestBodyError(result.error);
@@ -226,19 +230,19 @@ export async function parseUnknownJson(req: Request, options: ParseJsonOptions =
   return parseJsonText(await readRequestBody(req, options.maxBytes));
 }
 
-export async function parseJson<TSchema extends z.ZodTypeAny>(
+export async function parseJson<T>(
   req: Request,
-  schema: TSchema,
+  schema: JsonValidator<T>,
   options: ParseJsonOptions = {},
-): Promise<z.infer<TSchema>> {
+): Promise<T> {
   return validateJson(await parseUnknownJson(req, options), schema);
 }
 
-export async function parseOptionalJson<TSchema extends z.ZodTypeAny>(
+export async function parseOptionalJson<T>(
   req: Request,
-  schema: TSchema,
+  schema: JsonValidator<T>,
   options: ParseJsonOptions = {},
-): Promise<z.infer<TSchema> | undefined> {
+): Promise<T | undefined> {
   validateParseJsonOptions(options);
   if (options.requireContentType && !hasJsonContentType(req)) {
     throw new InvalidRequestContentTypeError();

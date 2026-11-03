@@ -1,4 +1,4 @@
-import { appPath, appWebSocketUrl, onAuthRequired } from "../api-client";
+import { appPath, appWebSocketUrl } from "../api-client";
 import { onNetworkFailure } from "../network-failures";
 import { createRealtimeRuntime } from "./connection";
 import type { RealtimeSource } from "./source";
@@ -20,7 +20,6 @@ export function resetRealtimeRuntime(): void {
   runtime = undefined;
   currentUrl = undefined;
 }
-onAuthRequired(() => setRealtimeIdentity(undefined));
 onNetworkFailure((request, error) => {
   if (new URL(request.url).origin !== new URL(appPath("/api/config")).origin) return;
   // Suspend reads before their rejection can become a per-resource error.
@@ -66,5 +65,5 @@ export function sharedRealtimeRuntime(): RealtimeSource {
     notify(session.ready);
   }
   currentUrl = url;
-  return runtime ??= createRealtimeRuntime({ url });
+  return runtime ??= createRealtimeRuntime({ url: currentPath });
 }

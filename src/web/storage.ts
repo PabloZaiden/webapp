@@ -1,4 +1,5 @@
 import { createLogger } from "./logger";
+import { getWebAppPreferenceAdapter, type WebAppPreferenceAdapter } from "./preferences";
 
 type StorageOperation = "get" | "set" | "remove";
 
@@ -73,25 +74,9 @@ export function warnStorageIssue(key: string, code: StorageWarningCode): void {
   reportWarning(key, code);
 }
 
-function unavailableFailure(key: string): StorageFailure {
-  const error = new Error("Browser localStorage is unavailable.");
-  if (typeof window !== "undefined") {
-    reportWarning(key, "unavailable", error);
-  }
-  return { ok: false, reason: "unavailable", error };
-}
-
-function resolveStorage(operation: StorageOperation, key: string): Storage | StorageFailure {
-  if (typeof window === "undefined") {
-    return unavailableFailure(key);
-  }
-
+function resolveStorage(operation: StorageOperation, key: string): WebAppPreferenceAdapter | StorageFailure {
   try {
-    const storage = window.localStorage;
-    if (!storage) {
-      return unavailableFailure(key);
-    }
-    return storage;
+    return getWebAppPreferenceAdapter();
   } catch (value) {
     const error = toError(value);
     reportWarning(key, warningCodeFor(operation), error);
@@ -99,7 +84,7 @@ function resolveStorage(operation: StorageOperation, key: string): Storage | Sto
   }
 }
 
-function isStorageFailure(value: Storage | StorageFailure): value is StorageFailure {
+function isStorageFailure(value: WebAppPreferenceAdapter | StorageFailure): value is StorageFailure {
   return "ok" in value && value.ok === false;
 }
 

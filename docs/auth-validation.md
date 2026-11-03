@@ -1,179 +1,40 @@
-# Auth validation checklist
+# Authentication integration validation
 
-Run this checklist before releasing a framework app or cutting a checkpoint.
+Validate only capabilities an app deliberately enables. No framework account,
+owner-bootstrap, admin, device, OAuth or recovery workflow exists by default.
+Tests should prove user-facing contracts through real listeners/processes,
+not reproduce helper implementation details or add route-role matrices.
 
-## Resource-bound OAuth
+## Core and app policy
 
-Run the [OAuth protocol and persistence validation](oauth.md#persistence-deployment-and-validation),
-then exercise the application's real login/consent page and explicit resource
-mount. Confirm requested scope descriptions and application choices are shown
-before approval, only the configured resource accepts the issued credential,
-and scoped service credentials cannot approve or create browser sessions.
+1. A minimal public app renders and receives live updates with private routes
+   failing closed when no identity adapter is installed.
+2. Both ambient and explicit credentials receive the same app authorization.
+   Ambient mutations and WS reject foreign origins.
+3. App-owned resource ownership runs before realtime interests filter delivery.
+   Expired/revoked identities cannot continue receiving protected publications.
+4. Identity/endpoint changes advance runtime generation, retire old transport
+   work and remount app content. Caches owned outside the shell are retired too.
+5. Storage-disabled browser operation works without a preference adapter.
+   With an explicit adapter, existing theme/sidebar namespaces survive reload.
 
-## Passkeys
+## Optional bonuses
 
-1. Start the app with passkeys enabled and an empty data dir.
-2. Confirm the owner bootstrap screen appears before the shell.
-3. Register the owner username and passkey with the browser/platform authenticator.
-4. Confirm the app shell loads and Settings shows the owner account and passkey configured.
-5. Click Logout and confirm reload/login requires passkey authentication.
-6. Authenticate with the registered passkey and confirm the shell loads again.
-7. Delete passkey from Settings, confirm the dialog supports Escape, X and Cancel.
-8. Confirm deleting the owner passkey shows owner re-setup on reload.
+Use isolated app-owned state and production helper interfaces.
 
-## Users and roles
+1. Enrollment requires an app-authorized identity; no unintended public
+   registration, account recovery or email route appears.
+2. Password login, invalid credentials, app attempt limiting, password change,
+   session invalidation and logout work through real app endpoints.
+3. Real WebAuthn registration/authentication validates RP/origin, signed
+   challenges and app credential CAS. Replay or obsolete epochs fail.
+4. Restart with the same app-selected storage/signing key preserves intended
+   credentials and sessions; disable/replacement/revocation rejects old access.
+5. Expiry, signing-secret rotation and unavailable identities fail closed.
+   App inventory callbacks must perform actual revocation when promised.
+6. Review desktop/mobile app login/account UI, including errors and destructive
+   confirmations, with disposable Bun.WebView captures.
 
-1. As owner/admin, create a non-admin user and copy the one-time setup link.
-2. Open `/setup?token=...` in a fresh context and register that user's passkey.
-3. Confirm the new user can sign in and does not see admin-only settings.
-4. Confirm app data is empty for a newly-created non-owner user unless explicitly provisioned.
-5. Promote the user to admin and confirm user management appears.
-6. Demote the user and confirm admin settings disappear.
-7. Reset the user and confirm old sessions/API keys/device sessions no longer work.
-8. Confirm owner cannot be reset, deleted, or demoted.
-
-## App data isolation
-
-1. Create data as owner and as a non-owner user.
-2. Confirm list endpoints return only the current user's data.
-3. Confirm item endpoints return 404 for another user's IDs.
-4. Confirm user-owned realtime events reach only sockets authenticated as the owning user.
-5. Confirm public endpoints intentionally attach data to the correct owner/user and never broadcast user-owned IDs globally.
-
-## API keys
-
-1. Create an API key from Settings and copy the token.
-2. Confirm the token is shown once.
-3. Call a protected API route with `Authorization: Bearer <token>`.
-4. Delete the key from Settings and confirm the confirmation dialog appears.
-5. Confirm the deleted token no longer authenticates.
-6. Create a managed key through the server-only helper and confirm it authenticates through the same bearer path.
-7. Confirm managed keys and `managedBy` metadata are absent from the normal API-key list and Settings UI.
-8. Restart against the same data directory and confirm a non-expired managed key still authenticates.
-9. Revoke the managed key through the server-only helper and confirm it no longer authenticates.
-
-## Browser API-key sign-in
-
-1. Use an app with `auth: { passkeys: true, apiKeys: true }`, a configured user/passkey, and a user-owned `*` API key.
-2. Log out, confirm the `Passkey required` screen offers **Authenticate with API key**, and confirm the API-key field is masked.
-3. Enter the key and confirm the application shell loads with the same user and protected permissions as passkey authentication.
-4. Repeat with a server-managed `*` key and confirm key provenance does not change the result.
-5. Try an invalid, expired, disabled-user, or limited-scope key and confirm login fails without revealing the submitted key.
-6. Repeat the exchange with the same key and confirm it remains reusable until it is deleted, revoked, or expires.
-7. Delete or expire the source key after a successful exchange and confirm the already-issued browser session continues to work.
-8. Confirm the exchange updates the key's `lastUsedAt` but does not add a passkey `user_login` audit event or change `lastLoginAt`.
-9. Confirm the endpoint rejects missing or mismatched `Origin`/`Referer` and that a successful HTTPS/proxied exchange sets `HttpOnly`, `SameSite=Strict`, `Secure`, and the configured cookie path.
-
-## CLI API-key authentication
-
-1. Set `${PREFIX}_BASE_URL` and `${PREFIX}_API_KEY` for an app whose CLI passes
-   its `envPrefix` to `runApiCliCommand()`.
-2. Run a protected API command and confirm it reaches the configured server
-   without starting an interactive device flow.
-3. Remove either variable and confirm the request falls back to anonymous
-   behavior.
-4. Use an expired, invalid, or insufficient-scope key and confirm the CLI
-   reports the server rejection without refreshing or retrying the key.
-
-## CLI device-token recovery and lock coordination
-
-1. Store a non-expired device access token, make its protected API request
-   return `401`, and confirm the CLI refreshes once and retries with the
-   replacement access token.
-2. Make the retry return `401` as well and confirm the CLI returns that final
-   response without issuing another refresh or entering a retry loop.
-3. Start competing CLI callers with the same rejected token and confirm only
-   one refresh-token request is sent; all callers use the resulting persisted
-   credentials.
-4. Replace the persisted token while a forced refresh waits for the profile
-   lock and confirm the waiting caller uses the newer token without a
-   redundant refresh.
-5. Leave a stale profile lock from a terminated process, start competing
-   callers, and confirm only one callback enters at a time. Confirm stale
-   recovery cannot remove a lock published by the current owner.
-6. Place malformed or structurally invalid reclaim-gate state beside a profile
-   lock and confirm the next caller discards it and acquires the lock.
-
-## Device auth
-
-1. Call `POST /api/auth/device` with `client_id` and `scope`.
-2. Open `verification_uri_complete` in the browser.
-3. Confirm the device approval screen shows client, scope, status and expiry.
-4. Approve the request and exchange `device_code` at `/api/auth/token`.
-5. Use the access token on a scoped route.
-6. Refresh with `/api/auth/refresh` and confirm a new refresh token is returned.
-7. Reuse the old refresh token and confirm `invalid_grant`.
-8. Reuse the consumed device code and confirm `invalid_grant`.
-9. Revoke the active device session from Settings and confirm refresh, access-token authentication and outstanding client tickets fail.
-10. Create a new authorization request after an older request expires and confirm expired device requests are cleaned up without removing active requests.
-
-## CLI session invalidation reproduction
-
-Run from the repository root:
-
-```bash
-bun scripts/reproduce-cli-session-invalidation.ts
-```
-
-This diagnostic uses real CLI child processes with separate credential
-directories and a real HTTP server backed by SQLite. It creates disposable
-state under `.cache/tests`, binds only to loopback, and enables the passkey
-bypass only in that disposable server to approve device requests without a
-browser. It does not use existing accounts or credentials, print tokens, or
-change authentication behavior. Its child processes and data are cleaned up
-on completion.
-
-The current behavior is reproduced when all of these assertions hold:
-
-1. Computer A can use its access token and refresh successfully after the server process restarts against the same data directory; its listed refresh session still has more than 29 days remaining.
-2. Computer B authenticates independently using the same explicit `client_id` as A, reproducing the shared default used by older CLI versions.
-3. A's still-unexpired access token is rejected because its session was revoked, and its next refresh returns HTTP `400` with `invalid_grant`.
-4. B can refresh successfully. Authenticating computer C with the hostname-based default leaves both B and C able to refresh.
-
-The script exits successfully only when it observes the current invalidation
-and both controls. It is a diagnostic reproducer, not a regression test
-asserting that simultaneous default-client sessions should fail permanently.
-
-## Detached browser API boundary
-
-`tests/remote-client-auth.test.ts` specifies one required deployment workflow:
-a static-client origin authorizes a device on the API origin, reads its private
-configuration/data, downloads a scoped resource and connects framework realtime
-and an application raw socket. Its public boundaries are actual HTTP and
-WebSocket listeners. Required results are bearer identity, usable private data,
-range-capable downloads and socket messages without client-host registration,
-with target/session and observed socket-origin binding enforced. This belongs
-in the compact suite because existing
-integrated auth journeys do not exercise detached browser transport admission.
-A second serving scenario preserves the API-origin auth pages without an
-application document fallback.
-
-For manual client validation, host the same exported directory at a root and a
-nested path against an API with no client-host configuration, and:
-
-1. Complete device authorization in an API-origin browser tab with passkeys
-   enabled; do not enable a passkey or same-origin bypass for this check.
-2. Confirm private API reads/mutations, settings, realtime and an application
-   socket work without API-origin cookies in the static client's requests.
-3. Open/download a protected resource and seek a protected media resource
-   through short-lived resource URLs. Confirm reconnects obtain new socket
-   tickets rather than reusing a consumed one.
-4. Confirm token-authenticated clients work from independently chosen origins,
-   private data still requires valid credentials, and an external origin cannot
-   mutate using the API's cookie session. Same-origin browser sessions still work.
-5. Revoke the device session at the API origin and confirm new API/resource/
-   socket authentication fails until reauthorization.
-6. Run the API with `web.mode: "auth"` and confirm login, device approval, setup
-   and `/account` security/session management remain available while the
-   application shell is omitted. Open `/account` on the API origin, not the
-   static client's origin, when managing passkeys.
-
-## Atomic credential transitions
-
-1. Open one device verification link in two browser contexts, approve it with different users, and confirm the first approval remains the approver.
-2. Submit the same approved device code from two clients at once and confirm only one receives tokens, the request becomes consumed, and only one active same-client session remains.
-3. Submit the same setup link from two fresh contexts with valid passkeys and confirm only one completion succeeds; the other cannot replace the stored passkey.
-4. Present one refresh token from two clients at once and confirm only one successor is created. Confirm the replay response is `invalid_grant` and the refresh family is revoked according to the documented policy.
-5. Start two first-use signing-key callers against the same data directory and confirm both use the same `kid`; restart the app and confirm the `kid` is unchanged.
-6. Disable a non-owner user through the account lifecycle operation and confirm all active refresh sessions are revoked, device exchange and refresh return intentional 4xx errors, and a previously-issued bearer token no longer authenticates.
-7. Confirm successful transitions create their existing audit events only after the durable state change; losing, expired, consumed, replayed, and disabled requests create no success-shaped event.
+`tests/auth-bonus.test.ts` is an end-to-end child-process journey with real
+password hashes, signatures and persisted app-selected state. It is not a
+database/account system for consumers to import.

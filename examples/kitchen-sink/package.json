@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "KITCHEN_SINK_DATA_DIR=data KITCHEN_SINK_PORT=3202 bun --hot src/index.ts serve",
-    "start": "NODE_ENV=production bun src/index.ts serve",
+    "dev": "KITCHEN_SINK_PORT=3202 bun --hot src/index.ts",
+    "start": "NODE_ENV=production bun src/index.ts",
     "build": "bun src/build.ts"
   },
   "dependencies": {

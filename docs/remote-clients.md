@@ -1,212 +1,81 @@
-# Static clients and remote APIs
+# Client transport and runtime composition
 
-A framework application can keep its normal integrated Bun server, or publish
-its compiled frontend on an ordinary HTTP(S) static host and connect to a
-separate API. Static hosting does not run Bun, Node, or application endpoints.
-The API still owns users, persistence, authorization and execution.
+The same shell/live-query stack works with integrated HTTP, a detached API, or
+an external/native transport. None of those modes activates device login,
+refresh tokens, credential files or browser storage.
 
-Components inside `WebAppRoot` can read `useWebAppConfig()` to reuse the current
-framework configuration, loading/error state and refresh capability. Do not
-issue another `/api/config` or health request merely to obtain the current app
-version or app-specific configuration fields. External sessions have
-`external` state and no `config`; that absence is intentional, not a reason to
-construct server defaults or invent a user.
-
-Pass `version` to `buildWebAppClient` to include the static client's own build
-identity in `webapp-client.json`. The framework displays it in the sidebar
-and Settings / About, independently of the connected server's version or
-external transport. Preserve that field if adapting the bootstrap between
-remote and external modes. Without a static version, the existing explicit
-`WebAppRoot.version` / server-config fallback remains available.
-
-Clients do not register their hosting origin with the API. Both unified and
-API-only servers accept independently authenticated clients from any host.
-Browser API requests omit cookies and use explicit tokens; integrated browser
-sessions keep their existing same-origin/CSRF protections.
-
-## Connection and login
-
-One frontend artifact supports both integrated and static deployments.
-Its shared bootstrap reads directory-relative `webapp-client.json` before
-importing the application. The static configuration enables remote mode;
-the unified server supplies integrated mode with cookie authentication and
-its trusted public path prefix. No second browser compilation is needed.
-An optional distributed API URL supplies the initial default. A device-local
-choice takes precedence and is scoped to the deployed client directory.
-The connection screen works before login and when the API is unavailable.
-Settings / General exposes the current connection, server selection and sign-out.
-Changing servers reloads the client, retiring its entire JavaScript context,
-connections, pending work and application-owned in-memory caches.
-
-Multi-mode hosts can optionally set `connectionPickerUrl` in their remote or
-external bootstrap to a same-origin connection chooser, such as `"../"`.
-Relative URLs resolve against the client document, not the API. The framework
-exposes **Change connection** before remote login and in Settings / General,
-including external mode. This navigates to the chooser without signing out,
-revoking pairings or copying credentials. No link is added by default.
-Client-mode startup/restoration remains the host's responsibility.
-
-Remote login uses device authorization, not cross-origin passkey calls or
-third-party cookies. The client opens the API's authorization page; the user
-signs in with that server's passkey and approves the displayed code. The client
-polls the existing device-token endpoint and receives its own revocable session.
-If the browser blocks the new window, the connection screen retains a direct
-authorization link. Cancel stops polling and pending credential-lock admission;
-credentials written during cancellation are removed instead of signing in.
-Changing servers also stops polling.
-
-Default browser credential storage uses localStorage scoped to the exact API URL
-and client deployment directory. Treat the static origin as trusted application
-code: tokens are not encrypted or HttpOnly, and scripts served there can access
-them. Deployment-directory keys are namespacing, not isolation from other scripts
-on the same origin. Do not share that origin with untrusted uploads or
-applications. Refresh-token rotation is serialized
-across tabs using Web Locks; use current browsers and a secure context.
-Signing out removes local credentials and revokes the remote session; revocation
-failures are shown rather than silently claiming success.
-
-Serve the browser client and public API over HTTPS. The browser client requires a
-secure context for credential locking; HTTP localhost development is supported.
-This browser requirement is not an API client-origin allowlist. A native wrapper
-must establish a supported secure origin;
-opening the artifact as `file://` is not a supported authentication contract.
-
-## API and resource helpers
-
-Applications should keep requests behind the framework helpers:
-
-```tsx
-import {
-  appJson,
-  appResourceUrl,
-  appWebSocketConnection,
-  ResourceImage,
-} from "@pablozaiden/webapp/web";
-
-const items = await appJson("/api/items");
-const socket = await appWebSocketConnection("/api/terminal", { signal });
-const download = await appResourceUrl("/api/items/export", "resource", { signal });
-// Navigate to download.url; renew media URLs before download.expiresAt when set.
-
-<ResourceImage src="/api/items/icon" alt="Item" />;
-```
-
-Remote requests attach bearer authorization only to the selected API. They omit
-cookies, reject redirects and preserve an API URL's path prefix. Eligible
-authentication failures renew the session once; network failures and unrelated
-401 responses never blindly replay mutations.
-
-`appAbsoluteUrl` and `appPagePath` continue to identify the **frontend** for
-navigation. Do not use them for API downloads. `appPath` chooses the API origin
-but does not authorize an HTML image, video, download or WebSocket by itself.
-Use `ResourceImage` for private API images and the async helpers for direct
-resources and sockets. Resource capabilities are short-lived and target-bound;
-WebSocket capabilities are single-use. Neither helper puts access or refresh
-tokens into URLs. Honor `expiresAt` when retaining a media URL.
-The realtime connection deadline includes ticket acquisition, not only opening
-the socket.
-
-Keep application-owned private browser storage separate with
-`clientScopedStorageKey(key)`. Integrated mode preserves existing keys; remote
-mode namespaces them by API and client session. Generic appearance preferences
-can remain local to the device.
-
-Repeated `configureWebAppClient({})` calls preserve bootstrap configuration.
-Configure only the values intentionally being changed. The normal integrated
-entry point requires no remote-mode configuration.
-
-## External sessions and transports
-
-Applications that do not have their own API server can use external mode.
-Build with `buildWebAppClient({ ..., clientMode: "external" })`, or set the
-deployment's `webapp-client.json` to `{"mode":"external"}`. The compiled frontend
-is unchanged. Before rendering, configure a real application-owned runtime:
-
-```ts
-configureWebAppClient({ mode: "external", external: applicationClient });
-```
-
-`WebAppExternalClient` supplies a session store, `request(Request)`,
-`createRealtimeSource()`, and `connect(path, options)`. Optional `resourceUrl`
-and `saveResource` capabilities support browser resources and downloads.
-`request()` receives an absolute URL with the static hosting prefix removed:
-an app hosted at `/tools/client/` still delegates `/api/items`, not
-`/tools/client/api/items`. Query parameters, method, headers, body and
-cancellation are preserved. Foreign-origin and out-of-base requests are
-rejected before delegation; resource/save/duplex paths remain logical too.
-The framework does not fetch `/api/config`, invent a current user, grant an
-owner role, or contact a default API in this mode. Applications must omit
-unsupported server operations, including initial hook requests, rather than
-returning fake successful endpoints.
-
-Session `getSnapshot()` must return a stable object until state changes;
-`subscribe()` returns an unsubscribe callback. Supply a nonempty local profile
-`scope`, a nonnegative `generation`, `ready`, optional `error`, and `logLevel`.
-The scope namespaces framework private browser storage; changing it remounts the
-shell so the selected profile's sidebar preferences are loaded before writing.
-Advance the generation when the session identity or its authoritative data
-context changes, not for
-every progress update. `refresh()` must surface initialization/recovery failures.
-`useExternalClientSession()` subscribes to this presentation state, including
-for resource consumers outside `WebAppRoot`;
-`useCurrentUser()` remains undefined. This local state never authorizes remote
-operations.
-
-The ordinary shell, routing, sidebar, appearance and app settings remain
-available. Appearance is device-local. Server account, security, sessions,
-administration and maintenance settings are absent. Only user-scoped custom
-sections/rows are eligible; applications must use those for device/client
-preferences, not to imply a remote user's role.
-
-Use `appDuplexConnection()` for raw message transports. Its `WebAppDuplex`
-contract has `ready`, bounded `bufferedAmount`, `subscribe`, asynchronous `send`
-and `close`; it is not a WebSocket impersonation. Native modes adapt their real
-WebSocket to this contract. External mode deliberately rejects native API
-WebSocket URL/connection helpers instead of opening the static host.
-
-`appResourceUrl()` supports external resources only when the adapter supplies
-a real browser-consumable URL. Call its optional `dispose()` when finished;
-`ResourceImage` owns this cleanup and disposes/refetches logical image resources
-when the external session scope or generation changes. URLs do not make
-arbitrary HTTP/WebSocket applications proxyable.
-`appSaveResource(path, { suggestedName, signal,
-onProgress })` delegates external saving to the application, which owns byte
-limits, disk capacity, cancellation and partial-file cleanup. Native API modes
-retain direct server downloads. Do not promise background or large-file support
-unless the application's actual browser path supports it.
-
-## Native integration seam
-
-Before calling `renderWebApp`, a future native wrapper can supply a platform
-credential store and a system-browser launcher:
+`initializeWebAppClient()` reads neutral `webapp-client.json` before importing
+app code in generated clients. `getWebAppClientBootstrap()` returns that parsed
+deployment data so the app does not fetch it again. Integrated/remote/external
+are deployment tags, not authentication methods. `initializeWebAppClient(opts)`
+instead accepts explicit configuration for custom startup.
 
 ```ts
 configureWebAppClient({
-  mode: "remote",
-  remote: {
-    credentialStore: keychainStore,
-    openAuthorizationUrl: openSystemBrowser,
-  },
+  apiBaseUrl: selectedEndpoint,
+  request: request => appAuthenticatedTransport(request),
+  connect: (path, { signal }) => appSocketTransport(path, signal),
+  resourceUrl: (path, { kind, signal }) => appResourceCapability(path, kind, signal),
+  saveResource: (path, options) => appSave(path, options),
+  runtime: appRuntime,
 });
 ```
 
-`WebAppClientCredentialStore` has asynchronous `read(baseUrl)`,
-`write(credentials)` and `remove(baseUrl)` methods. Returned credentials must
-belong to the requested API URL. A browser implementation is provided by default;
-no native runtime, signing, packaging, deep-link or App Store integration is
-included.
+Hooks are independently optional. Use only what the app requires.
+`WebAppClientRuntime` supplies `getSnapshot`, `subscribe` and optional `refresh`.
+Snapshots are stable immutable values:
 
-A native host can supply `window.webappNativeResourceSaver`, implementing the
-exported `WebAppNativeResourceSaver` contract. `appSaveResource()` passes its
-resolved, selected-server-validated resource URL and suggested filename to
-`saveResource({ url, suggestedName })`. Remote clients still acquire their
-normal resource ticket; no bearer credentials are passed to this hook.
-Hosts must validate the calling document and destination before handing the
-request to their native download/save flow. Promise rejection is surfaced to
-the caller, without falling back to a browser navigation.
-Resolution means the host accepted the handoff, not that bytes were saved.
-The framework disposes the resource after the handoff; the hook must not retain
-client-owned URLs for deferred use. It does not add background/progress or
-cancellation guarantees after acceptance. Without this optional host, browser
-downloads are unchanged. External-client `saveResource()` remains authoritative
-and does not use this hook.
+```ts
+{
+  scope: string, generation: number, ready: boolean,
+  error?: Error, logLevel: LogLevelName, logLevelFromEnv?: boolean
+}
+```
+
+The default is ready, local, memory-only. `scope` is a local cache/preference
+namespace, never an authorization claim. Publish a new generation when identity,
+credentials or endpoint changes; dispose app-owned resources. The core aborts
+old request signals, rejects stale completions, closes its sockets/realtime and
+remounts the shell's route content. Apps must also retire caches they own outside
+the shell. `useWebAppRuntime` exposes the snapshot directly.
+
+The already-neutral `WebAppExternalClient` remains an alternative for complete
+external integrations: session snapshot/subscription/refresh, request,
+createRealtimeSource, connect, optional resourceUrl/saveResource. Its session is
+the same presentation model, with no user/role requirement.
+
+## Requests, duplex channels and resources
+
+Prefer `appJson`, `appFetch`, `appRequest` and URL helpers. `WebAppApiError`
+normalizes failed JSON requests. No generic code refreshes credentials or
+replays failed mutations. Apps can handle their own authentication headers,
+resource tickets and endpoint validation in transport hooks.
+
+`appDuplexConnection` returns `WebAppDuplex`: ready, bufferedAmount,
+subscribe({onMessage,onClose,onError}), send and close. Native WebSockets use
+`nativeWebAppDuplex`. Ordinary realtime uses this same transport, preserving
+acknowledgements, reconnection and live queries. An app may instead supply
+`createRealtimeSource`.
+
+`appResourceUrl(path,kind,{signal})` returns `{url,expiresAt,dispose?}`.
+The custom resource hook receives `kind:"resource"|"websocket"` so apps can
+issue narrowly scoped capabilities without exposing bearer credentials.
+Dispose handles on replacement, stale completion and unmount. `ResourceImage`
+uses the configured request/resource transport, never a separate auth client.
+`appSaveResource` supports app/native handoff; acceptance is not proof of a
+completed saved file.
+
+`fetchAppRequest`, `nativeWebAppDuplex`, `createRealtimeRuntime`,
+`setRealtimeIdentity`, `setExternalRealtimeSource` and `resetRealtimeRuntime`
+are public primitives when an integration needs them. Do not intercept global
+fetch/WebSocket or synthesize fake server accounts/configuration to use the UI.
+Native toolbar/header behavior remains owned by the shared shell.
+
+## Static clients
+
+`buildWebAppClient` emits a complete relocatable directory (including bootstrap)
+for root or nested hosting. Publish the entire directory. Pass its returned
+artifact to `buildWebAppBinary({web:{client}})` to embed identical frontend
+bytes. The integrated server changes only its public runtime bootstrap.
+Apps own any connection picker, saved endpoint/credentials, protected resources
+and API-origin authentication pages. See [deployment](deployment.md).

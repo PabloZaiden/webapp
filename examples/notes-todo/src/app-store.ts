@@ -31,6 +31,7 @@ export interface Todo {
 }
 
 export interface NotesTodoStore {
+  close(): void;
   listSections(userId: string): Section[];
   listNotes(userId: string): Note[];
   listTodos(userId: string): Todo[];
@@ -467,6 +468,7 @@ export function createNotesTodoStore(options: { dataDir?: string } = {}): NotesT
   }
 
   return {
+    close: () => db.close(),
     listSections,
     listNotes,
     listTodos,

@@ -1,79 +1,37 @@
 # @pablozaiden/webapp
 
-Opinionated Bun + React framework for single-server TypeScript webapps: one Bun process serves the React UI, API routes, multi-user passkey auth, user-owned and server-managed API keys, device auth, stateless CLI API-key auth, realtime websocket state, scoped settings, binary builds and Docker images.
-
-## Quick start
-
-Use one of the examples during framework development:
+Bun + React framing for a single server: shell, UI primitives, routing, assets,
+lifecycle and interest-based realtime. The core has no account database,
+authentication product, CLI or implicit browser persistence. Applications own
+identity, authorization, accounts and storage.
 
 ```bash
 bun install
-bun run dev:notes-todo
 bun run dev:kitchen-sink
+bun run dev:notes-todo
 ```
 
-Both examples run with Bun native hot reload through `bun --hot`, with no standalone frontend build server and no external `WEB_DIST_DIR`.
+Kitchen Sink is explicitly public and memory-only; changes disappear on restart.
+Notes TODO explicitly selects application-owned SQLite and browser preferences.
+Its optional password/session example is disabled unless configured; enrollment
+is operator-authorized, never public signup.
 
-## Application dependencies
-
-Each application package must declare `react` and `react-dom`; they are peer dependencies of the framework. Bun resolves `react-dom/client` from the application package context, so workspace installs do not need to hoist React packages to a repository root. Native startup and binary builds fail early with the application context when `react-dom` is not installed.
-
-## Main exports
-
-| Export | Use |
+| Export | Purpose |
 | --- | --- |
-| `@pablozaiden/webapp/server` | `createWebAppServer`, route helpers, responses, request-origin helpers, SQLite and in-memory stores |
-| `@pablozaiden/webapp/web` | `WebAppRoot`, `renderWebApp`, `useHeaderActions`, `useToast`, sidebar types, UI controls, realtime hooks |
-| `@pablozaiden/webapp/contracts` | Shared auth/config/device/API-key types |
-| `@pablozaiden/webapp/cli` | Lazy `createWebAppCli`, profiles, persistent state/config, detached server lifecycle, device/environment auth, API/schema/logs/update and raw WebSocket commands |
-| `@pablozaiden/webapp/build` | Bun single-binary compile helper |
+| `/server` | Generic server, app request/WS/policy hooks, routes, responses, realtime |
+| `/web` | Shell, Settings layouts, controls, requests/transports, preferences, live queries |
+| `/contracts`, `/routing` | Neutral wire types, patterns and metadata |
+| `/auth`, `/auth/browser` | Optional passkeys, passwords and browser sessions with app-owned state |
+| `/build` | Browser assets, relocatable static clients and standalone binaries |
 
-## Headless and restricted servers
+Use the full package prefix `@pablozaiden/webapp`. Applications declare both
+`react` and `react-dom`. Development uses Bun native hot reload, not a separate
+frontend server. Dependencies are pinned to GitHub commits; no npm publication
+is required.
 
-Set `web: false` when a process should expose API or websocket transports
-without generating or mounting the browser application. A `requestFilter` can
-then enforce a deny-by-default network surface before public routes, framework
-endpoints, application routes, or websocket upgrades are dispatched:
-
-```ts
-createWebAppServer({
-  appName: "Worker",
-  envPrefix: "WORKER",
-  web: false,
-  requestFilter: (request) => {
-    const path = new URL(request.url).pathname;
-    return path === "/api/health" || path.startsWith("/api/worker/");
-  },
-  routes,
-});
-```
-
-Returning `false` produces a `404` response. `requestFilter` intentionally
-requires `web: false`; otherwise Bun may serve an HTML bundle directly without
-passing through the application request dispatcher.
-
-## Motion primitives
-
-The web export includes `Presence`, `Collapsible`, `AsyncState`, `AnimatedList`,
-`Tabs`, `TabPanels`, and `TabPanel`. Use stable React keys with `AnimatedList`;
-it preserves removed keyed children for the exit duration and marks them
-inaccessible while they leave. The primitives honor
-`prefers-reduced-motion`; transient appearance animations use opacity-only
-fades, while structural primitives such as `Collapsible` animate their layout.
-
-```tsx
-<AnimatedList>
-  {records.map((record) => (
-    <DataListRow key={record.id} title={record.title} />
-  ))}
-</AnimatedList>
-```
-
-Use `layout="contents"` when animated children should participate directly in
-the surrounding layout rather than through the list wrapper.
-
-See `docs/getting-started.md` for the minimum app shape and `examples/notes-todo` for a realistic app. Use `docs/github-actions.md` when adding CI, Docker and release workflows to an app built with the framework. GitHub dependency and release details for this package are in `docs/release.md`.
-
-CLI API callers can use a stored device session or the stateless
-`${PREFIX}_BASE_URL` and `${PREFIX}_API_KEY` environment pair; see
-`docs/cli.md` for precedence and anonymous fallback behavior.
+Start with [getting started](docs/getting-started.md), then
+[server](docs/server.md), [optional authentication](docs/auth.md),
+[Settings](docs/settings.md), [realtime](docs/realtime.md) and
+[remote clients](docs/remote-clients.md). See [deployment](docs/deployment.md),
+[CI](docs/github-actions.md), [release mechanics](docs/release.md), and the
+canonical [skill](skills/webapp/SKILL.md).

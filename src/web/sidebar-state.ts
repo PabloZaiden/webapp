@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SidebarNode, WebAppRoute } from "./sidebar/types";
 import { readStorage, warnStorageIssue, writeStorage } from "./storage";
-import { clientScopedStorageKey } from "./client-session";
+import { clientScopedStorageKey } from "./preferences";
 
 export type StoredSidebarPin = {
   id: string;

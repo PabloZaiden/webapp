@@ -1,14 +1,15 @@
 # Realtime
 
-Application hooks share **one authenticated WebSocket per JavaScript runtime**.
+Application hooks share **one admitted duplex connection per JavaScript runtime**.
 Mounting or changing an interest sends dynamic subscription messages, not a
 new connection. Raw terminal/preview transports are separate application protocols.
 An open connection without subscriptions receives no application events.
-Hooks wait for `WebAppRoot` to identify the authenticated user before opening
-the shared transport; domain hooks may be declared above that root without
-creating a redundant bootstrap connection.
+The neutral runtime is ready by default. Private apps gate it explicitly until
+their identity/session is ready, then advance scope/generation when that changes.
+The server requires deliberate `access:"public"` or an app admission callback;
+an unconfigured endpoint never accepts anonymous subscriptions.
 
-An [external client](remote-clients.md#external-sessions-and-transports) supplies
+An [external client](remote-clients.md) supplies
 a `RealtimeSource` instead of using the native socket runtime. Existing hooks
 keep their interest, status, activation and refresh semantics. The source owns
 subscription acknowledgement and recovery; call `onSubscribed` after each
@@ -25,12 +26,12 @@ Portable adapters import `RealtimeInterest`, `RealtimeTarget`,
 the server bus; sharing classification or target mapping does not require
 importing the server runtime.
 
-The server advertises its `realtime.path` through `/api/config`; the shared
-runtime uses that configured endpoint, including custom paths outside `/api`.
-Do not configure endpoints separately on individual hooks.
-An authentication-required response retires the old runtime and invalidates
-the cached configuration so the root can show the sign-in flow. Obsolete
-configuration responses cannot reactivate a previous authenticated session.
+Set the endpoint once through `configureWebAppClient({realtimePath})`, including
+paths outside `/api`; do not configure each hook separately. Core 401 handling
+retires the realtime identity and emits `onAuthRequired`, not a framework sign-in
+page. Apps refresh/gate their runtime and own any authentication UI. Ordinary
+realtime uses `appDuplexConnection`, so custom transports preserve the same
+protocol/acknowledgement logic instead of implementing another runtime.
 
 Connection loss and automatic reconnection are silent in the UI, including
 extended interruptions. Recoverable transport failures are logged and exposed
@@ -60,19 +61,19 @@ error, not a reconnect loop. Temporary outbound-buffer pressure remains retryabl
 Use resource publications for invalidation, not transcript or action bodies:
 
 ```ts
-ctx.userRealtime.publishEntityChanged("todos", todo.id);
-ctx.userRealtime.publishDeleted("todos", todo.id);
-ctx.userRealtime.publishSettingsChanged();
-// Scheduled/background work supplies the authoritative owner explicitly:
-app.realtime.publishChanged("todos", { target: { userId: todo.userId } });
+ctx.realtime.publishEntityChanged("todos", todo.id, { target: { userId: appRecipient } });
+ctx.realtime.publishDeleted("todos", todo.id, { target: { userId: appRecipient } });
+ctx.realtime.publishSettingsChanged({ target: { userId: appRecipient } });
 ```
 
 Resource events contain `type`, `resource`, `action`, and optional `id`, `scope`,
 and `payload`. `publishChanged`, `publishEntityChanged`, `publishDeleted`,
 `publishSettingsChanged`, and `publishResource` publish **state** events.
 They infer routing metadata from the event; contradictory explicit resource,
-ID, or scope targets throw. `ctx.userRealtime` always overwrites the owner
-target with the authenticated user, even if the caller supplied another ID.
+ID, or scope targets throw. `userId` is an opaque app-selected recipient key;
+the core does not infer a storage owner. App admission and per-publication
+authorization must enforce resource/recipient access before client-interest
+filtering. Client subscriptions can narrow delivery, never grant authority.
 
 ```tsx
 const query = useLiveQuery<Todo[]>({

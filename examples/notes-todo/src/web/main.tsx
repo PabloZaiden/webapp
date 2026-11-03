@@ -1,4 +1,4 @@
-import { Badge, Button, DataList, DataListRow, EmptyState, EntityHeader, ErrorState, FormActions, Page, Panel, SelectField, TextAreaField, TextField, WebAppRoot, appJson, renderWebApp, replaceWebAppRoute, useCallback, useEffect, useLiveQuery, useState, type ActionMenuItem, type SidebarNode, type SidebarNodeSnapshot, type WebAppRoute } from "@pablozaiden/webapp/web";
+import { Badge, Button, ConfirmDialog, DataList, DataListRow, EmptyState, EntityHeader, ErrorState, FormActions, Page, Panel, SelectField, TextAreaField, TextField, ThemeProvider, ThemeSelect, WebAppRoot, appJson, configureWebAppPreferences, createBrowserPreferenceAdapter, initializeWebAppTheme, renderWebApp, replaceWebAppRoute, useCallback, useEffect, useLiveQuery, useState, type ActionMenuItem, type SidebarNode, type SidebarNodeSnapshot, type WebAppRoute } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
 import "./styles.css";
 import favicon from "../favicon.svg";
@@ -33,9 +33,8 @@ interface NotesTodoSnapshot {
 }
 type MutateNotes = ReturnType<typeof useLiveQuery<NotesTodoSnapshot | null>>["mutate"];
 
-function needsAuthentication(config: { passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }): boolean {
-  return config.passkeyAuth.enabled && (config.passkeyAuth.bootstrapRequired || config.passkeyAuth.ownerPasskeySetupRequired || (config.passkeyAuth.passkeyRequired && !config.passkeyAuth.authenticated));
-}
+configureWebAppPreferences({ adapter: createBrowserPreferenceAdapter() });
+initializeWebAppTheme();
 
 function navigateTo(route: WebAppRoute) {
   replaceWebAppRoute(route);
@@ -326,11 +325,12 @@ function NewTodoView({ route, sections, mutate }: { route: WebAppRoute; sections
   );
 }
 
-function NotesTodoApp() {
+function NotesTodoApp({ authEnabled }: { authEnabled: boolean }) {
+  const [deletion, setDeletion] = useState<{ kind: "note" | "todo"; id: string; title: string }>();
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string>();
   const { data, error, loading, refresh, mutate } = useLiveQuery<NotesTodoSnapshot | null>({
     load: async (signal) => {
-      const config = await appJson<{ passkeyAuth: { enabled: boolean; bootstrapRequired: boolean; ownerPasskeySetupRequired: boolean; passkeyRequired: boolean; authenticated: boolean } }>("/api/config", { signal });
-      if (needsAuthentication(config)) return null;
       const [sections, notes, todos] = await Promise.all([
         appJson<Section[]>("/api/sections", { signal }),
         appJson<Note[]>("/api/notes", { signal }),
@@ -349,13 +349,16 @@ function NotesTodoApp() {
     await mutate(signal => appJson(`/api/todos/${todo.id}`, { method: "PATCH", signal, body: JSON.stringify(patch) }));
   }, [mutate]);
 
-  const deleteTodo = useCallback(async (todo: Todo) => {
-    await mutate(signal => appJson(`/api/todos/${todo.id}`, { method: "DELETE", signal }));
-  }, [mutate]);
-
-  const deleteNote = useCallback(async (note: Note) => {
-    await mutate(signal => appJson(`/api/notes/${note.id}`, { method: "DELETE", signal }));
-  }, [mutate]);
+  async function confirmDelete() {
+    if (!deletion) return;
+    setDeleting(true);
+    setDeleteError(undefined);
+    try {
+      await mutate(signal => appJson(`/api/${deletion.kind === "note" ? "notes" : "todos"}/${deletion.id}`, { method: "DELETE", signal }));
+      setDeletion(undefined);
+    } catch (value) { setDeleteError(value instanceof Error ? value.message : String(value)); }
+    finally { setDeleting(false); }
+  }
 
   const sectionActions = useCallback((section: Section): ActionMenuItem[] => [
     { id: "new-task", label: "New task in list", onAction: () => navigateTo({ view: "new-todo", sectionId: section.id }) },
@@ -365,14 +368,14 @@ function NotesTodoApp() {
 
   const noteActions = useCallback((note: Note): ActionMenuItem[] => [
     { id: "open-note", label: "Open note", onAction: () => navigateTo({ view: "note", noteId: note.id }) },
-    { id: "delete-note", label: "Delete note", destructive: true, onAction: () => void deleteNote(note) },
-  ], [deleteNote]);
+    { id: "delete-note", label: "Delete note", destructive: true, onAction: () => { setDeleteError(undefined); setDeletion({ kind: "note", id: note.id, title: note.title }); } },
+  ], []);
 
   const todoActions = useCallback((todo: Todo): ActionMenuItem[] => [
     { id: "toggle-task", label: todo.completed ? "Mark open" : "Mark completed", onAction: () => void patchTodo(todo, { completed: !todo.completed }) },
     { id: "high-priority", label: "Mark high priority", disabled: todo.priority === "high", onAction: () => void patchTodo(todo, { priority: "high" }) },
-    { id: "delete-task", label: "Delete task", destructive: true, onAction: () => void deleteTodo(todo) },
-  ], [deleteTodo, patchTodo]);
+    { id: "delete-task", label: "Delete task", destructive: true, onAction: () => { setDeleteError(undefined); setDeletion({ kind: "todo", id: todo.id, title: todo.title }); } },
+  ], [patchTodo]);
 
   const sidebarNodes = useCallback(({ search, activeTab }: { search: string; activeTab?: string }): SidebarNodeSnapshot => {
     const query = search.trim().toLowerCase();
@@ -505,7 +508,7 @@ function NotesTodoApp() {
   }, [notes, sections, todos]);
 
   return (
-    <WebAppRoot
+    <><WebAppRoot
       appName="Notes TODO"
       appIcon={favicon}
       homeRoute={{ view: "home" }}
@@ -544,16 +547,50 @@ function NotesTodoApp() {
           {
             id: "notes",
             title: "Notes TODO",
-            scope: "user",
             rows: [
-              { id: "lists", title: "Lists", description: `${sections.length} user-owned lists with nested sidebar items.` },
+              { id: "theme", title: "Theme", content: <ThemeSelect /> },
+              { id: "lists", title: "Lists", description: `${sections.length} lists with nested sidebar items.` },
               { id: "content", title: "Content", description: `${notes.length} notes and ${todos.filter((todo) => !todo.completed).length} open tasks.` },
+              ...(authEnabled ? [{ id: "logout", title: "Session", actions: [{
+                id: "logout", label: "Sign out", onAction: async () => {
+                  await appJson("/api/example/auth/logout", { method: "POST" });
+                  window.location.reload();
+                },
+              }] }] : []),
             ],
           },
         ],
       }}
-    />
+    /><ConfirmDialog open={Boolean(deletion)} title={`Delete ${deletion?.kind === "note" ? "note" : "task"}?`}
+      message={deleteError ?? `Permanently delete "${deletion?.title ?? ""}"?`} confirmLabel="Delete" danger loading={deleting}
+      onCancel={() => setDeletion(undefined)} onConfirm={() => void confirmDelete()} /></>
   );
 }
 
-renderWebApp(<NotesTodoApp />);
+function ExampleApplication() {
+  const [status, setStatus] = useState<{ enabled: boolean; authenticated: boolean }>();
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string>();
+  const [pending, setPending] = useState(false);
+  useEffect(() => {
+    void appJson<{ enabled: boolean; authenticated: boolean }>("/api/example/auth/status").then(setStatus)
+      .catch(value => setError(value instanceof Error ? value.message : String(value)));
+  }, []);
+  if (status?.authenticated) return <NotesTodoApp authEnabled={status.enabled} />;
+  async function login() {
+    setPending(true);
+    setError(undefined);
+    try { await appJson("/api/example/auth/login", { method: "POST", body: JSON.stringify({ password }) }); window.location.reload(); }
+    catch (value) { setError(value instanceof Error ? value.message : String(value)); }
+    finally { setPending(false); }
+  }
+  return <ThemeProvider><main className="wapp-auth-screen"><Panel title={status ? "Sign in" : "Notes TODO"}>
+    {status ? <form onSubmit={event => { event.preventDefault(); void login(); }}>
+      <TextField label="Password" type="password" autoComplete="current-password" required value={password}
+        onChange={event => setPassword(event.currentTarget.value)} />
+      <FormActions><Button type="submit" variant="primary" loading={pending}>Sign in</Button></FormActions>
+    </form> : !error ? <p>Loading…</p> : null}
+    {error ? <ErrorState description={error} /> : null}
+  </Panel></main></ThemeProvider>;
+}
+renderWebApp(<ExampleApplication />);

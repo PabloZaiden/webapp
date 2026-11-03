@@ -53,16 +53,13 @@ jobs:
 
           KITCHEN_SINK_HOST=127.0.0.1 \
           KITCHEN_SINK_PORT=3302 \
-          KITCHEN_SINK_DATA_DIR="$(mktemp -d)" \
-          KITCHEN_SINK_DISABLE_PASSKEY=true \
-            ./examples/kitchen-sink/dist/kitchen-sink serve &
+            ./examples/kitchen-sink/dist/kitchen-sink &
           kitchen_pid="$!"
 
           NOTES_TODO_HOST=127.0.0.1 \
           NOTES_TODO_PORT=3301 \
-          NOTES_TODO_DATA_DIR="$(mktemp -d)" \
-          NOTES_TODO_DISABLE_PASSKEY=true \
-            ./examples/notes-todo/dist/notes-todo serve &
+          NOTES_TODO_DATA_DIR="$PWD/.cache/ci-notes" \
+            ./examples/notes-todo/dist/notes-todo &
           notes_pid="$!"
 
           cleanup() {

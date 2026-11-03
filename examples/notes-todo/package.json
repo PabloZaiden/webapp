@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NOTES_TODO_DATA_DIR=data NOTES_TODO_PORT=3201 bun --hot src/index.ts serve",
-    "start": "NODE_ENV=production bun src/index.ts serve",
+    "dev": "NOTES_TODO_DATA_DIR=data NOTES_TODO_PORT=3201 bun --hot src/index.ts",
+    "start": "NODE_ENV=production bun src/index.ts",
     "build": "bun src/build.ts"
   },
   "dependencies": {

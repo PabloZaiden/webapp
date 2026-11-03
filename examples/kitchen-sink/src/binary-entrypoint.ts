@@ -1,3 +1,2 @@
-import { createKitchenSinkCli } from "./index";
-
-process.exitCode = await createKitchenSinkCli().run();
+import { createKitchenSinkApp } from "./app";
+await createKitchenSinkApp().start();

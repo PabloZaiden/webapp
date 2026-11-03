@@ -34,4 +34,4 @@ EXPOSE 8080
 USER notes-todo
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://localhost:' + process.env.NOTES_TODO_PORT + '/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
-CMD ["/app/notes-todo", "serve"]
+CMD ["/app/notes-todo"]

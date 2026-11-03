@@ -1,724 +1,133 @@
 # Server API
 
-For generic HTTP resource authorization and trusted in-process operation
-execution, see [resource-bound OAuth and authenticated dispatch](oauth.md).
+`@pablozaiden/webapp/server` does not import account stores, authentication
+bonuses or a database. Construction/startup does not initialize account state.
+`readRuntimeConfig` reads environment variables, not a persisted configuration
+file. Its `dataDir` is a path value for apps, not a request to create storage.
+Apps may explicitly call `readWebAppConfig` and select their own persistence.
 
-## Store implementations
-
-`createWebAppServer` uses `sqliteWebAppStore()` by default. Inject
-`memoryWebAppStore()` when framework state should exist only in the current
-process:
+## Composition
 
 ```ts
-import { createWebAppServer, memoryWebAppStore } from "@pablozaiden/webapp/server";
-
-const app = createWebAppServer({
+const app = createWebAppServer<Event, Identity>({
   appName: "Example",
   envPrefix: "EXAMPLE",
-  store: memoryWebAppStore(),
+  web: { entry: new URL("./web/main.tsx", import.meta.url) },
+  identity: {
+    authenticate: request => appSessions.authenticate(request),
+    authorize: (request, identity, operation) => appPolicy(identity, operation),
+  },
+  request: (request, server) => appDispatch(request, server),
+  routes,
+  websockets: { terminal: appTerminalHandlers },
+  lifecycle: { beforeStart: initializeApp, afterStop: closeApp },
 });
+await app.start();
 ```
 
-The memory store implements the same `WebAppStore` operations and security
-transitions, but does not write a database or preserve users, preferences,
-passkeys, keys, audit events, device requests, signing keys, or sessions across
-process restarts. It is instance-local and retains at most 1,000 of the most
-recently inserted audit events. Use it only when this loss is intentional or
-the application can reconstruct the required state; it is not a cache in
-front of SQLite.
+The identity result is `{ identity: TIdentity, credential: "ambient" |
+"explicit" }` or `undefined`. Credential provenance changes transport/CSRF
+requirements only, never identity privileges. The core does not know roles,
+accounts, scopes, delegations or automation policy.
 
-## API and authentication-only serving
+The app `request(req, server?)` hook returns a `Response` when handled and
+`undefined` to continue. It runs after deliberate public assets, before generic
+routes, health/config, realtime and document fallback. A successful
+`server.upgrade(req,{data})` consumes the request even when the hook returns
+`undefined`. App-owned auth endpoints, legacy dispatch and additional transports
+can therefore compose without copying the generic frame.
 
-Integrated UI/API serving remains the default. `web: false` disables all
-framework documents and their assets, but retains the normal API and
-WebSocket routes; it does not disable authentication or change worker/domain
-behavior.
+Set `data.webappSocketHandler` to select an entry in `websockets`. Custom
+handlers never fall back to the realtime bus when a callback is absent. App
+handlers own authorization and cleanup of their transports.
 
-For a remote-client API that must retain API-origin device approval and passkey
-setup, use `web: { mode: "auth", entry: ... }`. This mode serves the supplied
-document at `/`, `/login`, `/device`, `/setup` and `/account`, plus its configured/generated
-public assets, without an application SPA fallback on other paths. Supply a
-minimal authentication entry, or have the common renderer honor
-`GET /api/config`'s `web.mode: "auth"` by rendering authentication/device/setup
-screens without the application shell. `"app"` is the normal integrated mode;
-`"disabled"` describes `web: false`. The mode is presentation/serving policy,
-not a replacement for private route authorization.
+Set `web: false` for API/WS-only processes. `web.paths` restricts document
+fallback to explicit paths, for example `["/", "/login", "/account"]`, without
+giving those paths authentication semantics. Documents and assets are public
+presentation; private data still requires server policy. `requestFilter` may
+deny a request before dynamic dispatch; static native bundle assets are not an
+authorization boundary.
 
-`/account` is the API-origin account/security page for passkey and device-session
-management. Detached clients must open it on the API origin so WebAuthn uses the
-correct relying party, rather than attempting passkey management on the static
-host. The common renderer supplies those framework sections without an
-application shell. The document route is available in integrated mode too.
+Native development documents use Bun's mounted HTML bundle/asset/HMR pipeline
+after app dispatch. Compiled documents reuse embedded client artifacts.
+`createWebDocumentProvider` and `htmlResponse` are available for app-owned
+document composition.
 
-Both native documents and compiled binaries register the React renderer before
-the application entry runs. In an ordinary compiled binary, changing the mode
-reuses that embedded browser bootstrap; a runtime `web.entry` does not select
-another compiled client. Keep the common entry and have its renderer honor
-`config.web.mode`, rather than referring to an auth-only source file that is
-not embedded in the executable.
-
-For origin configuration and safe resource/socket capabilities, see
-[Detached browser clients](auth.md#detached-browser-clients). API-origin
-passkeys still require an appropriate HTTPS/public-origin and reverse-proxy
-configuration; a detached static host does not become the passkey RP origin.
-
-## Private local state
-
-The server export provides `ensurePrivateDirectory`,
-`securePrivateDirectory`, and `securePrivateFile` for application-owned
-credentials or key material stored beside framework state. Hosts apply
-and verify owner-only modes (`0700` for directories, `0600` for files).
-Protection failures throw; callers must
-not continue with a success-shaped fallback.
-
-Use `createWebAppServer` with `defineRoutes`. Route patterns support exact path
-segments, named dynamic segments (`:name`), and an optional trailing wildcard
-(`*`):
+## Routes and authorization
 
 ```ts
-const routes = defineRoutes({
-  "/api/projects/:projectId/files/*": {
+const routes = defineRoutes<Event, Identity>({
+  "/api/workspaces/:workspace": {
+    policy: { capability: "read-workspace" },
+    GET: (_request, context) =>
+      jsonResponse(loadWorkspace(context.requireIdentity(), context.params["workspace"]!)),
+  },
+  "/api/ping": {
     auth: "public",
     sameOrigin: "never",
-    GET: (_req, ctx) => jsonResponse({
-      projectId: ctx.params.projectId,
-      path: ctx.params["*"],
-    }),
+    GET: () => jsonResponse({ pong: true }),
   },
 });
 ```
 
-Patterns are normalized for leading/trailing and repeated slashes. A trailing
-`*` matches zero or more remaining segments and is only valid as the final
-segment. Dynamic values are decoded one segment at a time; an encoded slash
-within a named parameter remains part of that parameter, while wildcard
-segments remain individually addressable for URL generation. Query strings and
-fragments are request inputs, not route-pattern syntax.
-
-```ts
-import { z } from "zod";
-
-const projectCreateSchema = z.object({ name: z.string() });
-const projectUpdateSchema = z.object({ name: z.string().optional() });
-
-const routes = defineRoutes<AppEvent>({
-  "/api/projects": {
-    auth: "user",
-    requestSchema: projectCreateSchema,
-    description: "List or create projects.",
-    cliPath: "projects",
-    tags: ["projects"],
-    GET: (_req, ctx) => {
-      return jsonResponse(ctx.filterOwned(projects));
-    },
-    async POST(req, ctx) {
-      const user = ctx.requireUser();
-      const body = await parseJson(req, projectCreateSchema);
-      const project = createProject(user.id, body.name);
-      ctx.userRealtime.publishEntityChanged("projects", project.id);
-      return jsonResponse(project);
-    },
-  },
-  "/api/projects/:id": {
-    auth: "user",
-    scopes: ["projects:write"],
-    requestSchema: projectUpdateSchema,
-    async PATCH(req, ctx) {
-      const project = ctx.requireOwned(await findProject(ctx.params.id));
-      const body = await parseJson(req, projectUpdateSchema);
-      if (body.name !== undefined) project.name = body.name;
-      project.updatedAt = new Date().toISOString();
-      ctx.userRealtime.publishEntityChanged("projects", project.id);
-      return jsonResponse(project);
-    },
-  },
-  "/api/admin/summary": {
-    auth: "admin",
-    GET: () => jsonResponse(adminSummary()),
-  },
-});
-```
-
-Request schemas define the writable input fields, but handlers should still assign
-those fields explicitly rather than spreading or merging parsed input into a
-stored record. The example schemas use Zod's default object behavior, so
-unknown properties are ignored and never persisted; keep `id`, `userId`,
-timestamps, and other server-managed fields under application control.
-
-`parseJson(req, schema)` parses and validates the body at runtime. Malformed JSON
-returns a 400 `invalid_json` response, while a JSON value that does not satisfy
-the schema returns a 400 `invalid_request_body` response with field details.
-`parseJson`, `parseUnknownJson`, and `parseOptionalJson` use
-`DEFAULT_JSON_BODY_MAX_BYTES` (64 KiB) when `maxBytes` is omitted, so JSON
-request bodies are bounded before parsing or schema validation. Pass
-`{ maxBytes, requireContentType: true }` when an endpoint needs a different
-finite limit or must require a JSON content type. The parser rejects a
-non-JSON content type with a 400 `invalid_request_content_type` response,
-rejects an invalid `Content-Length` with a 400
-`invalid_request_content_length` response, rejects declared and streamed
-bodies over the selected limit with a 413 `request_body_too_large` response,
-and cancels a streamed body as soon as the limit is exceeded. JSON media types
-with a `+json` suffix are accepted.
-
-Built-in endpoints use the 64 KiB default for small device, token, user,
-preference, logging, and API-key requests. WebAuthn registration and
-authentication response endpoints explicitly use
-`MAX_WEBAUTHN_JSON_BODY_BYTES` (256 KiB) because attestation payloads can be
-larger; the browser API-key exchange retains its separate 4 KiB limit. These
-are finite, code-defined exceptions rather than unbounded fallbacks.
-
-Use `parseOptionalJson(req, schema)` only for endpoints that deliberately allow
-an empty body. It accepts the same optional parser settings. Only a zero-byte
-body is considered absent; whitespace-only content is non-empty malformed JSON
-and is rejected just like any other malformed body. `parseUnknownJson` returns
-`unknown` and is intentionally unvalidated, so application handlers should
-prefer a schema-backed parser.
-
-The Notes TODO webhook uses an absent body (or an object without `title`) to
-apply its source-based fallback title. When an owner does not exist, that
-accepted delivery returns 202 with `accepted: false`; malformed or
-schema-invalid bodies are rejected before this ownerless response or any
-mutation is reached.
-
-Route defaults are intentionally secure:
-
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| `auth` | `required` | Requires passkey session, API key or device bearer token once auth is configured |
-| `sameOrigin` | `mutations` | Requires `Origin`/`Referer` for cookie/browser mutations |
-| `scopes` | `[]` | Checked for API keys and device tokens; `*` grants all |
-| `userParam` | unset | Optional route param name that must match the current user id |
-
-Set `auth: "public", sameOrigin: "never"` only for deliberate unauthenticated endpoints such as health probes, webhooks or callback receivers.
-
-Route definitions are compiled and validated when `createWebAppServer` is
-constructed. A route must declare at least one supported handler (`GET`,
-`POST`, `PUT`, `PATCH`, or `DELETE`). Duplicate parameter names, non-trailing
-wildcards, missing `userParam` captures, mismatched API/CLI capture shapes,
-duplicate normalized paths, and equally specific overlapping routes fail
-startup instead of being resolved by declaration order.
-
-Every dynamic path capture uses the same guarded decoder. A malformed percent
-escape returns a structured 400 `invalid_path` response and does not invoke the
-route handler. It is not converted into a generic 500.
-
-If a route matches but does not register the request method, the server returns
-405 `method_not_allowed` and an `Allow` header containing only that route's
-registered methods. `HEAD` is the existing effective read-only form of a
-registered `GET`: it uses that handler and strips the response body while
-preserving its status and headers. Other unsupported methods never fall back to
-the route's `GET` handler.
-
-Route definitions can include optional metadata. This keeps the API route table
-as the single source of truth for handlers, CLI endpoint listing, and schema
-output; it does not generate prose documentation automatically:
-
-| Field | Meaning |
-| --- | --- |
-| `description` | Human-readable route description |
-| `cliPath` | CLI-friendly path; defaults to the API path without `/api/` |
-| `tags` | Grouping labels exposed through the route catalog and schema output |
-| `requestSchema`, `querySchema`, `responseSchema` | Optional schema objects for CLI/schema output; use the same runtime `requestSchema` with `parseJson` when a route accepts a body |
-| `operations` | Optional `Partial<Record<HttpMethod, RouteOperationMetadata>>` refinements for each registered method |
-| `automation` | Optional explicit automation policy; inherited by method metadata |
-| `actorInvalidation` | Preserve a successful receipt for an intentional mutation of the actor identified by `userParameter`; pre-handler and future admission checks remain required |
-| `delegation` | Explicit resource/action contract for trusted server-code delegation; default deny, method `false` removes an inherited grant |
-| `partialResults` | Optional `{ header: string }` declaring incomplete aggregate response metadata |
-| `catalog: false` | Exclude a route from generated catalogs |
-
-Use `createRouteCatalog(routes)` and `findRouteCatalogEntry(catalog, input)` to power app CLI commands without maintaining a second route catalog.
-
-For the running server's complete operational inventory, use `app.routeCatalog`.
-It combines application routes with canonical framework health, public
-configuration, preferences, server logs/settings and shutdown routes. The same
-definitions own their HTTP handlers, schemas, roles and automation policies.
-Framework routes take precedence at their reserved paths. Private authentication,
-account/key/session administration is also catalogued when its feature is enabled,
-with default-excluded automation and an explicit application-execution policy.
-OAuth authentication and raw realtime protocols remain outside the operational
-catalog. Catalog presence is not authorization: consumers
-must enforce their grants and the declared automation policy.
-`automation.execution` can declare raw inputs, file/private outputs and exact
-lowercase `requestHeaders` for an explicitly admitted application execution.
-Private file transports must freeze inputs before approval and must not return
-credential contents to the model. Declared headers cannot override authentication,
-origin or transport headers.
-Existing application CLI aliases retain precedence: a conflicting framework alias
-is namespaced with `framework/` instead of preventing server startup. Catalog
-lookup prefers exact API paths for path-shaped input and CLI aliases for shorthand
-input. Ordinary HTTP health probes remain credential-independent; authenticated
-dispatch still requires the account and per-operation authorization.
-
-### Per-method operation contracts
-
-`RouteOperationMetadata` declares `description`, `requestSchema`, `querySchema`,
-`responseSchema`, `automation`, `delegation`, and `partialResults`. `RouteMetadata`, `RouteDefinition`, and
-`RouteCatalogEntry` expose `operations` without changing existing route-level
-metadata. Metadata may describe only methods with registered handlers; an
-unsupported or unregistered metadata method fails route compilation.
-
-Use method contracts when a collection route lists and creates different data:
-
-```ts
-const routes = defineRoutes({
-  "/api/projects": {
-    auth: "user",
-    requestSchema: projectCreateSchema,
-    operations: {
-      GET: {
-        description: "List your projects",
-        requestSchema: undefined,
-        querySchema: z.object({ status: z.string().optional() }),
-        automation: { policy: "read", completion: "completed" },
-      },
-      POST: {
-        description: "Create a project",
-        querySchema: undefined,
-        automation: { policy: "write", completion: "completed" },
-      },
-    },
-    GET: listProjects,
-    POST: createProject,
-  },
-});
-```
-
-`resolveRouteOperation(entry, method)` returns `ResolvedRouteOperation`,
-including the selected `method`. Method properties override route properties;
-an explicitly present `requestSchema: undefined` or `querySchema: undefined`
-clears an inherited schema, so query-only and body-free operations do not
-advertise a creation body. An omitted property inherits the route default.
-`null` also denotes no schema for conversion. Resolving an unregistered method
-throws. Metadata is descriptive, not automatic request validation: handlers
-still parse and validate their actual input.
-
-See [trusted delegated operations](delegation.md) for server-only dispatch,
-actor/resource-authority separation, and post-policy `routeMiddleware`.
-Incomplete collection responses keep their normal body; declare the signal
-header with `partialResults`, described in [CLI metadata](cli.md#partial-collections).
-
-`routeSchemaToJsonSchema(schema, options?)` returns a
-`Record<string, unknown>` or `undefined` for an absent schema. It uses Zod's
-JSON Schema conversion with `io: "input"` by default: a transformed or
-defaulted input is described as the caller supplies it, not as the parsed
-output. Pass `{ io: "output" }` for response schemas. Plain JSON schema objects
-are copied as JSON values. Unsupported schemas, non-JSON values, accessors,
-class instances and circular references throw; no fallback serializes Zod
-internals and no unrepresentable schema silently becomes an unconstrained
-schema. Conversion does not replace runtime validation or encode arbitrary
-Zod refinements that JSON Schema cannot express.
-
-### Automation metadata
-
-`RouteAutomationMetadata` is an explicit contract for generic consumers,
-not a grant of authorization or a framework-managed executor:
-
-| Field | Meaning |
-| --- | --- |
-| `policy` | `read`, `write`, `confirm`, or `excluded` |
-| `reason` | Optional explanation of a restriction or confirmation |
-| `hiddenInputs`, `hiddenQuery` | Input/query field names withheld from automation-facing projections |
-| `completion` | `admission` means accepted/queued/started, not completed; `completed` means the response reports the finished operation |
-| `credential` | Optional `RouteAutomationCredential` private SSH handoff descriptor; exactly one target selector, plus optional private transport/injection names |
-
-If neither the route nor the method declares automation, the resolver returns
-`{ policy: "excluded" }`. An explicitly undefined method `automation` clears an
-inherited policy and also resolves to excluded. Never infer admission, safety,
-or automation eligibility from the HTTP method alone.
-
-Hidden names describe a consumer's projection only; the canonical input/query
-schemas remain intact for server validation and ordinary CLI clients.
-Consumers must obtain hidden values privately, enforce confirmation
-when `policy` is `confirm`, and preserve authentication, same-origin, scope,
-and entity ownership checks when executing. Never place secrets in metadata,
-generated schemas, model context, logs, or events. These descriptors do not
-obtain credentials or authorize a different execution host.
-
-#### Private credential target selectors
-
-Every credential descriptor keeps `kind: "ssh"`. Select exactly one target form:
-
-| Selector | Consumer-owned interpretation |
-| --- | --- |
-| `serverParameter: string` | The exact route parameter identifying the SSH server |
-| `hostInput: string` | A canonical request input containing an execution-host reference |
-| `resource: { name: string; idParameter?: string; purpose: string }` | An owned resource and operation purpose used to resolve its authoritative host; an optional route parameter identifies the resource |
-
-`RouteAutomationCredential` is a union requiring exactly one selector form:
-`serverParameter` for a direct server, `hostInput` for an execution-host input,
-or `resource` for an owned resource. The other selector fields are excluded
-from each form. Existing direct-server declarations remain valid.
-`RouteAutomationCredentialResource` exports the resource shape. Resource names,
-purposes, input shapes, ownership checks, target lookup and bulk semantics
-belong to the consuming application's core resolver. Webapp only stores and
-catalogs this generic metadata.
-
-These optional common fields name private injection destinations, not target
-selectors or credential values. They may be combined with any selector,
-including a resource that resolves multiple authoritative SSH servers:
-
-| Field | Consumer-owned private injection |
-| --- | --- |
-| `input` | Request input for a private credential token |
-| `header` | Request header for a private credential token |
-| `mapInput` | Request input for credentials indexed by authoritative server identifier |
-| `unavailableInput` | Request input for authoritative server identifiers whose credentials are unavailable |
-
-Unavailable credentials must remain explicit; never silently replace a selected
-execution host. The application decides whether the operation may proceed for
-other targets and how to report unavailable credentials.
-
-```ts
-import type { RouteAutomationCredential } from "@pablozaiden/webapp/server";
-
-const direct = {
-  kind: "ssh",
-  serverParameter: "serverId",
-  header: "x-private-credential",
-} satisfies RouteAutomationCredential;
-
-const requestHost = {
-  kind: "ssh",
-  hostInput: "executionHost",
-  input: "credentialToken",
-} satisfies RouteAutomationCredential;
-
-const owned = {
-  kind: "ssh",
-  resource: { name: "documents", idParameter: "documentId", purpose: "execute" },
-  header: "x-private-credential",
-} satisfies RouteAutomationCredential;
-
-const bulk = {
-  kind: "ssh",
-  resource: { name: "documents", purpose: "restart-workers" },
-  mapInput: "credentialTokensByServerId",
-  unavailableInput: "credentialUnavailableServerIds",
-} satisfies RouteAutomationCredential;
-```
-
-Prefer explicit `auth: "user"`, `auth: "admin"` or `auth: "owner"` on app routes. They enforce the role before the handler runs, including API-key and device bearer requests.
-
-Route context is user-aware:
-
-| Helper | Meaning |
-| --- | --- |
-| `ctx.requireUser()` | Returns the current user or throws 401 |
-| `ctx.requireAdmin()` | Returns owner/admin users or throws 403 |
-| `ctx.requireOwner()` | Returns the owner or throws 403 |
-| `ctx.assertUser(userId)` | Throws unless the current user id matches |
-| `ctx.filterOwned(records)` | Returns only records whose `userId` is the current user id |
-| `ctx.requireOwned(record)` | Returns a user-owned record or throws 404 for missing/other-user records |
-| `ctx.userRealtime.*` | Publishes realtime events only to sockets authenticated as the current user |
-
-Use `ctx.filterOwned(records, getUserId)` and `ctx.requireOwned(record, getUserId)` when app records use a different ownership field. Return 404 for other-user resources so route responses do not reveal whether another user's id exists.
-
-## Supplying a validated runtime config
-
-`createWebAppServer` reads and validates `{PREFIX}_*` environment variables by
-default. An application that has already resolved a `RuntimeConfig` can pass it
-through `runtimeConfig` instead:
-
-```ts
-import { createWebAppServer, readRuntimeConfig } from "@pablozaiden/webapp/server";
-
-const runtimeConfig = readRuntimeConfig({ appName: "My App", envPrefix: "MY_APP" });
-const app = createWebAppServer({
-  appName: "My App",
-  envPrefix: "MY_APP",
-  runtimeConfig,
-  routes,
-});
-```
-
-The supplied config is used during every framework initialization step,
-including store selection, logging, authentication, document generation,
-request handling, and lifecycle setup. Its `appName` and `envPrefix` must match
-the constructor inputs. Do not mutate `app.config` after construction to
-replace constructor options; omit `runtimeConfig` when the framework should read
-the environment itself.
-
-## Server lifecycle hooks
-
-Applications can coordinate workers and other resources around the actual Bun
-server with async lifecycle hooks:
-
-```ts
-const app = createWebAppServer({
-  appName: "My App",
-  envPrefix: "MY_APP",
-  routes,
-  lifecycle: {
-    beforeStart: async () => {
-      await prepareWorkers();
-    },
-    afterStart: async (server) => {
-      await startWorkers(server.url);
-    },
-    beforeStop: async () => {
-      await drainWorkers();
-    },
-    afterStop: async () => {
-      await closeWorkers();
-    },
-  },
-});
-
-await app.start();
-await app.stop(true);
-```
-
-Start hooks run in declaration order around `Bun.serve()`. Stop hooks run
-deterministically even when a stop hook fails, and their failures are surfaced.
-If `afterStart` fails, WebApp stops the newly started Bun server, runs the stop
-hooks, disposes generated document resources, and rethrows the hook failure.
-
-On macOS and Linux, `SIGINT` and `SIGTERM` gracefully stop every framework server
-started in the process before exiting. The authenticated `/api/server/kill`
-action uses the same shutdown path on all platforms, preserving its short HTTP
-acknowledgement window. Pending startup finishes before teardown, and concurrent
-shutdown requests share one operation.
-If a normal `app.stop()` is already draining long-lived connections, process
-shutdown upgrades that stop to close the connections without rerunning hooks.
-
-Process shutdown awaits asynchronous hooks, closes active HTTP/WebSocket
-connections and generated document resources, and still attempts every server
-when cleanup fails. Failures are logged and produce exit status 1; successful
-shutdown exits with status 0. Put application-owned worker, subprocess and
-subscription cleanup in the lifecycle hooks rather than installing competing
-process signal handlers. Normal `app.stop()` removes that server's process
-registration and does not exit the process. Forced termination such as
-`SIGKILL` cannot run graceful hooks.
-
-## Server logging
-
-WebApp exposes one server-side `tslog` service for the framework and
-application code. Use the root logger or a cached sub-logger from
-`@pablozaiden/webapp/server`; do not add a second server logger in the app:
-
-```ts
-import { createLogger, log } from "@pablozaiden/webapp/server";
-
-const projectsLog = createLogger("projects");
-
-log.info("Application initialized");
-projectsLog.debug("Loaded projects", { count: 12 });
-```
-
-The available levels, from most to least verbose, are `silly`, `trace`,
-`debug`, `info`, `warn`, `error`, and `fatal`. The effective level is shared by
-the root logger and all cached sub-loggers. It is selected from
-`{PREFIX}_LOG_LEVEL`, a persisted administrator preference, or `info` by
-default, in that order.
-
-Every emitted entry is written through `tslog` to the appropriate stdout or
-stderr stream. When temporary-file capture is enabled, the same rendered
-entries from framework and application loggers are appended as JSON Lines to a
-private directory under the operating system's temporary directory. Capture
-is disabled until an administrator enables **Preserve logs** in Settings. The
-global preference is stored by the configured `WebAppStore`; the default
-SQLite store persists it across server restarts, while custom stores determine
-their own persistence. If enabled at startup, capture begins in a new temporary
-file. Disabling capture and clean server shutdown remove the file; abrupt
-termination can leave it for the OS to clean. The directory and file use
-owner-only permissions on platforms that support POSIX modes. The file is not
-encrypted, so avoid logging secrets. Writes are synchronous and can add latency
-at high log volume. There is no count or size cap, so capture can exhaust
-temporary disk space. Retrieving all logs materializes the complete snapshot
-in memory.
-
-Built-in endpoints include:
-
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /api/health` | Health/version |
-| `GET /api/config` | Safe framework config for UI |
-| `/api/passkey-auth/*` | Passkey bootstrap/login/logout/delete |
-| `/api/user-setup*` | One-time invite/reset setup links |
-| `/setup` | Browser setup screen for one-time invite/reset links |
-| `/api/users`, `/api/users/:id/*`, `/api/audit-events` | Admin user management and audit log |
-| `/api/api-keys` | Browser-managed user API-key create/list/delete |
-| `/api/auth/device`, `/api/auth/token`, `/api/auth/refresh`, `/api/auth/revoke` | Device auth and refresh-token flow |
-| `/device` | Browser device-code approval screen |
-| `/.well-known/jwks.json`, `/.well-known/openid-configuration` | Token verification metadata |
-| `/api/preferences/theme`, `/api/preferences/log-level` | Settings persistence |
-| `GET /api/server/logs` | Admin-only snapshot of temporary server logs |
-| `PUT /api/server/logs/settings` | Admin-only persistent capture preference |
-| `/api/server/kill` | Admin-only server shutdown |
-| `/api/ws` | Realtime websocket by default |
-
-The effective log level in `GET /api/config` and `GET
-/api/preferences/log-level` is resolved identically: an environment-provided
-`{PREFIX}_LOG_LEVEL` wins over the persisted preference, and sets `fromEnv`
-to `true`. PUT remains an authenticated, same-origin admin mutation and
-returns a conflict when the environment controls the value.
-
-`GET /api/server/logs` is restricted to admin users and returns
-`{ enabled: boolean, logs: ServerLogEntry[] }`. Entries are returned in
-chronological order and contain the timestamp, level, logger scope, message,
-and the rendered `tslog` line. When capture is disabled, the endpoint returns
-`200` with `enabled: false` and an empty list. `PUT /api/server/logs/settings`
-accepts `{ "enabled": boolean }`, is restricted to admins, and uses the normal
-same-origin policy for browser mutations. API-key and bearer callers continue
-to use the existing token-auth behavior. The enabled value is stored as a
-global preference and controls capture on subsequent server starts. Entries
-are appended without a count or size limit to the private temporary file;
-disabling capture deletes it.
-The endpoint returns the complete snapshot as one response, so very large
-captures can also consume substantial memory and response bandwidth. This is
-temporary diagnostics, not durable log retention.
-
-## Client logging
-
-WebApp also exposes a browser-side `tslog` service through
-`@pablozaiden/webapp/web`. Use it for application code instead of adding a
-second logger or writing application logs directly with `console.*`:
-
-```tsx
-import { createLogger, log } from "@pablozaiden/webapp/web";
-
-const projectsLog = createLogger("projects");
-
-log.info("Application UI initialized");
-projectsLog.debug("Loaded projects", { count: 12 });
-```
-
-The client service provides the same seven levels as the server service and
-writes to the browser console. `WebAppRoot` automatically synchronizes its
-effective level with the shared framework configuration, including changes
-made from Developer Settings. Client logs are browser-local and are not
-included in the server's `/api/server/logs` snapshot.
-
-Server-side applications that need credentials for internal runtimes should use
-the server-only `createManagedApiKey`, `listManagedApiKeys`, and
-`revokeManagedApiKey` helpers. Managed keys are persisted in the same API-key
-store, authenticate through the normal bearer path, and are intentionally absent
-from the browser-managed endpoint and Settings summaries.
-
-## Framework-owned web document and PWA metadata
-
-`createWebAppServer` owns the browser document. Apps do not provide `index.html`; the framework generates a Bun `HTMLBundle` internally so Bun hot reload and asset rewriting keep working. By default the frontend entrypoint is `./web/main.tsx` relative to the Bun entry file. The generated document also initializes the shared `data-wapp-mobile` state before client styles load so CSS and `WebAppRoot` use the same mobile breakpoint. The generated viewport keeps the app at `initial-scale=1` with `maximum-scale=1` and `user-scalable=no`; clients and mobile browsers that honor those viewport scaling tokens, including iPhone and iPad, cannot change the app scale with pinch-to-zoom while normal scrolling remains enabled. Clients that ignore the tokens are unaffected.
-
-Do not replace this behavior with global touch event handlers, `preventDefault()` calls, or `touch-action: none`: those approaches can disable scrolling and other touch interactions. Applications should keep the document framework-owned rather than adding an app-owned `index.html`.
-
-```ts
-createWebAppServer({
-  appName: "My App",
-  envPrefix: "MY_APP",
-  web: {
-    entry: "./frontend.tsx",
-    shortName: "MyApp",
-    themeColor: "#111827",
-    backgroundColor: "#ffffff",
-    pwa: true,
-    icons: {
-      favicon: { src: "./src/web/icons/app-192.png", sizes: "192x192", type: "image/png" },
-      appleTouch: { src: "./src/web/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
-      manifest: [
-        { src: "./src/web/icons/app-192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
-        { src: "./src/web/icons/app-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
-      ],
-    },
-  },
-  routes,
-});
-```
-
-PWA metadata is enabled by default. Without `web.icons`, the framework serves `/site.webmanifest`, `/manifest.webmanifest`, and a generated SVG icon at `/webapp-icon.svg` using the app name initials. Apps with product artwork can override favicon, Apple touch icon, and manifest icons through `web.icons` while keeping the document framework-owned. Set `web.pwa: false` only for apps that intentionally should not be installable. The generated document includes the standard `webapp.theme` prepaint script; apps should use that framework preference instead of app-specific theme storage.
-
-The sidebar brand icon is configured separately with `WebAppRoot.appIcon`.
-When the sidebar and PWA should use the same artwork, import the local SVG or
-PNG asset in both the frontend and server entrypoints; the server's `web.icons`
-configuration remains server-owned.
-
-For a functional PWA:
-
-| Field | Default | Use when |
-| --- | --- | --- |
-| `web.entry` | `./web/main.tsx` | The app frontend entrypoint lives somewhere else, such as `./frontend.tsx` |
-| `web.shortName` | `appName` | The installed app label should be shorter than the full name |
-| `web.themeColor` | Not emitted unless set | Browser chrome/install metadata should match product branding; the generated default icon still uses `#111827` when unset |
-| `web.backgroundColor` | `#ffffff` | The manifest background should match the app splash/background |
-| `web.icons.favicon` | Generated initials SVG | Browser tabs should use product artwork instead of initials |
-| `web.icons.appleTouch` | `favicon` or generated initials SVG | iOS home-screen/Dock should use product artwork |
-| `web.icons.manifest` | Generated initials SVG | Installed PWA icons should use product artwork at install sizes |
-
-Icon `src` values are resolved relative to the app package root, not the server file. Use paths such as `./src/web/icons/app-192.png` for assets under `src`. Manifest icons should include at least a `192x192` and `512x512` PNG for production apps. SVG defaults are fine for lightweight examples and development, but app-store/Dock integrations vary by platform, so production apps should provide PNG manifest and Apple-touch icons.
-
-The framework serves the manifest at `/site.webmanifest` and `/manifest.webmanifest` and injects the manifest link at runtime so Bun does not rewrite manifest-relative icon URLs into broken asset paths. Favicon and Apple-touch links may be rewritten by Bun to `/_bun/asset/...`; that is expected and keeps hot reload/static asset handling native.
-
-Service workers are not generated by the framework. Apps that need browser push, offline caches, app badge, or background sync should keep a deliberate app-owned service worker route such as `/service-worker`; normal installability does not require one.
-
-## Public/static routes
-
-Declare public non-API assets explicitly with `publicRoutes`:
-
-```ts
-createWebAppServer({
-  // ...
-  publicRoutes: {
-    "/service-worker": serviceWorker,
-  },
-});
-```
-
-`createWebAppPublicAsset` keeps the same declaration shape for a compiled
-entrypoint:
-
-```ts
-const serviceWorker = createWebAppPublicAsset({
-  path: "/service-worker.js",
-  entrypoint: "./src/web/service-worker.ts",
-  contentType: "text/javascript; charset=utf-8",
-  headers: { "cache-control": "no-cache" },
-});
-
-createWebAppServer({
-  // ...
-  publicRoutes: {
-    "/service-worker.js": serviceWorker,
-  },
-});
-```
-
-The configured `path` is the primary entry URL. If the entrypoint emits CSS,
-chunks, workers, WASM, or other file-loader outputs, WebApp retains the complete
-build bundle and serves sidecars under stable paths derived from the primary
-entry directory. Sidecar paths are registered before the SPA wildcard when the
-server starts, so development requests reach the same artifact resolver as
-compiled requests. The primary uses the explicit `contentType`; sidecars use
-their output extension and artifact metadata. Custom headers, including cache
-headers, apply to every artifact in the bundle.
-
-Public asset responses are safe to request repeatedly. Response values are
-cloned before framework or security headers are applied, while factories can
-return a fresh value per request. An empty string, empty byte buffer, empty
-blob, or response with no body is a valid successful asset; only `undefined`
-means that a handler did not provide an asset. `HEAD` preserves the response
-metadata and status while omitting the body.
-
-Paths are normalized as URL paths, not filesystem paths; query, fragment,
-traversal, ambiguous separator, and invalid URL-encoding forms are rejected.
-Duplicate primary or sidecar paths, collisions with another public route or a
-framework-owned route, and unsupported build output kinds fail explicitly
-instead of silently overwriting an asset or falling through to the SPA. Only
-declared public routes and their emitted artifacts are exposed; the entrypoint
-directory and private workspace files are not treated as public directories.
-
-Only declared public routes are served this way. Unknown `/api/*` paths still return `404`, while normal frontend `GET` and `HEAD` paths still return the React index. Other methods on unmatched frontend paths return `404` instead of the SPA fallback.
-
-## App-owned websocket upgrades
-
-Normal app state should use framework realtime. For raw transports such as terminals, VNC, or port-forward proxies, route handlers may call `ctx.server?.upgrade(...)` and return `undefined`:
-
-```ts
-"/api/terminal": {
-  auth: "user",
-  sameOrigin: "always",
-  GET: (req, ctx) => ctx.server?.upgrade(req, {
-    data: { webappSocketHandler: "terminal", sessionId: ctx.params.id },
-  }) ? undefined : new Response("Upgrade failed", { status: 400 }),
-}
-```
-
-Register matching handlers with `websockets`. Framework auth and same-origin checks run before the upgrade route handler.
+- `auth` is `"required"` (default), `"optional"` or `"public"`.
+- A private route without a resolved identity fails closed with 401.
+- `policy` is opaque app data. A route carrying policy without an authenticated
+  identity and an `authorize` callback fails closed with 403.
+- `authorize` runs for admitted identities before handlers/middleware. Public
+  routes intentionally skip identity resolution.
+- `ctx` exposes `params`, `identity`, `requireIdentity()`, `realtime`, and
+  `server`. App code owns resource ownership checks.
+- `routeMiddleware(req,ctx,operation,invoke)` runs after admission/policy.
+
+`sameOrigin` is `"mutations"` by default, or `"always"` / `"never"`. Ambient
+browser mutations and WebSockets require an allowed Origin/Referer. Explicit
+credentials bypass this CSRF check, not authorization. Public webhook routes
+must deliberately choose their own credential and transport policy.
+
+Patterns support named segments and a final `*`, normalize slashes and decode
+captures safely. Ambiguous/equally specific routes fail construction. Malformed
+path encoding returns 400. Unsupported methods return 405/Allow. HEAD uses GET
+and strips its body.
+
+`parseJson(req,validator)`, `parseOptionalJson`, and `parseUnknownJson` bound
+bodies to 64 KiB by default; malformed JSON/invalid schema input produces 400
+and oversized input produces 413. Validators use a structural `safeParse`
+contract (including Zod), not private schema-library types. Pass explicit finite
+`maxBytes` for larger inputs; WebAuthn endpoints may use
+`MAX_WEBAUTHN_JSON_BODY_BYTES`. Metadata alone does not validate bodies.
+Assign only allowlisted mutable fields; never spread untrusted JSON into records.
+
+## Metadata, realtime and lifecycle
+
+`compileRouteTable`, matching and `createRouteCatalog` accept generic
+`RoutePatternDefinition` records. They preserve opaque app metadata rather than
+interpreting it. Generic `RouteDefinition` metadata includes description, tags,
+schemas, per-method operations and partial-result headers. Catalog exposure and
+its authorization belong to apps. `routeSchemaToJsonSchema` serializes JSON or
+supported Zod schemas deliberately.
+
+Core realtime upgrades are disabled unless an app chooses
+`realtime: { access: "public" }` or provides `realtime.authenticate(req)`.
+Admission returns `{ data?, options?, credential? }`; use
+`options.authorize(publication)` to check current recipient and resource
+authority before interest filtering. The `userId` target is an opaque,
+server-selected recipient key, not a framework account. See [realtime](realtime.md).
+
+`beforeStart`/`afterStart` and `beforeStop`/`afterStop` are awaited.
+`app.stop(false)` drains; `app.stop(true)` closes active connections.
+Shutdown errors remain observable, and SIGINT/SIGTERM await registered
+lifecycles. Immediate process termination is not graceful shutdown.
+`server.idleTimeout` accepts 0–255 seconds; TLS is opt-in through `server.tls`.
+
+The only built-in metadata endpoints are GET/HEAD `/api/health` and
+`/api/config`; config contains name/version/base path/realtime path/log-level
+metadata, not auth/bootstrap/admin state. App request dispatch may replace them.
+No omitted capability creates account, preferences, logging or shutdown routes.
+
+Request-origin/trusted-proxy helpers, response security headers, bounded
+parsing, CORS helpers and private-file mode helpers remain available.
+`ensurePrivateDirectory`, `securePrivateDirectory` and `securePrivateFile`
+enforce owner-only permissions and throw on protection failure. Optional log
+capture is explicit, off by default, and uses disposable cache files rather
+than account storage.

@@ -59,7 +59,13 @@
 - Route components rendered by `WebAppRoot.routes` must use `Page` as the top-level wrapper; do not render content directly into `.wapp-main-content` or duplicate the fixed framework title with an app-local heading. Use `<Page layout="full">` for viewport-sized child content instead of overriding framework page CSS.
 - Use the framework `useToast` notification service for transient user feedback. Do not add application-owned toast providers, queues, or notification styling; use inline `ErrorState`, loading primitives, or validation messages for persistent page/form state.
 - Use the public webapp theme hook for application logic that needs theme state. Never observe or mutate framework-owned root classes, attributes, or fixed DOM nodes to infer the resolved theme. Prefer CSS dark-mode styling when JavaScript theme state is unnecessary.
-- Applications must consume framework-owned client log-level state through the public web hook instead of fetching framework configuration in app-local initializer components. Keep logger adapters app-owned, but keep effective preference state, environment-lock metadata, and updates framework-owned.
+- Applications supply effective log-level/environment-lock metadata in their
+  neutral runtime; UI consumes it through the public hook. Logger adapters,
+  configuration fetches and persisted updates remain app-owned.
+- Core UI preferences are memory-only. Browser/durable persistence must be
+  explicitly selected by the app; preserve its supported existing namespaces.
+- The core owns no accounts, roles, stores, CLI or auth screens. Keep app policy
+  in request/identity/realtime hooks; optional bonuses have app-owned state.
 
 ## Runtime input and API boundaries
 

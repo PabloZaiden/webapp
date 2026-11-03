@@ -144,16 +144,8 @@ function themeBootScript(themeColor: string | undefined): string {
   if (metaThemeColor instanceof HTMLMetaElement) metaThemeColor.content = resolved === "dark" ? ${JSON.stringify(themeColor)} : ${JSON.stringify(DEFAULT_BACKGROUND_COLOR)};`
     : "";
   return `(() => {
-  const key = "webapp.theme";
   const root = document.documentElement;
-  let stored = null;
-  try {
-    const storage = window.localStorage;
-    if (storage && typeof storage.getItem === "function") stored = storage.getItem(key);
-  } catch {
-    stored = null;
-  }
-  const preference = stored === "light" || stored === "dark" || stored === "system" ? stored : ${JSON.stringify(DEFAULT_THEME_PREFERENCE)};
+  const preference = ${JSON.stringify(DEFAULT_THEME_PREFERENCE)};
   const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
   const resolved = preference === "system" ? (systemDark ? "dark" : "light") : preference;
   root.classList.toggle("dark", resolved === "dark");

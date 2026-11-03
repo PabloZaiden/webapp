@@ -1,6 +1,6 @@
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import { createLogger } from "./logger";
-import type { RealtimeBus } from "./realtime/bus";
+import type { RealtimeBus, RealtimeConnectionOptions } from "./realtime/bus";
 import type {
   WebAppServerLifecycleHooks,
   WebAppWebSocketData,
@@ -12,8 +12,6 @@ import { registerProcessShutdown } from "./process-shutdown";
 
 export interface ServerLifecycleDependencies<TEvent = unknown> {
   config: RuntimeConfig;
-  oauth?: { routePaths: readonly string[]; consentPath: string };
-  deviceAuthEnabled: boolean;
   hooks?: WebAppServerLifecycleHooks;
   idleTimeout: number;
   tls?: Bun.TLSOptions | Bun.TLSOptions[];
@@ -24,7 +22,8 @@ export interface ServerLifecycleDependencies<TEvent = unknown> {
   ensurePublicAssetPaths: () => Promise<ReadonlySet<string>>;
   ensureWebDocument?: () => Promise<WebDocument>;
   documentProvider?: WebDocumentProvider;
-  authOnlyWeb?: boolean;
+  documentPaths?: readonly string[];
+  connectionOptions?: WeakMap<WebAppWebSocketData, RealtimeConnectionOptions<TEvent>>;
   handleRequest: (req: Request, server?: Server<WebAppWebSocketData>) => Promise<Response | undefined>;
 }
 
@@ -33,7 +32,6 @@ const log = createLogger("webapp:server");
 export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLifecycleDependencies<TEvent>) {
   const {
     config,
-    deviceAuthEnabled,
     hooks,
     idleTimeout,
     tls,
@@ -91,30 +89,13 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
     const publicRouteHandlers = Object.fromEntries(
       Array.from(publicRoutePaths, (path) => [path, dynamicHandler]),
     );
-    const spaFallbackRoute = {
-      GET: dynamicHandler,
-      HEAD: dynamicHandler,
-      POST: dynamicHandler,
-      PUT: dynamicHandler,
-      PATCH: dynamicHandler,
-      DELETE: dynamicHandler,
-      OPTIONS: dynamicHandler,
-    };
-    // Bun only transforms HTMLBundle modules/HMR when the bundle is mounted directly.
-    // Wrapping it in a handler or Response, or adding route-level headers, serves
-    // untransformed module paths and breaks generated document routes.
-    const spaDocumentRoute = webDocument?.bundle ? {
-      ...spaFallbackRoute,
-      GET: webDocument.bundle as never,
-      HEAD: webDocument.bundle as never,
-    } : spaFallbackRoute;
+    // Mount the bundle at its public entry for Bun's asset/HMR pipeline. Document
+    // requests reach that route only after application dispatch.
+    const spaDocumentRoute = dynamicHandler;
     const entryRoute = webDocument?.bundle
       ? { [webDocument.entryPublicPath]: webDocument.bundle as never }
       : {};
-    const oauthRoutes = Object.fromEntries((dependencies.oauth?.routePaths ?? []).map(path => [path, dynamicHandler]));
-    const oauthConsentRoute = dependencies.oauth
-      ? { [dependencies.oauth.consentPath]: publicRouteHandlers[dependencies.oauth.consentPath] ?? spaDocumentRoute }
-      : {};
+    const documentRoutes = Object.fromEntries((dependencies.documentPaths ?? []).map(path => [path, spaDocumentRoute]));
     const server = Bun.serve<WebAppWebSocketData>({
       hostname: config.host,
       port: config.port,
@@ -125,37 +106,33 @@ export function createServerLifecycle<TEvent = unknown>(dependencies: ServerLife
         ...entryRoute,
         "/api/*": dynamicHandler,
         "/.well-known/*": dynamicHandler,
-        "/device": deviceAuthEnabled ? spaDocumentRoute : dynamicHandler,
-        "/setup": spaDocumentRoute,
         "/": publicRouteHandlers["/"] ?? spaDocumentRoute,
-        "/login": publicRouteHandlers["/login"] ?? spaDocumentRoute,
-        "/account": publicRouteHandlers["/account"] ?? spaDocumentRoute,
-        "/*": dependencies.authOnlyWeb ? dynamicHandler : spaDocumentRoute,
+        "/*": dependencies.documentPaths ? dynamicHandler : spaDocumentRoute,
         [wsPath]: dynamicHandler,
-        ...oauthConsentRoute,
-        ...oauthRoutes,
+        ...documentRoutes,
       },
       websocket: {
         open(socket) {
           const handler = customHandler(socket);
-          if (handler?.open) {
-            handler.open(socket);
+          if (socket.data.webappSocketHandler) {
+            if (!handler) { socket.close(1008, "unknown_handler"); return; }
+            handler.open?.(socket);
             return;
           }
-          realtime.add(socket);
+          realtime.add(socket, dependencies.connectionOptions?.get(socket.data));
         },
         message(socket, message) {
           const handler = customHandler(socket);
-          if (handler?.message) {
-            handler.message(socket, message);
+          if (socket.data.webappSocketHandler) {
+            handler?.message?.(socket, message);
             return;
           }
           realtime.message(socket, message);
         },
         close(socket, code, reason) {
           const handler = customHandler(socket);
-          if (handler?.close) {
-            handler.close(socket, code, reason);
+          if (socket.data.webappSocketHandler) {
+            handler?.close?.(socket, code, reason);
             return;
           }
           realtime.remove(socket);

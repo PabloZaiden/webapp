@@ -87,7 +87,12 @@ infer asynchronous completion from `onAction`. A successful top action retains
 the existing mobile-drawer dismissal behavior; keep ongoing app state outside
 the drawer when it should survive navigation.
 
-Optional sidebar tabs stay fixed at the bottom of the sidebar, below the version footer, while the tree and search remain independently scrollable. The first tab is selected by default and the selected tab id is persisted in browser `localStorage` per app on a best-effort basis. Stored ids are validated against the configured tabs; an unavailable, unreadable, or stale value falls back to the first available tab without disabling navigation. The active id is passed to `getNodes` as `activeTab`, alongside the normalized search value. Header actions and pinned-item actions are resolved from the visible tab first and expanded to other configured tabs when the active route or a stored pin is not present there.
+Optional sidebar tabs stay fixed below the version footer while tree/search
+scroll independently. The first tab is selected by default. Selection uses the
+explicit [preference adapter](settings.md#persistence), memory-only by default.
+Stored IDs are validated; unavailable/stale values fall back to the first tab.
+`getNodes` receives `activeTab` and normalized search. Header/pin actions resolve
+from the visible tab first, then other tabs when a route/pin is absent there.
 
 Tabs can be icon-only, text-only, or show an icon with a label:
 
@@ -360,8 +365,8 @@ to measure shell DOM or duplicate its spacing:
 
 ## Native pinning
 
-Pinning is framework-owned and persisted in browser `localStorage` on a
-best-effort basis. Mark route-backed items as `pinnable`; `WebAppRoot` injects
+Pinning is framework-owned UI using the selected preference adapter,
+memory-only by default. Mark route-backed items as `pinnable`; `WebAppRoot` injects
 `Pin to sidebar` / `Unpin from sidebar` into both the sidebar context menu and
 the title-bar action menu for the active route. Pinned entries are
 runtime-validated before use, and malformed records are ignored rather than
@@ -373,7 +378,7 @@ a pinned item shows the same contextual menu as the source item.
 When a ready snapshot is received, pins whose current `SidebarNode` still
 exists are retained and their title, subtitle, badge, layout, and route
 metadata are refreshed. Pins absent from the complete ready snapshot are
-removed from both React state and `localStorage` when it is available. While
+removed from React state and the selected adapter when it is available. While
 the snapshot is not ready, persisted pins are left untouched so a temporary
 loading, refresh, or error state cannot delete valid pins.
 

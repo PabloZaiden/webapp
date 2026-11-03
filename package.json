@@ -24,7 +24,8 @@
     "./web/styles.css": "./src/web/styles.css",
     "./contracts": "./src/contracts/index.ts",
     "./routing": "./src/routing/index.ts",
-    "./cli": "./src/cli/index.ts",
+    "./auth": "./src/auth/index.ts",
+    "./auth/browser": "./src/auth/browser.ts",
     "./build": "./src/build/index.ts"
   },
   "scripts": {
@@ -43,7 +44,6 @@
     "tsc": "bun run typecheck"
   },
   "dependencies": {
-    "@pablozaiden/installer": "github:PabloZaiden/installer#b30e7af9e43cd41f8511d555e06ea60d066c4e9f",
     "@simplewebauthn/browser": "14.0.0",
     "@simplewebauthn/server": "14.0.3",
     "bun-plugin-tailwind": "0.1.2",
@@ -53,12 +53,10 @@
     "zod": "4.6.5"
   },
   "peerDependencies": {
-    "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "20.14.5",
-    "@testing-library/react": "16.3.3",
     "@types/bun": "1.4.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

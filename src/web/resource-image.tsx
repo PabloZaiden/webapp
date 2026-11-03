@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState, type ImgHTMLAttributes } from "react";
-import { appPath, appRequest, appResourceUrl, getWebAppClientMode } from "./api-client";
-import { getClientSession } from "./client-session";
-import { useExternalClientSession } from "./webapp-config";
+import { appRequest, appResourceUrl, hasWebAppResourceTransport } from "./api-client";
+import { useWebAppRuntime } from "./runtime";
 
 /** Loads private API images without exposing bearer credentials in image URLs. */
 export function ResourceImage({ src, ...props }: Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & { src: string }) {
-  const external = getWebAppClientMode() === "external";
-  const remote = (getClientSession().enabled || external) && !/^(blob:|data:)/i.test(src);
-  const session = useExternalClientSession();
+  const remote = !/^(blob:|data:)/i.test(src);
+  const session = useWebAppRuntime();
   const identity = useMemo(() => ({
     src, scope: session?.scope, generation: session?.generation,
     ready: session?.ready ?? true, error: session?.error,
@@ -19,12 +17,9 @@ export function ResourceImage({ src, ...props }: Omit<ImgHTMLAttributes<HTMLImag
     let dispose: (() => void) | undefined;
     async function load() {
       try {
-        if (external) {
+        if (hasWebAppResourceTransport()) {
           const resource = await appResourceUrl(identity.src, "resource", { signal: controller.signal });
-          if (controller.signal.aborted) {
-            resource.dispose?.();
-            return;
-          }
+          if (controller.signal.aborted) { resource.dispose?.(); return; }
           dispose = () => resource.dispose?.();
           setResource({ identity, url: resource.url });
           return;
@@ -47,8 +42,8 @@ export function ResourceImage({ src, ...props }: Omit<ImgHTMLAttributes<HTMLImag
       controller.abort();
       dispose?.();
     };
-  }, [identity, remote, external]);
-  if (!remote) return <img src={appPath(src)} {...props} />;
+  }, [identity, remote]);
+  if (!remote) return <img src={src} {...props} />;
   const current = resource?.identity === identity ? resource : undefined;
   const error = identity.error ?? current?.error;
   if (error) return <span className={props.className} role="img"

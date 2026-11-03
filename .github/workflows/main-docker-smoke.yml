@@ -86,7 +86,8 @@ jobs:
             local expected="$1"
             shift
             local log
-            log="$(mktemp)"
+            mkdir -p .cache
+            log=".cache/docker-build-validation.log"
 
             if "$@" >"$log" 2>&1; then
               cat "$log"
@@ -157,25 +158,21 @@ jobs:
             --name webapp-kitchen-sink-amd64 \
             --platform linux/amd64 \
             -p 3402:8080 \
-            -e KITCHEN_SINK_DISABLE_PASSKEY=true \
             webapp-kitchen-sink:amd64-ci
           docker run -d \
             --name webapp-kitchen-sink-arm64 \
             --platform linux/arm64 \
             -p 3502:8080 \
-            -e KITCHEN_SINK_DISABLE_PASSKEY=true \
             webapp-kitchen-sink:arm64-ci
           docker run -d \
             --name webapp-notes-todo-amd64 \
             --platform linux/amd64 \
             -p 3401:8080 \
-            -e NOTES_TODO_DISABLE_PASSKEY=true \
             webapp-notes-todo:amd64-ci
           docker run -d \
             --name webapp-notes-todo-arm64 \
             --platform linux/arm64 \
             -p 3501:8080 \
-            -e NOTES_TODO_DISABLE_PASSKEY=true \
             webapp-notes-todo:arm64-ci
 
           cleanup() {

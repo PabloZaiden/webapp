@@ -3,7 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const fixtureSource = `
-import { createWebAppServer, memoryWebAppStore } from "@pablozaiden/webapp/server";
+import { createWebAppServer, scheduleProcessShutdown } from "@pablozaiden/webapp/server";
 import { join } from "node:path";
 import { rename } from "node:fs/promises";
 const directory = process.env["SHUTDOWN_FIXTURE_DIR"];
@@ -21,13 +21,16 @@ for (const id of ["first", "second"]) {
       dataDir: join(directory, id),
       logLevel: "error",
       logLevelFromEnv: false,
-      passkeyDisabled: true,
       sameOriginDisabled: false,
       trustProxy: { enabled: false, headers: [], chain: "first" },
       development: false,
     },
     web: false,
-    store: memoryWebAppStore(),
+    request(req) {
+      if (new URL(req.url).pathname !== "/application-shutdown" || req.method !== "POST") return undefined;
+      scheduleProcessShutdown();
+      return Response.json({ accepted: true });
+    },
     lifecycle: {
       beforeStop: async () => {
         await Bun.write(join(directory, id + ".closed"), "resource released");
@@ -111,7 +114,7 @@ for (const scenario of [
       if (scenario.trigger === "SIGTERM") {
         child.kill("SIGTERM");
       } else {
-        const response = await fetch(new URL("/api/server/kill", urls[0]), {
+        const response = await fetch(new URL("/application-shutdown", urls[0]), {
           method: "POST",
           headers: { Origin: new URL(urls[0]!).origin },
           signal: AbortSignal.timeout(5_000),

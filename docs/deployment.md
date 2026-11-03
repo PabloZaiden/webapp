@@ -1,311 +1,107 @@
-# Deployment
+# Build and deployment
 
-## Single binary
-
-Use `buildWebAppBinary` from `@pablozaiden/webapp/build`.
+## Standalone binaries
 
 ```ts
-import { fileURLToPath } from "node:url";
 import { buildWebAppBinary, getBunCompileTargetFromArgs } from "@pablozaiden/webapp/build";
-
 await buildWebAppBinary({
-  entrypoint: fileURLToPath(import.meta.resolve("./src/index.ts")),
-  outfile: "./dist/my-app",
+  entrypoint: "src/index.ts",
+  outfile: "dist/example",
   target: getBunCompileTargetFromArgs(),
-  define: {
-    WEBAPP_VERSION: JSON.stringify(process.env["WEBAPP_VERSION"] ?? "0.0.0-development"),
-  },
 });
 ```
 
-The application package must declare both `react` and `react-dom` to satisfy the framework peer dependencies. The builder resolves `react-dom/client` through Bun from the application entrypoint, so strict or non-hoisted workspace layouts are supported. The browser dependency is bundled into the compiled binary; the build reports the application context and setup guidance before generating client output when `react-dom` cannot be resolved.
+Applications declare `react` and `react-dom`. The builder resolves
+`react-dom/client` from the application context, including strict workspace
+layouts, and bundles its browser dependency. Framework peers accept compatible
+React 19 versions so consumers keep one renderer/hooks singleton.
 
-`getBunCompileTargetFromArgs` accepts at most one `--target=<value>` argument. Supported compile targets come from the `BUN_COMPILE_TARGETS` export from `@pablozaiden/webapp/build`; use that collection when selecting a target. Empty, malformed, duplicate, and unsupported values fail before the builder creates output directories or invokes Bun. Omit the option for the default local Bun binary.
+Run the app directly: `EXAMPLE_PORT=3300 ./dist/example`. There is no framework
+CLI. App-owned command parsing/process management may wrap the same entrypoint.
+The framework still owns ordinary server lifecycle and graceful cleanup.
 
-The binary builder compiles the browser bundle with the framework defaults needed for `webapp` apps, including Tailwind CSS v4 processing. If an app needs extra browser build behavior, add Bun plugins or browser-only defines under `web.build`:
+`BUN_COMPILE_TARGETS` lists supported targets. `getBunCompileTargetFromArgs`
+accepts at most one `--target=<value>` and rejects malformed/unsupported values
+before output or compilation. macOS/Linux arm64/x64 are supported; Docker
+examples deliberately target Linux amd64/arm64.
 
-```ts
-await buildWebAppBinary({
-  entrypoint: "src/index.ts",
-  outfile: "./dist/my-app",
-  web: {
-    entry: "./frontend.tsx",
-    build: {
-      plugins: [myBrowserPlugin],
-      define: {
-        "process.env.MY_BROWSER_FLAG": JSON.stringify("enabled"),
-      },
-    },
-  },
-});
-```
+`web.build.plugins` and browser-only `web.build.define` extend the default
+Tailwind v4 pipeline. `disableDefaultPlugins` is only for deliberately replaced
+pipelines. Backend-only defines belong in the top-level binary build options.
+Browser defines, static configuration and all public artifacts are public:
+never embed credentials or server secrets.
 
-App-provided plugins run before the framework defaults. Use `web.build.disableDefaultPlugins` only for specialized builds that intentionally replace the framework browser pipeline.
-
-The browser build records every emitted runtime artifact in the compiled
-manifest: renderer and application entry scripts, chunks, extracted CSS,
-workers, WASM/file-loader assets, and external source maps. Output paths remain
-relative to the build output and use URL `/` separators; they are not flattened
-to basenames. `web.publicAssets` uses the same manifest model, retaining the
-primary entry and every sidecar with its bytes, public path, artifact kind, and
-MIME metadata. The compiled server exposes those paths through the same route
-contract used by development, so existing single-file JavaScript assets remain
-compatible.
-
-The current portable binary transport serializes the complete manifest into
-the executable. Bun 1.4 native `compile.assets`/`--asset` embedding is not
-enabled until its `$bunfs` path behavior is validated across Linux and macOS
-targets; it must not create a second path model. Do not embed an
-application or workspace directory as a public directory. Public files remain
-limited to browser build outputs, explicitly configured public-asset bundles,
-and framework-generated routes. External browser source maps are retained as
-manifest artifacts and are served at their generated URLs; public-asset
-entrypoint builds currently request no source maps.
-
-Run the binary with the same CLI contract:
-
-```bash
-MY_APP_PORT=3300 ./dist/my-app serve
-./dist/my-app version
-./dist/my-app api items
-```
-
-Keep server and CLI modes in the same binary. App-specific commands and framework-backed commands should be subcommands of that binary rather than separate executables.
-
-## Static browser client
-
-`buildWebAppClient` produces a complete browser-only directory using the same
-browser bundler and document, icon and PWA generators as the integrated
-application:
+## One client artifact
 
 ```ts
-import { buildWebAppClient } from "@pablozaiden/webapp/build";
-
-await buildWebAppClient({
-  entry: new URL("./src/web/main.tsx", import.meta.url),
-  outdir: "./dist/client",
-  appName: "My App",
-  title: "My App",
-  apiBaseUrl: "https://api.example.test",
-  define: { WEBAPP_VERSION: JSON.stringify("1.0.0") },
-  icons: { favicon: new URL("./assets/icon.svg", import.meta.url) },
-  assets: [{
-    src: "node_modules/monaco-editor/min/vs",
-    path: "/webapp-assets/monaco/vs",
-  }],
-});
-```
-
-Upload the **entire directory** to any ordinary HTTP(S) static host. The exact
-same bytes work at `/` and a nested directory such as `/tools/my-app/`; no
-base-path rebuild, application server, host-specific configuration, SPA
-fallback or rewrite rule is needed. Keep the trailing directory slash or open
-`index.html` directly, and use the framework's hash-based navigation rather
-than requesting client-side routes as server paths. Localhost HTTP is useful
-for development; public deployments should use HTTPS. Opening `file://` is
-not a supported native packaging strategy.
-
-The output contains `index.html`, the remote-client bootstrap, application
-scripts, lazy/shared chunks, CSS, emitted fonts/file-loader assets, external
-source maps, generated/configured icons, PWA manifests, configured public-asset
-bundles and copied asset directories. Small assets may be embedded in CSS by
-Bun. Choose a dedicated output directory; the builder overwrites its own
-outputs but does not delete unrelated or stale files already in that directory.
-Do not publish dependencies, source trees or private data alongside it.
-URL-encoded asset names are decoded for their filesystem destinations, with
-containment and decoded-name collision checks before writing output files.
-
-The shared bootstrap loads the directory-relative `webapp-client.json` and
-configures the React renderer **before importing the application's entry module**.
-Static output uses `{ "mode": "remote", "apiBaseUrl": "https://api.example.test" }`.
-Omit `apiBaseUrl` to distribute no default endpoint. This is a public, nonsecret
-runtime default, not an API credential; the client can select its endpoint at
-runtime. Application startup may call `configureWebAppClient()` without
-discarding that bootstrap configuration. Browser defines and source maps are
-also public: never place tokens, secrets or server-only environment values in
-them. The API server must support remote authentication; client origins do not
-need registration.
-
-### Build once for static hosting and a unified binary
-
-Pass the result of `buildWebAppClient` directly to the binary builder:
-
-```ts
-import { buildWebAppBinary, buildWebAppClient } from "@pablozaiden/webapp/build";
-
 const client = await buildWebAppClient({
-  entry: new URL("./src/web/main.tsx", import.meta.url),
-  outdir: "./dist/client",
-  appName: "My App",
+  entry: "src/web/main.tsx", outdir: "dist/client", appName: "Example",
+  apiBaseUrl: "https://api.example.test",
 });
 await buildWebAppBinary({
-  entrypoint: "src/index.ts",
-  outfile: "./dist/my-app",
+  entrypoint: "src/index.ts", outfile: "dist/example",
   web: { client },
 });
 ```
 
-The binary embeds the same HTML, JavaScript, CSS, icons and runtime assets,
-without compiling the browser again or needing the output/source directory at
-runtime. Document appearance is fixed by the client build's options. Server
-`web.mode` still controls integrated versus authentication-only presentation.
-The server supplies its own nonsecret `webapp-client.json` response with
-`mode: "integrated"` and the trusted public path prefix; the artifact's static
-file instead selects remote token authentication. Only runtime configuration
-changes, not the frontend code or HTML. The configuration response is uncached;
-do not override that reserved framework route.
+Publish the entire client directory for root or nested static hosting.
+Relative asset URLs and hash navigation avoid a base-path rebuild. The binary
+embeds the same renderer/application scripts, chunks, CSS and runtime artifacts;
+its neutral bootstrap selects integrated deployment without rebuilding them.
+`clientMode:"external"` instead emits a bootstrap with no API server.
+Static mode does not imply bearer/device authentication: apps configure
+[their own transports and runtime](remote-clients.md).
 
-Document options match server `web` configuration: `title`, `shortName`,
-`lang`, `themeColor`, `backgroundColor`, `icons` and `pwa`. Icon inputs are
-local files and are copied to generated public names. Keep explicit PWA
-`startUrl` and `scope` relative if overriding their relocatable `./` defaults.
-`build.plugins`, `build.define` and `build.disableDefaultPlugins` have the
-same behavior as binary `web.build`; top-level `define` is merged with the
-browser-specific defines. String `entry` resolves from the working directory;
-file URLs avoid ambiguity when a build script lives elsewhere.
+`web.paths` controls which routes serve documents, replacing old
+auth-presentation modes. App-owned account or connection-picker pages must
+implement their own auth semantics and data guards.
 
-### Explicit runtime assets
+Document configuration includes title/short name, theme/background color,
+icons and optional PWA generation. Native Bun and compiled routes share
+security headers and public-asset paths. App-owned runtime assets are explicit
+`web.assets`/`web.publicAssets` entries; use the same entries in development and
+builds. Manifests preserve emitted primary files and sidecars (CSS, workers,
+WASM/fonts/imports/source maps), MIME types and relative paths, not basenames.
+Keep asset imports relative when nested hosting matters.
 
-`assets` accepts `{ src: string | URL, path: string }` entries. A source file
-is copied to that destination; a directory's contents are copied recursively,
-including workers, source maps and other files. Destinations are public URL
-paths rooted in the **client directory**, not the hosting origin. Duplicate
-paths, including collisions with generated documents/assets, fail the build.
-Source strings resolve from the application package root. Only explicitly
-selected files/directories are published; never select a directory containing
-private data.
+## Storage and containers
 
-Configure the same entries in server `web.assets` for Bun development and in
-binary-builder `web.assets` for embedding. The development document provider
-serves those files at the configured public paths; the compiled binary serves
-the embedded bytes without reading the source directories. For example:
+Core startup creates no SQLite or account configuration. The core-only Kitchen
+Sink uses no data volume; its projects/preferences disappear on restart.
+Notes TODO explicitly selects SQLite domain data and browser preferences.
+`NOTES_TODO_DATA_DIR` must be a durable mounted directory when deployed; the
+optional auth database/secret is also application-owned there. Public examples
+are not authorization templates for Internet-facing private apps.
 
-```ts
-const assets = [{
-  src: new URL("./node_modules/monaco-editor/min/vs", import.meta.url),
-  path: "/webapp-assets/monaco/vs",
-}];
-// createWebAppServer({ ..., web: { assets } })
-// buildWebAppBinary({ ..., web: { assets } })
-// buildWebAppClient({ ..., assets })
-```
-
-Copied files are not rewritten. Configure third-party loaders relative to the
-client document, for example
-`new URL("./webapp-assets/monaco/vs", document.baseURI).href`, and keep their
-internal worker/font/import paths relative. A caller-authored `/assets/...`
-URL still refers to the hosting origin's root and cannot be relocated.
-`publicAssets` additionally compiles explicit browser entrypoints using the
-existing `WebAppPublicAssetOptions` contract, retaining every emitted sidecar.
-
-Static artifacts, including those embedded through `web.client`, keep compiled
-scripts, styles and imported file assets beside `index.html`. This gives
-document-relative file-loader URLs and module/CSS-relative imports the same
-base, including when the complete artifact is hosted under a URL prefix.
-Keep the artifact layout intact rather than moving its assets independently.
-Generated PWA manifest links, icons, start and scope URLs are directory-relative
-too.
-
-## Docker
-
-The example Dockerfiles copy a Bun-compiled Linux binary into a runtime image. They intentionally require `APP_BINARY`; there is no architecture-specific default. Build the binary for the container architecture first, then pass both the Docker platform and matching binary path:
+Example Dockerfiles run the compiled binary directly as a non-root user.
+Pass explicit `APP_BINARY` matching the platform:
 
 ```bash
-# Linux amd64 (Bun calls this target x64)
 bun run --cwd examples/notes-todo build --target=bun-linux-x64
-docker buildx build \
-  --platform linux/amd64 \
+docker build --platform linux/amd64 \
   --build-arg APP_BINARY=examples/notes-todo/dist/notes-todo-linux-x64 \
-  --file examples/notes-todo/Dockerfile \
-  --tag webapp-notes-todo:local \
-  --load \
-  .
-
-# Linux arm64
-bun run --cwd examples/kitchen-sink build --target=bun-linux-arm64
-docker buildx build \
-  --platform linux/arm64 \
-  --build-arg APP_BINARY=examples/kitchen-sink/dist/kitchen-sink-linux-arm64 \
-  --file examples/kitchen-sink/Dockerfile \
-  --tag webapp-kitchen-sink:local \
-  --load \
-  .
+  -f examples/notes-todo/Dockerfile -t notes-example .
 ```
 
-Use the same mapping for either example: Docker `linux/amd64` requires the Bun `bun-linux-x64` build and `*-linux-x64` artifact, while Docker `linux/arm64` requires `bun-linux-arm64` and `*-linux-arm64`. To build an x64 image from an ARM64 host, select `--platform linux/amd64` and the x64 artifact explicitly; Docker Desktop or Buildx may need emulation enabled. Omitting `APP_BINARY`, selecting an unsupported target, or pairing the wrong artifact with the target fails during the image build.
+Missing/mismatched binaries and unsupported platforms fail the build.
+For arm64 use `bun-linux-arm64` and `linux/arm64`. Apps choose whether data,
+credentials or operational metadata needs a volume; never assume a framework
+account database exists. Use owner-only directories/files and fail closed if
+protection or migration fails. See [CI guidance](github-actions.md).
 
-The example Dockerfiles default to `node:22-trixie` as a readily available Linux runtime base because the app itself is already a self-contained Bun binary. The container writes both framework and example application data to `/app/data`; mount a Docker volume there when data must persist beyond the container.
+## Origins and proxies
 
-### Example application data files
+Set `{PREFIX}_HOST`, `{PREFIX}_PORT`, `{PREFIX}_PUBLIC_BASE_URL` and deliberate
+trusted proxy configuration as required. Trust Forwarded/X-Forwarded headers
+only behind an explicitly trusted proxy; otherwise use the direct request
+origin. The public base URL is deployment metadata, not client identity.
 
-Each example uses the configured data directory for two separate persistence
-boundaries:
+Cookie-authenticated mutations/WebSockets still require same-origin policy;
+cross-origin explicit credentials still require app authorization. CORS is
+opt-in, never a replacement for authentication. Use HTTPS for deployed bonus
+authentication (HTTP is permitted only on loopback), and ensure configured
+origin/RP ID/cookie paths match the app-owned auth endpoints.
 
-| Application | Framework database (default) | Application database |
-| --- | --- | --- |
-| Notes TODO | `webapp.sqlite` | `notes-todo.sqlite` |
-| Kitchen Sink | `webapp.sqlite` | `kitchen-sink.sqlite` |
-
-`webapp.sqlite` is created by the default framework SQLite store and contains
-framework authentication and settings state. An application that injects
-`memoryWebAppStore()` does not create this database, and its framework auth
-state is lost on restart. The example database contains only that example's
-sections, notes, todos, or projects; application-specific tables are not added
-to the framework store. The example starts by creating or migrating its schema,
-and owner seed data is transactional and idempotent across restarts.
-
-Persist the complete `/app/data` directory, not just `webapp.sqlite`, when
-deploying an example. A container filesystem, process restart, replacement
-deployment, or reverse proxy does not provide durability by itself. Retain
-and back up the volume mounted at `/app/data`; changing the data directory
-intentionally starts a new application state. Persisting the directory does
-not make an injected memory store durable.
-
-The container should set:
-
-```dockerfile
-ENV MY_APP_HOST=0.0.0.0
-ENV MY_APP_PORT=3000
-ENV MY_APP_DATA_DIR=/app/data
-```
-
-The framework has no external frontend asset directory, so the compiled binary contains the server and Bun HTML import graph.
-
-## Reverse proxy and forwarded headers
-
-When TLS or a public path is terminated by a reverse proxy, keep the
-application port reachable only from that proxy and configure the trust policy
-explicitly:
-
-```bash
-MY_APP_TRUST_PROXY=true
-MY_APP_TRUST_PROXY_HEADERS=proto,host,prefix
-MY_APP_TRUST_PROXY_CHAIN=first
-MY_APP_PUBLIC_BASE_URL=https://app.example.test
-```
-
-The proxy must strip any client-provided `X-Forwarded-Proto`,
-`X-Forwarded-Host`, and `X-Forwarded-Prefix` values before overwriting the
-headers it is responsible for. Only enable the corresponding symbolic
-headers in `MY_APP_TRUST_PROXY_HEADERS`. Sanitized single-value headers are
-recommended; `MY_APP_TRUST_PROXY_CHAIN` exists only to make a comma-separated
-chain deterministic. The framework does not infer trust from header presence,
-does not parse the RFC `Forwarded` header, and does not provide a
-proxy-address allowlist in this release.
-
-When `proto` is trusted, `X-Forwarded-Proto` accepts `http` and `https` and
-normalizes WebSocket schemes `ws` to `http` and `wss` to `https`, including
-values sent by Traefik for WebSocket upgrades. Other schemes are ignored.
-
-Use `MY_APP_PUBLIC_BASE_URL` when the external origin must remain deterministic
-regardless of request headers. A trusted prefix controls cookie paths and
-framework-generated setup/device links. If trust is disabled, the framework
-uses the direct request URL and host, which is the correct default for a
-direct deployment.
-
-Proxy configuration does not make application data persistent. Set
-`MY_APP_DATA_DIR` to a durable directory and mount a persistent volume for
-container deployments; the SQLite data must survive independently of the
-reverse proxy or application process.
-
-For full application CI/CD templates, including a production Dockerfile, PR checks, GHCR publishing on `main`, binary releases and Docker release images, see `docs/github-actions.md`.
+Bind shared networks deliberately. Use app-owned backup, migration, key
+rotation and session revocation procedures. The framework does not migrate old
+account stores or silently reset old credentials.

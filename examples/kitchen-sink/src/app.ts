@@ -1,182 +1,52 @@
 import { z } from "zod";
-import { createLogger, createWebAppServer, defineRoutes, jsonResponse, parseJson, readRuntimeConfig, resolveAppDataDir, sqliteWebAppStore, type ResourceRealtimeEvent, type WebAppStore } from "@pablozaiden/webapp/server";
+import { createWebAppServer, defineRoutes, jsonResponse, parseJson, readRuntimeConfig, type ResourceRealtimeEvent } from "@pablozaiden/webapp/server";
 import { createKitchenSinkStore, type KitchenSinkStore } from "./app-store";
 import favicon from "./favicon.svg";
 
-type Event = ResourceRealtimeEvent;
-const log = createLogger("kitchen-sink");
-export const kitchenSinkVersion = typeof WEBAPP_VERSION === "string"
-  ? WEBAPP_VERSION
-  : "0.0.0-development";
+export const kitchenSinkVersion = typeof WEBAPP_VERSION === "string" ? WEBAPP_VERSION : "0.0.0-development";
+const createProject = z.object({ name: z.string().trim().min(1).max(200) });
+const updateProject = z.object({ name: z.string().trim().min(1).max(200).optional(), status: z.enum(["idle", "running", "failed"]).optional() });
 
-function ensureSeedProjects(store: WebAppStore, appStore: KitchenSinkStore, userId: string) {
-  if (store.getOwnerUser()?.id !== userId) return;
-  appStore.ensureSeedProjects(userId);
-}
-
-const projectCreateSchema = z.object({
-  name: z.string(),
-});
-
-const projectUpdateSchema = z.object({
-  name: z.string().optional(),
-  status: z.enum(["idle", "running", "failed"]).optional(),
-});
-
-const projectSchema = z.object({
-  id: z.string(),
-  userId: z.string(),
-  name: z.string(),
-  status: z.enum(["idle", "running", "failed"]),
-  updatedAt: z.string(),
-});
-
-function createKitchenSinkRoutes(store: WebAppStore, appStore: KitchenSinkStore) {
-  return defineRoutes<Event>({
+export function createKitchenSinkRuntime(options: { appStore?: KitchenSinkStore } = {}) {
+  const appStore = options.appStore ?? createKitchenSinkStore();
+  const routes = defineRoutes<ResourceRealtimeEvent>({
     "/api/projects": {
-      auth: "user",
-      requestSchema: projectCreateSchema,
-      operations: {
-        GET: {
-          description: "List your projects",
-          requestSchema: undefined,
-          responseSchema: z.array(projectSchema),
-          automation: { policy: "read", completion: "completed" },
-        },
-        POST: {
-          description: "Create a project",
-          responseSchema: projectSchema,
-          automation: { policy: "write", completion: "completed" },
-        },
-      },
-      GET: (_req, ctx) => {
-        const user = ctx.requireUser();
-        ensureSeedProjects(store, appStore, user.id);
-        const projects = ctx.filterOwned(appStore.listProjects(user.id));
-        log.info("Listed projects", { userId: user.id, count: projects.length });
-        return jsonResponse(projects);
-      },
+      auth: "public",
+      description: "Shared, in-memory demo projects",
+      GET: () => jsonResponse(appStore.listProjects()),
       async POST(req, ctx) {
-        const user = ctx.requireUser();
-        const body = await parseJson(req, projectCreateSchema);
-        const project = appStore.createProject({ id: crypto.randomUUID(), userId: user.id, name: body.name, status: "idle", updatedAt: new Date().toISOString() });
-        log.info("Created project", { userId: user.id, projectId: project.id });
-        ctx.userRealtime.publishEntityChanged("projects", project.id);
+        const body = await parseJson(req, createProject);
+        const project = appStore.createProject({ id: crypto.randomUUID(), name: body.name, status: "idle", updatedAt: new Date().toISOString() });
+        ctx.realtime.publishEntityChanged("projects", project.id);
         return jsonResponse(project);
       },
     },
     "/api/projects/:id": {
-      auth: "user",
-      requestSchema: projectUpdateSchema,
-      operations: {
-        PATCH: {
-          description: "Update a project",
-          responseSchema: projectSchema,
-          automation: { policy: "write", completion: "completed" },
-        },
-      },
+      auth: "public",
       async PATCH(req, ctx) {
-        const user = ctx.requireUser();
-        const project = ctx.requireOwned(appStore.getProject(ctx.params["id"]!, user.id));
-        const body = await parseJson(req, projectUpdateSchema);
-        const updated = appStore.updateProject(project.id, user.id, { ...body, updatedAt: new Date().toISOString() });
-        if (!updated) return jsonResponse({ error: "not_found" }, { status: 404 });
-        ctx.userRealtime.publishEntityChanged("projects", updated.id);
-        return jsonResponse(updated);
+        const body = await parseJson(req, updateProject);
+        const project = appStore.updateProject(ctx.params["id"]!, {
+          name: body.name, status: body.status, updatedAt: new Date().toISOString(),
+        });
+        if (!project) return jsonResponse({ error: "not_found" }, { status: 404 });
+        ctx.realtime.publishEntityChanged("projects", project.id);
+        return jsonResponse(project);
       },
     },
-    "/api/public/ping": {
-      auth: "public",
-      sameOrigin: "never",
-      GET: () => jsonResponse({ pong: true }),
-    },
-    "/api/admin/summary": {
-      auth: "admin",
-      GET: (_req, ctx) => {
-        const user = ctx.requireUser();
-        return jsonResponse({ user: user.username, users: store.listUsers().length, projects: appStore.countProjects() });
-      },
-    },
-    "/api/webhooks/:source/:token": {
-      auth: "public",
-      sameOrigin: "never",
-      async POST(_req, ctx) {
-        const owner = store.getOwnerUser();
-        if (!owner) return jsonResponse({ ok: true, accepted: false }, { status: 202 });
-        ensureSeedProjects(store, appStore, owner.id);
-        appStore.createProject({ id: crypto.randomUUID(), userId: owner.id, name: `Webhook ${ctx.params["source"]!}`, status: "running", updatedAt: new Date().toISOString() });
-        ctx.realtime.publishChanged("projects", { target: { userId: owner.id } });
-        return jsonResponse({ ok: true });
-      },
-    },
+    "/api/public/ping": { auth: "public", sameOrigin: "never", GET: () => jsonResponse({ pong: true }) },
   });
-}
-
-const publicRoutes = {
-  "/public/diagnostics.json": {
-    headers: { "content-type": "application/json; charset=utf-8" },
-    GET: () => JSON.stringify({
-      app: "kitchen-sink",
-      publicRoute: true,
-      version: typeof WEBAPP_VERSION === "string" ? WEBAPP_VERSION : "0.0.0-development",
-    }),
-  },
-  "/robots.txt": {
-    headers: { "content-type": "text/plain; charset=utf-8" },
-    GET: "User-agent: *\nDisallow:\n",
-  },
-};
-
-export function createKitchenSinkApp(options: {
-  dataDir?: string;
-  store?: WebAppStore;
-  appStore?: KitchenSinkStore;
-} = {}) {
-  return createKitchenSinkRuntime(options).app;
-}
-
-export function createKitchenSinkRuntime(options: {
-  dataDir?: string;
-  store?: WebAppStore;
-  appStore?: KitchenSinkStore;
-} = {}) {
-  const appDirectoryName = ".kitchen-sink";
-  const dataDir = options.dataDir ?? resolveAppDataDir({
-    envPrefix: "KITCHEN_SINK",
-    appDirectoryName,
-  });
-  const runtimeEnvironment = options.dataDir === undefined
-    ? process.env
-    : { ...process.env, KITCHEN_SINK_DATA_DIR: dataDir };
-  const runtimeConfig = readRuntimeConfig({
-    appName: "Kitchen Sink",
-    envPrefix: "KITCHEN_SINK",
-    appDirectoryName,
-    environment: runtimeEnvironment,
-  });
-  const store = options.store ?? sqliteWebAppStore({ dataDir });
-  const appStore = options.appStore ?? createKitchenSinkStore({ dataDir });
-  const routes = createKitchenSinkRoutes(store, appStore);
-  const app = createWebAppServer<Event>({
-    appName: "Kitchen Sink",
-    envPrefix: "KITCHEN_SINK",
-    appDirectoryName,
-    runtimeConfig,
-    web: {
-      icons: {
-        favicon: { src: favicon, sizes: "any", type: "image/svg+xml" },
-        appleTouch: { src: favicon, sizes: "any", type: "image/svg+xml" },
-        manifest: [
-          { src: favicon, sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
-        ],
-      },
-    },
+  const app = createWebAppServer<ResourceRealtimeEvent>({
+    appName: "Kitchen Sink", envPrefix: "KITCHEN_SINK",
+    runtimeConfig: readRuntimeConfig({ appName: "Kitchen Sink", envPrefix: "KITCHEN_SINK" }),
+    web: { entry: new URL("./web/main.tsx", import.meta.url), icons: { favicon } },
     version: kitchenSinkVersion,
-    store,
-    auth: { passkeys: true, apiKeys: true, deviceAuth: true },
-    realtime: { path: "/api/ws" },
-    publicRoutes,
+    realtime: { access: "public" },
+    publicRoutes: {
+      "/public/diagnostics.json": () => jsonResponse({ app: "kitchen-sink", persistence: "memory", authentication: "public" }),
+      "/robots.txt": "User-agent: *\nDisallow:\n",
+    },
     routes,
   });
   return { app, routes };
 }
+export function createKitchenSinkApp() { return createKitchenSinkRuntime().app; }

@@ -3,7 +3,8 @@ import {
   type RealtimeClientMessage,
 } from "../../contracts/realtime";
 import { createLogger } from "../logger";
-import { appWebSocketConnection } from "../api-client";
+import { appDuplexConnection } from "../api-client";
+import type { WebAppDuplex } from "../external-client";
 import type { RealtimeSource, RealtimeSubscriber } from "./source";
 
 export type { RealtimeActivation, RealtimeSource, RealtimeStatus, RealtimeSubscriber } from "./source";
@@ -21,7 +22,9 @@ const MAX_FRAME_BYTES = 2 * 1024 * 1024;
 /** A runtime owns one transport and all of its subscriptions, heartbeat and retries. */
 export class RealtimeRuntime implements RealtimeSource {
   private subscriptions = new Map<string, Subscription>();
-  private socket?: WebSocket;
+  private socket?: WebAppDuplex;
+  private socketOpen = false;
+  private unsubscribeSocket?: () => void;
   private retry?: ReturnType<typeof setTimeout>;
   private heartbeat?: ReturnType<typeof setTimeout>;
   private deadline?: ReturnType<typeof setTimeout>;
@@ -46,14 +49,14 @@ export class RealtimeRuntime implements RealtimeSource {
     this.blocked = false;
     this.invoke(subscription, () => subscription.onStatus?.("connecting"));
     this.listen();
-    if (this.socket?.readyState === WebSocket.OPEN) this.activate(id, subscription);
+    if (this.socketOpen) this.activate(id, subscription);
     else if (!this.socket && !this.connectionRequest && this.retry === undefined) void this.connect();
     return () => {
       if (!this.subscriptions.delete(id)) return;
       clearTimeout(subscription.acknowledgement);
       subscription.active = false;
       subscription.retired = true;
-      if (this.socket?.readyState === WebSocket.OPEN) {
+      if (this.socketOpen) {
         this.send({ type: "unsubscribe", subscriptionId: id, generation: ++subscription.generation });
       }
       if (!this.subscriptions.size && !this.idleCloseScheduled) {
@@ -91,7 +94,7 @@ export class RealtimeRuntime implements RealtimeSource {
 
   private send(frame: RealtimeClientMessage): void {
     const socket = this.socket;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    if (!socket || !this.socketOpen) return;
     try {
       const payload = JSON.stringify(frame);
       const bytes = new TextEncoder().encode(payload).byteLength;
@@ -102,7 +105,7 @@ export class RealtimeRuntime implements RealtimeSource {
       if (socket.bufferedAmount + bytes > MAX_FRAME_BYTES) {
         throw new Error("Realtime outbound buffer exceeded");
       }
-      socket.send(payload);
+      void socket.send(payload).catch(error => { if (this.socket === socket) this.fail(error); });
     } catch (error) {
       this.fail(error);
     }
@@ -122,10 +125,10 @@ export class RealtimeRuntime implements RealtimeSource {
     for (const subscription of this.subscriptions.values()) {
       this.invoke(subscription, () => subscription.onStatus?.("connecting"));
     }
-    let socket: WebSocket;
+    let socket: WebAppDuplex;
     this.deadline = setTimeout(() => this.fail(new Error("Realtime connection timed out")), DEADLINE_MS);
     try {
-      socket = await appWebSocketConnection(this.url, { signal: request.signal });
+      socket = await appDuplexConnection(this.url, { signal: request.signal });
     } catch (error) {
       if (!request.signal.aborted) this.fail(error);
       return;
@@ -133,12 +136,13 @@ export class RealtimeRuntime implements RealtimeSource {
       if (this.connectionRequest === request) this.connectionRequest = undefined;
     }
     if (this.stopped || !this.subscriptions.size || request.signal.aborted) {
-      socket.close();
+      await socket.close();
       return;
     }
     this.socket = socket;
-    socket.onopen = () => {
+    const opened = () => {
       if (this.socket !== socket) return;
+      this.socketOpen = true;
       clearTimeout(this.deadline);
       this.deadline = undefined;
       this.retries = 0;
@@ -148,13 +152,13 @@ export class RealtimeRuntime implements RealtimeSource {
         this.activate(id, subscription);
       }
     };
-    socket.onmessage = message => {
+    const onMessage = (data: string | ArrayBuffer) => {
       if (this.socket !== socket) return;
       try {
-        if (typeof message.data !== "string" || new TextEncoder().encode(message.data).byteLength > MAX_FRAME_BYTES) {
+        if (typeof data !== "string" || new TextEncoder().encode(data).byteLength > MAX_FRAME_BYTES) {
           throw new Error("Invalid or oversized realtime frame");
         }
-        const frame = realtimeServerMessageSchema.parse(JSON.parse(message.data));
+        const frame = realtimeServerMessageSchema.parse(JSON.parse(data));
         if (frame.type === "pong") {
           clearTimeout(this.deadline);
           this.deadline = undefined;
@@ -183,8 +187,12 @@ export class RealtimeRuntime implements RealtimeSource {
         this.fail(error, false);
       }
     };
-    socket.onclose = event => { if (this.socket === socket) this.fail(new Error("Realtime connection closed"), event.code !== 1008); };
-    socket.onerror = () => { if (this.socket === socket) this.fail(new Error("Realtime connection failed")); };
+    this.unsubscribeSocket = socket.subscribe({
+      onMessage,
+      onClose: event => { if (this.socket === socket) this.fail(new Error("Realtime connection closed"), event.code !== 1008); },
+      onError: error => { if (this.socket === socket) this.fail(error); },
+    });
+    void socket.ready.then(opened, error => { if (this.socket === socket) this.fail(error); });
   }
 
   private ping(): void {
@@ -201,9 +209,11 @@ export class RealtimeRuntime implements RealtimeSource {
     this.deadline = undefined;
     const socket = this.socket;
     this.socket = undefined;
+    this.socketOpen = false;
+    this.unsubscribeSocket?.();
+    this.unsubscribeSocket = undefined;
     if (socket) {
-      socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
-      socket.close();
+      void socket.close().catch(error => log.error("Realtime transport cleanup failed", { error: String(error) }));
     }
     for (const subscription of this.subscriptions.values()) {
       clearTimeout(subscription.acknowledgement);
@@ -231,7 +241,7 @@ export class RealtimeRuntime implements RealtimeSource {
   }
 
   recoverFromNetworkFailure(error: Error): void {
-    if (this.socket?.readyState === WebSocket.OPEN) this.fail(error);
+    if (this.socketOpen) this.fail(error);
   }
 
   private reconnect = (): void => {
