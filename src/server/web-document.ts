@@ -115,7 +115,7 @@ export function withDocumentBase(response: Response, req: Request, config: Runti
   if (!response.headers.get("content-type")?.includes("text/html")) return response;
   const prefix = getRequestOriginInfo(req, config).pathPrefix.replace(/\/+$/, "");
   const base = `${prefix}/`;
-  if (new URL(".", req.url).pathname === base) return response;
+  if (!prefix && new URL(".", req.url).pathname === base) return response;
   return new HTMLRewriter()
     .on("head", { element(element) { element.prepend(`<base href="${escapeHtml(base)}">`, { html: true }); } })
     .on("script[src], link[href]", {
