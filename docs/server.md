@@ -79,6 +79,15 @@ explicit reverse-proxy prefixes; static client directories remain relocatable.
 `createWebDocumentProvider` and `htmlResponse` are available for app-owned
 document composition.
 
+The framework owns the fixed-scale viewport: `initial-scale=1`,
+`maximum-scale=1` and `user-scalable=no`, alongside `width=device-width` and
+`viewport-fit=cover`. This policy is shared by development documents, compiled
+servers, static clients and installed PWAs, including documents with PWA
+metadata disabled. Browsers that honor the scaling tokens prevent
+pinch-to-zoom; browsers that ignore them are unaffected. Normal scrolling
+remains enabled. Do not replace this policy with app-owned HTML, global touch
+handlers, `preventDefault()` or `touch-action: none`.
+
 ## Routes and authorization
 
 ```ts

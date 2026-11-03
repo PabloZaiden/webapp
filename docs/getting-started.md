@@ -36,6 +36,11 @@ Run `bun --hot src/index.ts`. The framework generates the HTML document,
 renderer/bootstrap, icons and PWA manifest. Use `renderWebApp`, not a parallel
 React root registry. `web:false` disables document generation for headless apps.
 
+Generated documents share the framework's [fixed-scale viewport policy](server.md#composition),
+which disables pinch-to-zoom in browsers that honor viewport scaling tokens
+without disabling normal scrolling. Keep this policy framework-owned rather
+than adding app-specific HTML or touch handlers.
+
 Public mode is deliberate here. Private routes default to required identity and
 fail closed without an app identity adapter. The core creates no users or
 database, owns no admin/login screens, and keeps browser preferences in memory.
