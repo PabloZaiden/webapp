@@ -216,9 +216,15 @@ function WebAppRootContent({
   }, [pinningEnabled, pinningSnapshotReady, sidebarPins]);
   const addPinningAction = useCallback((node: SidebarNode, snapshotReady: boolean): SidebarNode => {
     const pinAction = pinningActionFor(node, snapshotReady);
+    if (!pinAction) return node;
+    const appendPinningAction = (actions: ActionMenuItem[]) => [
+      ...actions.filter((action) => action.id !== "pin" && action.id !== "unpin"),
+      pinAction,
+    ];
     return {
       ...node,
-      ...(pinAction ? { actions: [...(node.actions ?? []).filter((action) => action.id !== "pin" && action.id !== "unpin"), pinAction] } : {}),
+      actions: appendPinningAction(node.actions ?? []),
+      ...(node.contextActions !== undefined ? { contextActions: appendPinningAction(node.contextActions) } : {}),
     };
   }, [pinningActionFor]);
   const augmentPinningActions = useCallback((inputNodes: SidebarNode[], snapshotReady: boolean): SidebarNode[] => inputNodes.map((node) => {
