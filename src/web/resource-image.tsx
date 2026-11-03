@@ -49,5 +49,5 @@ export function ResourceImage({ src, ...props }: Omit<ImgHTMLAttributes<HTMLImag
   if (error) return <span className={props.className} role="img"
     title={error.message} aria-label={error.message}>!</span>;
   if (!current?.url) return <span className={props.className} aria-hidden="true" />;
-  return <img src={current.url} {...props} />;
+  return <img src={current.url} {...props} crossOrigin={props.crossOrigin ?? "anonymous"} />;
 }
