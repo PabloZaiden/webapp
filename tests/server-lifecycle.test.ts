@@ -4,8 +4,10 @@ import { resolve } from "node:path";
 import {
   createWebAppServer,
   defineRoutes,
+  readRuntimeConfig,
   type WebAppServerOptions,
   type WebAppServerLifecycleHooks,
+  type WebAppWebSocketData,
 } from "@pablozaiden/webapp/server";
 
 const testWeb = { entry: new URL("./fixtures/web/main.tsx", import.meta.url) };
@@ -156,6 +158,20 @@ function createLifecycleApp(
   return { app, dataDir };
 }
 
+async function bounded<T>(promise: Promise<T>, condition: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out: ${condition}`)), 5_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 test("runs lifecycle hooks around a real server start and stop", async () => {
   const events: string[] = [];
   const { app, dataDir } = createLifecycleApp("TEST_SERVER_LIFECYCLE", {
@@ -183,6 +199,116 @@ test("runs lifecycle hooks around a real server start and stop", async () => {
     rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+test("custom WebSocket delivery follows the listener buffering and close policy", async () => {
+  type ClientSocket = WebSocket & Pick<Bun.WebSocket, "pause" | "resume" | "terminate">;
+  const chunkBytes = 64 * 1_024;
+  const scenarios: {
+    name: string;
+    websocket?: WebAppServerOptions["websocket"];
+    frames: number;
+    limited: boolean;
+    closes: boolean;
+  }[] = [
+    { name: "unlimited", websocket: { backpressureLimit: 0, closeOnBackpressureLimit: false }, frames: 384, limited: false, closes: false },
+    { name: "Bun defaults", frames: 384, limited: true, closes: false },
+    { name: "keep connection on limit", websocket: { backpressureLimit: chunkBytes, closeOnBackpressureLimit: false }, frames: 128, limited: true, closes: false },
+    { name: "close connection on limit", websocket: { backpressureLimit: chunkBytes, closeOnBackpressureLimit: true }, frames: 128, limited: true, closes: true },
+  ];
+  for (const scenario of scenarios) {
+    let peer: Bun.ServerWebSocket<WebAppWebSocketData> | undefined;
+    const config = readRuntimeConfig({
+      appName: "WebSocket contract",
+      envPrefix: "WEBSOCKET_CONTRACT",
+      environment: {
+        WEBSOCKET_CONTRACT_HOST: "127.0.0.1",
+        WEBSOCKET_CONTRACT_PORT: "0",
+        WEBSOCKET_CONTRACT_LOG_LEVEL: "error",
+        NODE_ENV: "production",
+      },
+    });
+    const app = createWebAppServer({
+      appName: config.appName,
+      envPrefix: config.envPrefix,
+      runtimeConfig: config,
+      web: false,
+      server: scenario.websocket ? { websocket: scenario.websocket } : undefined,
+      request(request, server) {
+        const path = new URL(request.url).pathname;
+        if (path === "/stream") {
+          return server?.upgrade(request, { data: { webappSocketHandler: "delivery" } })
+            ? undefined : new Response("Upgrade required", { status: 426 });
+        }
+        if (path !== "/send") return undefined;
+        if (!peer) return new Response("Stream unavailable", { status: 409 });
+        const payload = new Uint8Array(chunkBytes);
+        const view = new DataView(payload.buffer);
+        for (let accepted = 0; accepted < scenario.frames; accepted++) {
+          view.setUint32(0, accepted);
+          if (peer.send(payload) === 0) return Response.json({ accepted, limited: true });
+        }
+        return Response.json({ accepted: scenario.frames, limited: false });
+      },
+      websockets: {
+        delivery: {
+          open(socket) { peer = socket; },
+          message(socket) { socket.send("pong"); },
+        },
+      },
+    });
+    const opened = Promise.withResolvers<void>();
+    const delivered = Promise.withResolvers<void>();
+    const closed = Promise.withResolvers<void>();
+    const pong = Promise.withResolvers<void>();
+    let socket: ClientSocket | undefined;
+    let receivedFrames = 0;
+    let expectedFrames = scenario.frames;
+    const expectedPayload = new Uint8Array(chunkBytes);
+    const expectedView = new DataView(expectedPayload.buffer);
+    try {
+      const server = await app.start();
+      // DOM types omit Bun's native consumer flow-control methods.
+      socket = new WebSocket(new URL("/stream", server.url).toString().replace("http:", "ws:")) as ClientSocket;
+      socket.binaryType = "arraybuffer";
+      socket.onopen = () => { socket!.pause(); opened.resolve(); };
+      socket.onerror = () => opened.reject(new Error(`${scenario.name}: WebSocket open failed`));
+      socket.onclose = () => { closed.resolve(); delivered.resolve(); };
+      socket.onmessage = event => {
+        if (event.data === "pong") { pong.resolve(); return; }
+        try {
+          expectedView.setUint32(0, receivedFrames);
+          expect(new Uint8Array(event.data)).toEqual(expectedPayload);
+          if (++receivedFrames === expectedFrames) delivered.resolve();
+        } catch (error) {
+          delivered.reject(error);
+        }
+      };
+      await bounded(opened.promise, `${scenario.name}: WebSocket open`);
+      // Pause the real consumer so the listener must buffer the burst.
+      const response = await fetch(new URL("/send", server.url), { signal: AbortSignal.timeout(5_000) });
+      expect(response.status).toBe(200);
+      const outcome = await response.json() as { accepted: number; limited: boolean };
+      expect(outcome.limited).toBe(scenario.limited);
+      expectedFrames = outcome.accepted;
+      socket.resume();
+      await bounded(delivered.promise, `${scenario.name}: delivery or selected close`);
+      if (scenario.closes) {
+        await bounded(closed.promise, `${scenario.name}: close on limit`);
+      } else {
+        expect(receivedFrames).toBe(expectedFrames);
+        if (!scenario.limited) expect(receivedFrames * chunkBytes).toBe(24 * 1_024 * 1_024);
+        socket.send("ping");
+        await bounded(pong.promise, `${scenario.name}: connection continues`);
+      }
+      await app.stop(true);
+      await bounded(closed.promise, `${scenario.name}: shutdown closes WebSocket`);
+    } finally {
+      socket?.terminate();
+      await app.stop(true);
+      if (socket) await bounded(closed.promise, `${scenario.name}: socket cleanup`);
+    }
+  }
+}, 20_000);
 
 test("serves HTTPS when TLS options are configured", async () => {
   const testTls = await createTestTls();
