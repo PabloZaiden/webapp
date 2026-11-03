@@ -62,6 +62,11 @@ The custom resource hook receives `kind:"resource"|"websocket"` so apps can
 issue narrowly scoped capabilities without exposing bearer credentials.
 Dispose handles on replacement, stale completion and unmount. `ResourceImage`
 uses the configured request/resource transport, never a separate auth client.
+Transport-provided image URLs use anonymous CORS by default, so private images
+can load from another origin without cross-origin cookies or relaxing resource
+policy headers. HTTP resource endpoints must allow that client's origin through
+CORS after authorizing the resource. Explicit `crossOrigin` image options are
+preserved; direct `blob:` and `data:` sources remain unchanged.
 `appSaveResource` supports app/native handoff; acceptance is not proof of a
 completed saved file.
 
