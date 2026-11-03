@@ -375,6 +375,10 @@ pin/unpin changes in memory for the current session and does not crash the
 shell. Pinned entries reuse the original sidebar node actions, so right-clicking
 a pinned item shows the same contextual menu as the source item.
 
+Explicit `contextActions`, including an empty list, replace only the
+application-owned sidebar actions. The framework still adds the current
+Pin/Unpin action without exposing title-bar-only actions in that menu.
+
 When a ready snapshot is received, pins whose current `SidebarNode` still
 exists are retained and their title, subtitle, badge, layout, and route
 metadata are refreshed. Pins absent from the complete ready snapshot are
