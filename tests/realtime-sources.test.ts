@@ -4,7 +4,7 @@ import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { z } from "zod";
 import {
-  createWebAppServer, defineRoutes, jsonResponse, memoryWebAppStore,
+  createWebAppServer, defineRoutes, jsonResponse,
   type RealtimeBus, type RealtimeTransport, type RuntimeConfig, type WebAppServer, type WebAppWebSocketData,
 } from "@pablozaiden/webapp/server";
 import {
@@ -66,16 +66,16 @@ test("paired sources observe current browser and CLI interests without retaining
   let app: WebAppServer<Event>;
   const rawRoutes = defineRoutes({
     "/api/pair": {
-      auth: "user", sameOrigin: "always",
+      auth: "public", sameOrigin: "always",
       GET(req, ctx) {
-        if (!ctx.server?.upgrade(req, { data: { userId: ctx.requireUser().id, webappSocketHandler: "pair" } })) {
+        if (!ctx.server?.upgrade(req, { data: { userId: "local", webappSocketHandler: "pair" } })) {
           return new Response(null, { status: 400 });
         }
         return undefined;
       },
     },
     "/api/foreign": {
-      auth: "user", sameOrigin: "always",
+      auth: "public", sameOrigin: "always",
       GET(req, ctx) {
         if (!ctx.server?.upgrade(req, { data: { userId: "another-user", webappSocketHandler: "foreign" } })) {
           return new Response(null, { status: 400 });
@@ -86,12 +86,12 @@ test("paired sources observe current browser and CLI interests without retaining
   });
   app = createWebAppServer<Event>({
     appName: "Interests", envPrefix: "TEST_REALTIME_SOURCE", web: false,
-    runtimeConfig: config(directory, "Interests"), store: memoryWebAppStore(),
-    realtime: { maxInterestObservers: 1 },
+    runtimeConfig: config(directory, "Interests"),
+    realtime: { maxInterestObservers: 1, authenticate: () => ({ data: { userId: "local" } }) },
     routes: {
       ...rawRoutes,
       "/api/retire-source-runtime": {
-        auth: "user", sameOrigin: "mutations",
+        auth: "public", sameOrigin: "mutations",
         POST(_req, ctx) { ctx.realtime.dispose(); return jsonResponse({ retired: true }); },
       },
     },
@@ -198,7 +198,7 @@ function config(directory: string, label: string): RuntimeConfig {
   return {
     appName: label, envPrefix: "TEST_REALTIME_SOURCE", host: "127.0.0.1", port: 0,
     dataDir: resolve(directory, label), logLevel: "error", logLevelFromEnv: false,
-    passkeyDisabled: true, sameOriginDisabled: true,
+    sameOriginDisabled: true,
     trustProxy: { enabled: false, headers: [], chain: "first" }, development: false,
   };
 }
@@ -209,10 +209,10 @@ test("portable relay authorization and per-user sources share the normal realtim
   const directory = resolve(".cache/tests", `realtime-source-${crypto.randomUUID()}`);
   const remote = createWebAppServer<Event>({
     appName: "Remote", envPrefix: "TEST_REALTIME_SOURCE", web: false,
-    runtimeConfig: config(directory, "Remote"), store: memoryWebAppStore(),
+    runtimeConfig: config(directory, "Remote"),
     routes: defineRoutes<Event>({
       "/api/documents/active": {
-        auth: "user", sameOrigin: "mutations",
+        auth: "public", sameOrigin: "mutations",
         async POST(req, ctx) {
           const input = z.object({ owner: z.string(), scope: z.string() }).safeParse(await req.json());
           if (!input.success) return jsonResponse({ error: "invalid_input" }, { status: 400 });
@@ -226,15 +226,16 @@ test("portable relay authorization and per-user sources share the normal realtim
   });
   const local = createWebAppServer<Event>({
     appName: "Local", envPrefix: "TEST_REALTIME_SOURCE", web: false,
-    runtimeConfig: config(directory, "Local"), store: memoryWebAppStore(),
+    runtimeConfig: config(directory, "Local"),
+    realtime: { authenticate: () => ({ data: { userId: "local" } }) },
     routes: defineRoutes<Event>({
       "/api/identity": {
-        auth: "user", sameOrigin: "mutations", GET: (_req, ctx) => jsonResponse(ctx.requireUser()),
+        auth: "public", sameOrigin: "mutations", GET: () => jsonResponse({ id: "local" }),
       },
       "/api/documents/local": {
-        auth: "user", sameOrigin: "mutations",
+        auth: "public", sameOrigin: "mutations",
         POST(_req, ctx) {
-          ctx.userRealtime.publishEntityChanged("documents", "local", { scope: "local" });
+          ctx.realtime.publishEntityChanged("documents", "local", { scope: "local", target: { userId: "local" } });
           return jsonResponse({ updated: true });
         },
       },

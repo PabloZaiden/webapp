@@ -1,9 +1,8 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createWebAppServer, defineRoutes, sqliteWebAppStore } from "../src/server";
+import { createWebAppServer, defineRoutes } from "../src/server";
 
 type AppFixture = {
   root: string;
@@ -11,7 +10,7 @@ type AppFixture = {
 };
 
 function createAppFixture(withReactDom: boolean): AppFixture {
-  const root = join(tmpdir(), `webapp-server-package-resolution-${crypto.randomUUID()}`);
+  const root = resolve(".cache/tests", `webapp-server-package-resolution-${crypto.randomUUID()}`);
   const sourceDir = join(root, "src");
   mkdirSync(sourceDir, { recursive: true });
   writeFileSync(join(root, "package.json"), JSON.stringify({
@@ -34,13 +33,13 @@ function createAppFixture(withReactDom: boolean): AppFixture {
   return { render() {} };
 }
 `);
+  } else {
+    const rootPackage = join(root, "node_modules", "react-dom");
+    mkdirSync(rootPackage, { recursive: true });
+    writeFileSync(join(rootPackage, "package.json"), JSON.stringify({ name: "react-dom", exports: {} }));
   }
 
   return { root, entrypoint };
-}
-
-function createStore(root: string, name: string) {
-  return sqliteWebAppStore({ dataDir: join(root, "data", name) });
 }
 
 test("native server documents load an application-local react-dom export", async () => {
@@ -59,14 +58,11 @@ test("native server documents load an application-local react-dom export", async
         dataDir: join(fixture.root, "data", "native"),
         logLevel: "info",
         logLevelFromEnv: false,
-        passkeyDisabled: true,
         sameOriginDisabled: true,
         trustProxy: { enabled: false, headers: [], chain: "first" },
         development: false,
       },
       web: { entry: pathToFileURL(fixture.entrypoint) },
-      store: createStore(fixture.root, "native"),
-      auth: { passkeys: false },
       routes: defineRoutes({}),
     });
 
@@ -105,8 +101,6 @@ test("native server reports a missing application react-dom before serving a doc
       appName: "Missing React DOM Fixture",
       envPrefix: "PACKAGE_RESOLUTION_MISSING",
       web: { entry: pathToFileURL(fixture.entrypoint) },
-      store: createStore(fixture.root, "missing"),
-      auth: { passkeys: false },
       routes: defineRoutes({}),
     })).toThrow(/Unable to resolve "react-dom\/client".*Install "react-dom"/);
   } finally {

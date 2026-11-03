@@ -12,29 +12,33 @@ export * from "./render";
 export * from "./motion";
 export { supportsViewTransitions } from "./routing";
 export * from "./api-client";
-export { initializeWebAppClient } from "./client-bootstrap";
-export {
-  clientScopedStorageKey, getClientSession, getClientStorageScope, logoutClient,
-  type WebAppClientSession, type WebAppRemoteClientOptions,
-} from "./client-session";
-export type { WebAppClientCredentials, WebAppClientCredentialStore } from "./client-credentials";
+export { initializeWebAppClient, getWebAppClientBootstrap } from "./client-bootstrap";
+export * from "./preferences";
+export * from "./runtime";
 export { ResourceImage } from "./resource-image";
 export * from "./sidebar/types";
 export * from "./realtime/useRealtime";
 export { useToast } from "./toast";
 export type { Toast, ToastId, ToastOptions, ToastService, ToastShowOptions, ToastVariant } from "./toast";
 export { MOBILE_BREAKPOINT_PX, MOBILE_MEDIA_QUERY, MOBILE_STATE_ATTRIBUTE } from "./mobile";
-export { useTheme } from "./theme";
-export type { ResolvedTheme, WebAppThemeState } from "./theme";
+export * from "./theme";
 export { useLogLevel } from "./log-level";
 export type { WebAppLogLevelState } from "./log-level";
-export { useCurrentUser, useExternalClientSession, useWebAppConfig } from "./webapp-config";
-export type { WebAppConfigState } from "./webapp-config";
+export { SettingsView } from "./settings/settings-view";
+export type { SettingsViewProps } from "./settings/settings-view";
+export { AppearanceSection } from "./settings/appearance-section";
+export { useAsyncOperation } from "./async-operation";
+export { nativeWebAppDuplex } from "./native-duplex";
+export { fetchAppRequest } from "./network-failures";
+export { createRealtimeRuntime } from "./realtime/connection";
+export { setRealtimeIdentity, setExternalRealtimeSource, resetRealtimeRuntime } from "./realtime/shared";
+export type { RealtimeSource, RealtimeSubscriber, RealtimeStatus, RealtimeActivation } from "./realtime/source";
 export type {
   WebAppDuplex, WebAppDuplexHandlers, WebAppExternalClient, WebAppExternalSession,
   WebAppSaveResourceOptions, WebAppResourceUrl,
 } from "./external-client";
-export { createLogger, getLogLevel, log } from "./logger";
+export { validateExternalSession } from "./external-client";
+export { createLogger, getLogLevel, setLogLevel, log } from "./logger";
 export { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 export type { ThemePreference } from "../contracts";
 export type { NativeToolbarHost, NativeToolbarItem, NativeToolbarSnapshot, NativeToolbarLayout } from "./native-toolbar";

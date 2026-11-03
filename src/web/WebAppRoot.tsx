@@ -1,8 +1,6 @@
 import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type ReactNode } from "react";
-import type { WebAppConfigResponse } from "../contracts";
 import { AppShell } from "./app-shell";
-import { DeviceVerificationScreen, PasskeyAuthScreen, UserSetupScreen } from "./auth-screens";
-import { appPagePath, getWebAppClientVersion } from "./api-client";
+import { getWebAppClientVersion } from "./api-client";
 import { Button, EmptyState, Panel } from "./components";
 import { useMobileBreakpoint, useMobileSidebarSwipe, useMobileViewportHeight } from "./mobile-hooks";
 import { routeToHash, supportsElementViewTransitions, useRoute } from "./routing";
@@ -13,12 +11,9 @@ import type { ActionMenuItem, SidebarNode, SidebarNodeSnapshot, SidebarTab, WebA
 import { HeaderActionsProvider } from "./header-actions";
 import { ThemeProvider } from "./theme";
 import { UnsavedChangesProvider } from "./unsaved-changes";
-import { WebAppConfigProvider, useWebAppConfig } from "./webapp-config";
 import { setLogLevel } from "./logger";
 import { useReducedMotion } from "./motion";
-import { getClientSession, invalidateClientSession } from "./client-session";
-import { ServerAccountScreen } from "./server-account";
-import type { WebAppExternalSession } from "./external-client";
+import { refreshWebAppRuntime, useWebAppRuntime, type WebAppRuntimeSnapshot } from "./runtime";
 
 const EMPTY_SIDEBAR_TABS: SidebarTab[] = [];
 
@@ -56,11 +51,6 @@ function uniqueSidebarItems(nodeTrees: SidebarNode[][]): SidebarNode[] {
   return [...itemsById.values()];
 }
 
-function normalizePagePath(path: string): string {
-  const normalizedPath = path.replace(/\/+$/, "");
-  return normalizedPath || "/";
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -92,15 +82,13 @@ function WebAppRootContent({
   onRouteChange,
   settings,
   version,
-  config,
-  external,
+  runtime,
   loading,
   error,
   refresh,
   controllerRef,
 }: WebAppRootProps & {
-  config?: WebAppConfigResponse;
-  external?: WebAppExternalSession;
+  runtime: WebAppRuntimeSnapshot;
   loading: boolean;
   error?: Error;
   refresh: () => Promise<void>;
@@ -185,7 +173,7 @@ function WebAppRootContent({
     () => allBaseItems.filter((node) => node.pinnable && node.route),
     [allBaseItems],
   );
-  const frameworkReady = Boolean(config || external?.ready) && !loading && !error;
+  const frameworkReady = runtime.ready && !loading && !error;
   const pinningSnapshotReady = pinningEnabled
     && frameworkReady
     && baseSnapshots.every((snapshot) => snapshot.ready);
@@ -290,7 +278,7 @@ function WebAppRootContent({
     if (!sidebarSearchFocusRequested) {
       return;
     }
-    if (!sidebarSearchEnabled || (error && !config)) {
+    if (!sidebarSearchEnabled || error) {
       setSidebarSearchFocusRequested(false);
       return;
     }
@@ -304,7 +292,6 @@ function WebAppRootContent({
     input.focus();
     setSidebarSearchFocusRequested(false);
   }, [
-    config,
     frameworkReady,
     error,
     sidebarCollapsed,
@@ -322,38 +309,18 @@ function WebAppRootContent({
     },
   }), [focusSidebarSearch, openSidebar, selectTab]);
 
-  if (error && !config) {
+  if (error) {
     return <main className="wapp-auth-screen"><Panel title="Unable to load app" description={error.message} actions={<>
-      {getClientSession().enabled ? <Button onClick={invalidateClientSession}>Change server</Button> : null}
       <Button onClick={() => void refresh()}>Retry</Button>
     </>} /></main>;
   }
-  if (!config && !external?.ready) {
+  if (!runtime.ready) {
     return <main className="wapp-auth-screen">Loading...</main>;
   }
-  const currentPagePath = normalizePagePath(window.location.pathname);
-  if (config && currentPagePath === normalizePagePath(appPagePath("/setup"))) {
-    return <UserSetupScreen refresh={refresh} />;
-  }
-  if (config && config.passkeyAuth.enabled && (config.passkeyAuth.bootstrapRequired || config.passkeyAuth.ownerPasskeySetupRequired || (!config.passkeyAuth.passkeyDisabled && config.passkeyAuth.passkeyRequired && !config.passkeyAuth.authenticated))) {
-    return <PasskeyAuthScreen status={config.passkeyAuth} apiKeysEnabled={config.apiKeys.enabled} refresh={refresh} />;
-  }
-  if (config?.deviceAuth.enabled && currentPagePath === normalizePagePath(appPagePath("/device"))) {
-    return <DeviceVerificationScreen />;
-  }
-  if (config && !getClientSession().enabled) {
-    if (currentPagePath === normalizePagePath(appPagePath("/account"))) {
-      return <ServerAccountScreen config={config} refresh={refresh} />;
-    }
-    if (config.web?.mode === "auth") {
-      return <main className="wapp-auth-screen"><Panel title={config.appName} description="API-only server" /></main>;
-    }
-  }
-
-  const effectiveVersion = getWebAppClientVersion() ?? version ?? config?.version ?? "";
+  const effectiveVersion = getWebAppClientVersion() ?? version ?? "";
   let view: ReactNode;
-  if (route.view === "settings") {
-    view = <SettingsView config={config} external={external} appName={appName} version={effectiveVersion} refresh={refresh} customSections={settings?.sections ?? []} route={route} navigate={navigate} />;
+  if (route.view === "settings" && !routes["settings"]) {
+    view = <SettingsView appName={appName} version={effectiveVersion} customSections={settings?.sections ?? []} route={route} navigate={navigate} />;
   } else {
     const registeredView = routes[route.view];
     view = typeof registeredView === "function"
@@ -423,8 +390,8 @@ function WebAppRootWithConfig({
 }: WebAppRootProps & {
   controllerRef: ForwardedRef<WebAppRootController>;
 }) {
-  const { config, external, error, loading, refresh } = useWebAppConfig();
-  const logLevel = config?.logLevel.level ?? external?.logLevel;
+  const runtime = useWebAppRuntime();
+  const logLevel = runtime.logLevel;
 
   useEffect(() => {
     if (logLevel) {
@@ -433,16 +400,16 @@ function WebAppRootWithConfig({
   }, [logLevel]);
 
   return (
-    <ThemeProvider userId={config?.currentUser?.id}>
-      <WebAppRootContent key={external?.scope} {...props} config={config} external={external} loading={loading} error={error} refresh={refresh} controllerRef={controllerRef} />
+    <ThemeProvider key={`${runtime.scope}:${runtime.generation}`} adapter={props.theme}>
+      <WebAppRootContent {...props} runtime={runtime} loading={!runtime.ready} error={runtime.error} refresh={refreshWebAppRuntime} controllerRef={controllerRef} />
     </ThemeProvider>
   );
 }
 
 export const WebAppRoot = forwardRef<WebAppRootController, WebAppRootProps>(function WebAppRoot(props, controllerRef) {
   return (
-    <UnsavedChangesProvider><WebAppConfigProvider>
+    <UnsavedChangesProvider>
       <WebAppRootWithConfig {...props} controllerRef={controllerRef} />
-    </WebAppConfigProvider></UnsavedChangesProvider>
+    </UnsavedChangesProvider>
   );
 });

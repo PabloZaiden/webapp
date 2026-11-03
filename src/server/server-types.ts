@@ -1,12 +1,8 @@
 import type { Server, WebSocketHandler } from "bun";
 import type { LogLevelName, WebAppConfigResponse } from "../contracts";
-import type { RealtimeBus, WebSocketData } from "./realtime/bus";
-import type { WebAppStore } from "./auth/store";
+import type { RealtimeBus, RealtimeBusOptions, RealtimeConnectionOptions, WebSocketData } from "./realtime/bus";
 import type { RuntimeConfig } from "./runtime-config";
-import type { RouteTable, WebAppRouteMiddleware } from "./routes";
-import type { DelegatedDispatchOptions } from "./delegation";
-import type { AuthenticatedDispatchOptions } from "./authenticated-dispatch";
-import type { OAuthConfig, OAuthService } from "./auth/oauth-types";
+import type { HttpMethod, RouteTable, WebAppRouteMiddleware } from "./routes";
 import type { WebAppStaticAssetOptions } from "../static-assets";
 import type { RouteCatalogEntry } from "./route-catalog";
 
@@ -17,29 +13,36 @@ export type WebAppWebSocketData = WebSocketData & {
   [key: string]: unknown;
 };
 
+export interface RequestIdentity<TIdentity> {
+  identity: TIdentity;
+  /** Describes transport/CSRF requirements, never additional authority. */
+  credential: "ambient" | "explicit";
+}
+
+export interface WebAppOperation {
+  pattern: string;
+  method: HttpMethod;
+  params: Readonly<Record<string, string>>;
+  policy?: unknown;
+}
+
+export interface WebAppIdentityPolicy<TIdentity> {
+  authenticate(req: Request): RequestIdentity<TIdentity> | undefined | Promise<RequestIdentity<TIdentity> | undefined>;
+  authorize?(req: Request, identity: TIdentity, operation: WebAppOperation): boolean | Promise<boolean>;
+}
+
 export type PublicRouteAsset = Response | Blob | ArrayBuffer | Uint8Array | string;
 export type PublicRouteHandler = (req: Request) => PublicRouteAsset | undefined | Promise<PublicRouteAsset | undefined>;
 export type PublicRouteValue = PublicRouteAsset | PublicRouteHandler;
-export type PublicRouteDefinition =
-  | PublicRouteValue
-  | {
-      GET?: PublicRouteValue;
-      HEAD?: PublicRouteValue;
-      headers?: HeadersInit;
-    };
+export type PublicRouteDefinition = PublicRouteValue | {
+  GET?: PublicRouteValue;
+  HEAD?: PublicRouteValue;
+  headers?: HeadersInit;
+};
 
 export interface WebAppServerOptions {
-  /**
-   * Seconds of inactivity before Bun closes a request.
-   *
-   * Set to 0 to disable the timeout globally. Individual route handlers can
-   * override this value with `ctx.server?.timeout(req, seconds)`.
-   */
+  /** Inactivity timeout, 0 disables it. Individual handlers may use server.timeout. */
   idleTimeout?: number;
-
-  /**
-   * Optional Bun TLS configuration. When omitted, the server uses HTTP.
-   */
   tls?: Bun.TLSOptions | Bun.TLSOptions[];
 }
 
@@ -50,74 +53,53 @@ export interface WebAppServerLifecycleHooks {
   afterStop?: (server: Server<WebAppWebSocketData>) => void | Promise<void>;
 }
 
-export type WebAppRequestFilter = (
-  request: Request,
-) => boolean | Promise<boolean>;
+export type WebAppRequestFilter = (request: Request) => boolean | Promise<boolean>;
 
-export interface WebAppServerConfig<TEvent = unknown> {
+export interface WebAppRealtimeAdmission<TEvent> {
+  data?: WebAppWebSocketData;
+  options?: RealtimeConnectionOptions<TEvent>;
+  credential?: "ambient" | "explicit";
+}
+
+export interface WebAppServerConfig<TEvent = unknown, TIdentity = unknown> {
   appName: string;
   envPrefix: string;
   appDirectoryName?: string;
   runtimeConfig?: RuntimeConfig;
   web?: WebAppDocumentConfig | false;
-  /**
-   * Runs before public routes, framework endpoints, application routes, and
-   * websocket upgrades. Returning false responds with 404.
-   *
-   * A request filter requires `web: false` so Bun cannot bypass it by serving
-   * the HTML bundle directly.
-   */
   requestFilter?: WebAppRequestFilter;
+  /** Runs before generic routes and document fallback. A successful upgrade consumes the request. */
+  request?: (request: Request, server?: Server<WebAppWebSocketData>) => Response | undefined | Promise<Response | undefined>;
+  identity?: WebAppIdentityPolicy<TIdentity>;
   server?: WebAppServerOptions;
   version?: string;
-  store?: WebAppStore;
-  routes?: RouteTable<TEvent>;
-  routeMiddleware?: WebAppRouteMiddleware<TEvent>;
+  routes?: RouteTable<TEvent, TIdentity>;
+  routeMiddleware?: WebAppRouteMiddleware<TEvent, TIdentity>;
   publicRoutes?: Record<string, PublicRouteDefinition>;
   websockets?: Record<string, Partial<WebSocketHandler<WebAppWebSocketData>>>;
-  auth?: {
-    passkeys?: boolean | { rpName?: string; userName?: string; userDisplayName?: string };
-    apiKeys?: boolean;
-    deviceAuth?: boolean;
-    oauth?: OAuthConfig;
-  };
-  realtime?: {
+  realtime?: RealtimeBusOptions & {
     path?: string;
-    maxSubscriptions?: number;
-    maxMessageBytes?: number;
-    maxBufferedBytes?: number;
-    maxInterestObservers?: number;
+    /** A public realtime endpoint must be deliberately enabled. */
+    access?: "public";
+    authenticate?: (req: Request) => WebAppRealtimeAdmission<TEvent> | undefined | Promise<WebAppRealtimeAdmission<TEvent> | undefined>;
   };
   lifecycle?: WebAppServerLifecycleHooks;
-  logLevel?: {
-    onChange?: (level: LogLevelName) => void;
-  };
+  logLevel?: { onChange?: (level: LogLevelName) => void };
   configResponse?: (req: Request, base: Readonly<WebAppConfigResponse>) => Record<string, unknown>;
 }
 
 export interface WebAppServer<TEvent = unknown> {
   config: RuntimeConfig;
-  store: WebAppStore;
   realtime: RealtimeBus<TEvent>;
-  oauth?: OAuthService;
-  /** Canonical application and operational framework routes; excludes private authentication protocols. */
   readonly routeCatalog: readonly RouteCatalogEntry[];
-  handleRequest(req: Request, server?: Server<WebSocketData>): Promise<Response | undefined>;
-  dispatchDelegated<TAuthorization extends object>(
-    req: Request,
-    options: DelegatedDispatchOptions<TAuthorization>,
-  ): Promise<Response | undefined>;
-  dispatchAuthenticated<TAuthorization extends object>(
-    req: Request,
-    options: AuthenticatedDispatchOptions<TAuthorization>,
-  ): Promise<Response | undefined>;
-  start(): Promise<Server<WebSocketData>>;
+  handleRequest(req: Request, server?: Server<WebAppWebSocketData>): Promise<Response | undefined>;
+  start(): Promise<Server<WebAppWebSocketData>>;
   stop(closeActiveConnections?: boolean): Promise<void>;
 }
 
 export interface WebAppDocumentConfig {
-  /** Serve only server-origin authentication pages, not an application SPA fallback. */
-  mode?: "app" | "auth";
+  /** Restrict document fallback to these paths; omitted means an application SPA. */
+  paths?: readonly string[];
   assets?: WebAppStaticAssetOptions[];
   entry?: string | URL;
   title?: string;

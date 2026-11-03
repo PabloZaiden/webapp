@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -8,6 +8,7 @@ import { collectWebAppStaticAssets, readWebAppStaticAssets, type WebAppStaticAss
 import {
   generateWebAppDocumentAssets,
   generateWebAppHtml,
+  escapeHtml,
   iconConfig,
   pathExtension,
   pwaEnabled,
@@ -16,7 +17,7 @@ import {
 import { notFound, withSecurityHeaders } from "./responses";
 import type { RuntimeConfig } from "./runtime-config";
 import { WEB_APP_CLIENT_CONFIG_PATH, type WebAppClientBootstrap } from "../contracts/client-bootstrap";
-import { getRequestOriginInfo } from "./auth/request-origin";
+import { getRequestOriginInfo } from "./request-origin";
 import {
   assertUniquePublicAssetPaths,
   decodePublicAssetBody,
@@ -80,9 +81,7 @@ function cleanupDocumentCacheDirs(): void {
 
 function createDocumentCacheDir(envPrefix: string): string {
   const segment = envPrefix.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "app";
-  const root = join(tmpdir(), "webapp", segment);
-  mkdirSync(root, { recursive: true });
-  const cacheDir = realpathSync(mkdtempSync(join(root, "webapp-document-")));
+  const cacheDir = realpathSync(mkdtempSync(join(tmpdir(), `${segment}-webapp-document-`)));
   documentCacheDirs.add(cacheDir);
   if (!documentCacheCleanupRegistered) {
     documentCacheCleanupRegistered = true;
@@ -110,6 +109,25 @@ function requestLooksLikeNavigation(req?: Request): boolean {
 export async function htmlResponse(document: WebDocument, req?: Request): Promise<Response> {
   if (!requestLooksLikeNavigation(req)) return withSecurityHeaders(notFound());
   return withSecurityHeaders(new Response(document.html, { headers: { "content-type": "text/html; charset=utf-8" } }));
+}
+
+export function withDocumentBase(response: Response, req: Request, config: RuntimeConfig): Response {
+  if (!response.headers.get("content-type")?.includes("text/html")) return response;
+  const prefix = getRequestOriginInfo(req, config).pathPrefix.replace(/\/+$/, "");
+  const base = `${prefix}/`;
+  if (!prefix && new URL(".", req.url).pathname === base) return response;
+  return new HTMLRewriter()
+    .on("head", { element(element) { element.prepend(`<base href="${escapeHtml(base)}">`, { html: true }); } })
+    .on("script[src], link[href]", {
+      element(element) {
+        const attribute = element.tagName === "script" ? "src" : "href";
+        const value = element.getAttribute(attribute);
+        if (prefix && value?.startsWith("/") && !value.startsWith("//")) {
+          element.setAttribute(attribute, `${prefix}${value}`);
+        }
+      },
+    })
+    .transform(response);
 }
 
 function hasOwnPublicRoute(publicRoutes: Record<string, PublicRouteDefinition>, path: string): boolean {
@@ -235,14 +253,16 @@ async function createWebDocument(
   const entryFile = compiled ? undefined : resolution.entryFile;
   const packageRoot = resolution.packageRoot;
   const publicEntry = entryFile ? webEntryPublicPath(entryFile, packageRoot) : "";
-  const cacheDir = createDocumentCacheDir(config.envPrefix);
+  const cacheDir = compiled ? "" : createDocumentCacheDir(config.envPrefix);
   try {
     const prebuilt = compiled ? prebuiltDocument(compiled, config, cacheDir) : undefined;
     if (prebuilt) return prebuilt;
     const htmlPath = resolve(cacheDir, `${config.envPrefix.toLowerCase()}-index.html`);
     const documentAssets = await generateWebAppDocumentAssets(config.appName, web, packageRoot);
-    for (const artifact of documentAssets.artifacts) {
-      await Bun.write(resolve(cacheDir, artifact.path.slice(1)), artifact.content);
+    if (!compiled) {
+      for (const artifact of documentAssets.artifacts) {
+        await Bun.write(resolve(cacheDir, artifact.path.slice(1)), artifact.content);
+      }
     }
     const preludePath = resolve(cacheDir, "webapp-prelude.ts");
     if (!compiled) {
@@ -251,15 +271,17 @@ async function createWebDocument(
       }
       const frameworkWebPath = toWebPath(fileURLToPath(new URL("../web/index.ts", import.meta.url)));
       writeFileSync(preludePath, `import { createRoot } from ${JSON.stringify(toWebPath(resolution.reactDomClientPath))};
-import { configureWebAppRenderer } from ${JSON.stringify(frameworkWebPath)};
+import { configureWebAppRenderer, initializeWebAppClient } from ${JSON.stringify(frameworkWebPath)};
 configureWebAppRenderer(createRoot);
+await initializeWebAppClient();
+await import(${JSON.stringify(toWebPath(entryFile!))});
 `);
     }
     const scripts = compiled
       ? compiled.assets.filter((asset) => asset.role === "script")
           .sort((left, right) => (left.scriptOrder ?? 0) - (right.scriptOrder ?? 0))
           .map((asset) => asset.path)
-      : [toWebPath(relative(cacheDir, preludePath)), toWebPath(relative(cacheDir, entryFile!))];
+      : [toWebPath(relative(cacheDir, preludePath))];
     const sourceHtml = generateWebAppHtml({
       appName: config.appName,
       web,
@@ -268,7 +290,7 @@ configureWebAppRenderer(createRoot);
       nativeBundle: !compiled,
       styles: compiled?.assets.filter((asset) => asset.role === "style").map((asset) => asset.path),
     });
-    writeFileSync(htmlPath, sourceHtml);
+    if (!compiled) writeFileSync(htmlPath, sourceHtml);
     const bundle = compiled ? undefined : (await import(`${pathToFileURL(htmlPath).href}?v=${crypto.randomUUID()}`)).default;
     if (!compiled && !isHtmlBundleIndex(bundle)) {
       throw new Error("Generated web document did not produce a Bun HTMLBundle");
@@ -341,6 +363,7 @@ export function createWebDocumentProvider(
     },
     dispose(document: WebDocument): void {
       cleanupDocumentCacheDir(document.cacheDir);
+      documentPromise = undefined;
     },
   };
 }

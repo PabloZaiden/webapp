@@ -3,122 +3,40 @@ import {
   invalidRouteDefinition, matchCompiledRoutePattern, patternsOverlap, HTTP_METHODS,
   type CompiledRoutePatterns, type HttpMethod,
 } from "../routing/patterns";
-export {
-  buildCompiledRoutePath, compareRoutePatterns, compileRoutePatterns,
-  matchCompiledRoutePattern, HTTP_METHODS,
-} from "../routing";
-export type {
-  CompiledRouteCapture, CompiledRoutePattern, CompiledRoutePatternMatch,
-  CompiledRoutePatterns, CompiledRouteSegment, HttpMethod, RouteCaptureValue,
-} from "../routing";
 import type { Server } from "bun";
-import type { CurrentUser, PartialResultMetadata } from "../contracts";
-import type { AuthenticatedRequestState } from "./auth/types";
-import type { RealtimeBus, ResourceRealtimeEvent, RealtimeTarget } from "./realtime/bus";
-import type { DelegatedInvocation, MatchedRouteOperation, RouteDelegationMetadata } from "./delegation";
+import type { PartialResultMetadata } from "../contracts";
+import type { RealtimeBus } from "./realtime/bus";
+import type { WebAppOperation, WebAppWebSocketData } from "./server-types";
+export * from "../routing";
 
-export type RouteAuth = "required" | "user" | "admin" | "owner" | "public" | "optional";
+export type RouteAuth = "required" | "public" | "optional";
 export type SameOriginMode = "mutations" | "always" | "never";
-export type UserOwnedResource = { userId: string };
-export type UserIdSelector<TResource> = (resource: TResource) => string | undefined;
 
-export interface UserScopedRealtimePublisher<TEvent = unknown> {
-  readonly _eventType?: TEvent;
-  publishChanged<TPayload = unknown>(resource: string, options?: Omit<ResourceRealtimeEvent<TPayload>, "type" | "resource" | "action"> & { target?: RealtimeTarget }): void;
-  publishEntityChanged<TPayload = unknown>(resource: string, id: string, options?: Omit<ResourceRealtimeEvent<TPayload>, "type" | "resource" | "action" | "id"> & { target?: RealtimeTarget }): void;
-  publishDeleted<TPayload = unknown>(resource: string, id: string, options?: Omit<ResourceRealtimeEvent<TPayload>, "type" | "resource" | "action" | "id"> & { target?: RealtimeTarget }): void;
-  publishSettingsChanged<TPayload = unknown>(options?: Omit<ResourceRealtimeEvent<TPayload>, "type" | "resource" | "action"> & { target?: RealtimeTarget }): void;
-}
-
-export interface RouteContext<TParams extends Record<string, string> = Record<string, string>, TEvent = unknown> {
+export interface RouteContext<TParams extends Record<string, string> = Record<string, string>, TEvent = unknown, TIdentity = unknown> {
   params: TParams;
-  auth: AuthenticatedRequestState;
-  user?: CurrentUser;
-  delegation?: DelegatedInvocation;
-  requireUser(): CurrentUser;
-  requireAdmin(): CurrentUser;
-  requireOwner(): CurrentUser;
-  assertUser(userId: string): CurrentUser;
-  filterOwned<TResource extends UserOwnedResource>(resources: readonly TResource[]): TResource[];
-  filterOwned<TResource>(resources: readonly TResource[], getUserId: UserIdSelector<TResource>): TResource[];
-  requireOwned<TResource extends UserOwnedResource>(resource: TResource | null | undefined): TResource;
-  requireOwned<TResource>(resource: TResource | null | undefined, getUserId: UserIdSelector<TResource>): TResource;
+  identity?: TIdentity;
+  requireIdentity(): TIdentity;
   realtime: RealtimeBus<TEvent>;
-  userRealtime: UserScopedRealtimePublisher<TEvent>;
-  server?: Server<unknown>;
+  server?: Server<WebAppWebSocketData>;
 }
 
-export type WebAppRouteHandler<TParams extends Record<string, string> = Record<string, string>, TEvent = unknown> = (
-  req: Request,
-  ctx: RouteContext<TParams, TEvent>,
+export type WebAppRouteHandler<TParams extends Record<string, string> = Record<string, string>, TEvent = unknown, TIdentity = unknown> = (
+  req: Request, ctx: RouteContext<TParams, TEvent, TIdentity>,
 ) => Response | undefined | Promise<Response | undefined>;
 
-/** Runs after route authentication and policy checks, including delegated grants. */
-export type WebAppRouteMiddleware<TEvent = unknown> = (
+export type WebAppRouteMiddleware<TEvent = unknown, TIdentity = unknown> = (
   req: Request,
-  ctx: RouteContext<Record<string, string>, TEvent>,
-  operation: MatchedRouteOperation,
+  ctx: RouteContext<Record<string, string>, TEvent, TIdentity>,
+  operation: WebAppOperation,
   invoke: () => Promise<Response | undefined>,
 ) => Response | undefined | Promise<Response | undefined>;
-
-export interface RouteAutomationCredentialResource {
-  name: string;
-  idParameter?: string;
-  purpose: string;
-}
-
-export type RouteAutomationCredential = {
-  kind: "ssh";
-  input?: string;
-  header?: string;
-  mapInput?: string;
-  unavailableInput?: string;
-} & (
-  | {
-      serverParameter: string;
-      hostInput?: never;
-      resource?: never;
-    }
-  | {
-      serverParameter?: never;
-      hostInput: string;
-      resource?: never;
-    }
-  | {
-      serverParameter?: never;
-      hostInput?: never;
-      resource: RouteAutomationCredentialResource;
-    }
-);
-
-export interface RouteAutomationMetadata {
-  policy: "read" | "write" | "confirm" | "excluded";
-  /** Optional policy for an application-admitted execution, never a credential grant. */
-  execution?: {
-    policy: "read" | "write" | "confirm";
-    requestFormat?: "raw";
-    responseFormat?: "file";
-    privateResponse?: boolean;
-    requestHeaders?: readonly string[];
-  };
-  reason?: string;
-  hiddenInputs?: readonly string[];
-  hiddenQuery?: readonly string[];
-  completion?: "admission" | "completed";
-  credential?: RouteAutomationCredential;
-}
 
 export interface RouteOperationMetadata {
   description?: string;
   requestSchema?: unknown;
   querySchema?: unknown;
   responseSchema?: unknown;
-  automation?: RouteAutomationMetadata;
-  /** Default deny; an operation may explicitly override an inherited grant with false. */
-  delegation?: RouteDelegationMetadata | false;
   partialResults?: PartialResultMetadata;
-  /** Preserve a successful receipt when this operation intentionally invalidates its own actor. */
-  actorInvalidation?: { userParameter: string };
 }
 
 export interface RouteMetadata extends RouteOperationMetadata {
@@ -128,213 +46,129 @@ export interface RouteMetadata extends RouteOperationMetadata {
   catalog?: boolean;
 }
 
-export function resolveRouteOperationMetadata(route: RouteMetadata, method: HttpMethod): RouteOperationMetadata {
-  return {
-    description: route.description,
-    requestSchema: route.requestSchema,
-    querySchema: route.querySchema,
-    responseSchema: route.responseSchema,
-    automation: route.automation,
-    delegation: route.delegation,
-    partialResults: route.partialResults,
-    actorInvalidation: route.actorInvalidation,
-    ...route.operations?.[method],
-  };
-}
+/** Routing algorithms accept app-owned handlers and metadata without interpreting policy. */
+export type RoutePatternDefinition = {
+  cliPath?: string;
+  catalog?: boolean;
+  operations?: Partial<Record<HttpMethod, unknown>>;
+} & Partial<Record<HttpMethod, (...args: never[]) => unknown>>;
 
-export type RouteDefinition<TEvent = unknown> = {
+export type RouteDefinition<TEvent = unknown, TIdentity = unknown> = {
   auth?: RouteAuth;
   sameOrigin?: SameOriginMode;
-  scopes?: string[];
-  userParam?: string;
-} & RouteMetadata & Partial<Record<HttpMethod, WebAppRouteHandler<Record<string, string>, TEvent>>>;
+  policy?: unknown;
+} & RouteMetadata & Partial<Record<HttpMethod, WebAppRouteHandler<Record<string, string>, TEvent, TIdentity>>>;
 
-export type RouteTable<TEvent = unknown> = Record<string, RouteDefinition<TEvent>>;
+export type RouteTable<TEvent = unknown, TIdentity = unknown> = Record<string, RouteDefinition<TEvent, TIdentity>>;
 
-export function defineRoutes<TEvent = unknown>(routes: RouteTable<TEvent>): RouteTable<TEvent> {
+export function defineRoutes<TEvent = unknown, TIdentity = unknown>(routes: RouteTable<TEvent, TIdentity>): RouteTable<TEvent, TIdentity> {
   return routes;
 }
 
-export interface CompiledRoute<TEvent = unknown> {
+export function resolveRouteOperationMetadata<T extends RouteOperationMetadata & { operations?: Partial<Record<HttpMethod, unknown>> }>(
+  route: T, method: HttpMethod,
+): Omit<T, "operations"> & RouteOperationMetadata {
+  const { operations, ...metadata } = route;
+  return { ...metadata, ...(operations?.[method] as object | undefined) };
+}
+
+export interface CompiledRoute<TRoute extends RoutePatternDefinition = RoutePatternDefinition> {
   readonly pattern: string;
   readonly cliPath: string;
-  readonly route: RouteDefinition<TEvent>;
+  readonly route: TRoute;
   readonly patterns: CompiledRoutePatterns;
   readonly methods: readonly HttpMethod[];
   readonly specificity: number;
   readonly specificityKey: readonly number[];
 }
 
-export interface CompiledRouteTable<TEvent = unknown> {
-  readonly routes: readonly CompiledRoute<TEvent>[];
+export interface CompiledRouteTable<TRoute extends RoutePatternDefinition = RoutePatternDefinition> {
+  readonly routes: readonly CompiledRoute<TRoute>[];
 }
 
-export interface MatchedRoute<TEvent = unknown> {
+export interface MatchedRoute<TRoute extends RoutePatternDefinition = RoutePatternDefinition> {
   pattern: string;
-  route: RouteDefinition<TEvent>;
+  route: TRoute;
   params: Record<string, string>;
 }
 
-export interface MatchedCompiledRoute<TEvent = unknown> {
-  readonly compiled: CompiledRoute<TEvent>;
-  readonly pattern: string;
-  readonly route: RouteDefinition<TEvent>;
-  readonly params: Record<string, string>;
+export interface MatchedCompiledRoute<TRoute extends RoutePatternDefinition = RoutePatternDefinition> extends MatchedRoute<TRoute> {
+  readonly compiled: CompiledRoute<TRoute>;
 }
 
-export type CompiledRouteMatch<TEvent = unknown> =
-  | {
-      readonly kind: "matched";
-      readonly match: MatchedCompiledRoute<TEvent>;
-    }
-  | {
-      readonly kind: "invalid-encoding";
-    }
-  | {
-      readonly kind: "no-match";
-    };
+export type CompiledRouteMatch<TRoute extends RoutePatternDefinition = RoutePatternDefinition> =
+  | { readonly kind: "matched"; readonly match: MatchedCompiledRoute<TRoute> }
+  | { readonly kind: "invalid-encoding" }
+  | { readonly kind: "no-match" };
 
-// A table's key preserves its event type; erase only the heterogeneous cache.
 const compiledRouteTables = new WeakMap<object, unknown>();
 
-function compareRoutes<TEvent>(left: CompiledRoute<TEvent>, right: CompiledRoute<TEvent>): number {
-  const specificity = compareRoutePatterns(left.patterns.api, right.patterns.api);
-  return specificity || left.pattern.localeCompare(right.pattern);
+function compareRoutes<TRoute extends RoutePatternDefinition>(left: CompiledRoute<TRoute>, right: CompiledRoute<TRoute>): number {
+  return compareRoutePatterns(left.patterns.api, right.patterns.api) || left.pattern.localeCompare(right.pattern);
 }
 
-function validateRouteAmbiguity<TEvent>(routes: readonly CompiledRoute<TEvent>[]): void {
-  const apiPatterns = new Map<string, CompiledRoute<TEvent>>();
-  const cliPatterns = new Map<string, CompiledRoute<TEvent>>();
+function validateRouteAmbiguity<TRoute extends RoutePatternDefinition>(routes: readonly CompiledRoute<TRoute>[]): void {
+  const apiPatterns = new Map<string, CompiledRoute<TRoute>>();
+  const catalogPatterns = new Map<string, CompiledRoute<TRoute>>();
   for (const current of routes) {
-    const existingApi = apiPatterns.get(current.patterns.api.normalizedSource);
-    if (existingApi) {
-      invalidRouteDefinition(current.pattern, `normalizes to the same API pattern as "${existingApi.pattern}"`);
-    }
+    const existing = apiPatterns.get(current.patterns.api.normalizedSource);
+    if (existing) invalidRouteDefinition(current.pattern, `normalizes to the same API pattern as "${existing.pattern}"`);
     apiPatterns.set(current.patterns.api.normalizedSource, current);
     if (current.route.catalog !== false) {
-      const existingCli = cliPatterns.get(current.patterns.cli.normalizedSource);
-      if (existingCli) {
-        invalidRouteDefinition(current.pattern, `normalizes to the same cliPath as "${existingCli.pattern}"`);
-      }
-      cliPatterns.set(current.patterns.cli.normalizedSource, current);
+      const previous = catalogPatterns.get(current.patterns.cli.normalizedSource);
+      if (previous) invalidRouteDefinition(current.pattern, `normalizes to the same catalog path as "${previous.pattern}"`);
+      catalogPatterns.set(current.patterns.cli.normalizedSource, current);
     }
   }
-  for (let leftIndex = 0; leftIndex < routes.length; leftIndex += 1) {
-    const left = routes[leftIndex]!;
-    for (let rightIndex = leftIndex + 1; rightIndex < routes.length; rightIndex += 1) {
-      const right = routes[rightIndex]!;
+  for (let i = 0; i < routes.length; i++) {
+    const left = routes[i]!;
+    for (const right of routes.slice(i + 1)) {
       if (patternsOverlap(left.patterns.api, right.patterns.api) && compareSpecificity(left.patterns.api, right.patterns.api) === 0) {
         invalidRouteDefinition(left.pattern, `is ambiguous with "${right.pattern}"`);
       }
-      if (
-        left.route.catalog !== false
-        && right.route.catalog !== false
-        && patternsOverlap(left.patterns.cli, right.patterns.cli)
-        && compareSpecificity(left.patterns.cli, right.patterns.cli) === 0
-      ) {
-        invalidRouteDefinition(left.pattern, `cliPath "${left.cliPath}" is ambiguous with "${right.cliPath}"`);
+      if (left.route.catalog !== false && right.route.catalog !== false
+        && patternsOverlap(left.patterns.cli, right.patterns.cli) && compareSpecificity(left.patterns.cli, right.patterns.cli) === 0) {
+        invalidRouteDefinition(left.pattern, `catalog path is ambiguous with "${right.pattern}"`);
       }
     }
   }
 }
 
-function methodsFor<TEvent>(route: RouteDefinition<TEvent>): HttpMethod[] {
-  return HTTP_METHODS.filter((method) => typeof route[method] === "function");
-}
-
-function compileRoute<TEvent>(pattern: string, route: RouteDefinition<TEvent>): CompiledRoute<TEvent> {
-  if (!route || typeof route !== "object") {
-    invalidRouteDefinition(pattern, "route metadata must be an object");
-  }
+function compileRoute<TRoute extends RoutePatternDefinition>(pattern: string, route: TRoute): CompiledRoute<TRoute> {
+  if (!route || typeof route !== "object") invalidRouteDefinition(pattern, "route metadata must be an object");
   const cliPath = route.cliPath ?? defaultCliPath(pattern);
   const patterns = compileRoutePatterns(pattern, cliPath);
-  const methods = methodsFor(route);
-  if (methods.length === 0) {
-    invalidRouteDefinition(pattern, "at least one supported HTTP method handler is required");
-  }
+  const methods = HTTP_METHODS.filter(method => typeof route[method] === "function");
+  if (!methods.length) invalidRouteDefinition(pattern, "at least one supported HTTP method handler is required");
   for (const method of Object.keys(route.operations ?? {})) {
-    if (!methods.includes(method as HttpMethod)) {
-      invalidRouteDefinition(pattern, `operation metadata "${method}" requires a registered supported method handler`);
-    }
+    if (!methods.includes(method as HttpMethod)) invalidRouteDefinition(pattern, `operation metadata "${method}" requires a handler`);
   }
-  if (route.userParam !== undefined && !patterns.api.captures.some((capture) => capture.name === route.userParam)) {
-    invalidRouteDefinition(pattern, `userParam "${route.userParam}" is not declared in the API path`);
-  }
-  for (const method of methods) {
-    const metadata = resolveRouteOperationMetadata(route, method);
-    const invalidation = metadata.actorInvalidation;
-    if (invalidation && !patterns.api.captures.some((capture) => capture.name === invalidation.userParameter)) {
-      invalidRouteDefinition(pattern, `actorInvalidation userParameter "${invalidation.userParameter}" is not declared in the API path`);
-    }
-    for (const header of metadata.automation?.execution?.requestHeaders ?? []) {
-      if (header !== header.toLowerCase() || !/^[!#$%&'*+.^_`|~0-9a-z-]+$/.test(header)
-        || ["authorization", "proxy-authorization", "cookie", "host", "origin", "referer",
-          "content-type", "content-length", "connection", "forwarded"].includes(header)
-        || header.startsWith("x-forwarded-") || header.startsWith("sec-")) {
-        invalidRouteDefinition(pattern, `execution requestHeaders must not override authentication, origin or transport headers`);
-      }
-    }
-  }
-  return {
-    pattern,
-    cliPath,
-    route,
-    patterns,
-    methods,
-    specificity: patterns.api.specificity,
-    specificityKey: patterns.api.specificityKey,
-  };
+  return { pattern, cliPath, route, patterns, methods, specificity: patterns.api.specificity, specificityKey: patterns.api.specificityKey };
 }
 
-function compileRouteTableUncached<TEvent = unknown>(routes: RouteTable<TEvent>): CompiledRouteTable<TEvent> {
+export function compileRouteTable<TRoute extends RoutePatternDefinition>(routes: Record<string, TRoute>): CompiledRouteTable<TRoute> {
+  const cached = compiledRouteTables.get(routes);
+  if (cached) return cached as CompiledRouteTable<TRoute>;
   const compiled = Object.entries(routes).map(([pattern, route]) => compileRoute(pattern, route));
   validateRouteAmbiguity(compiled);
-  return { routes: [...compiled].sort(compareRoutes) };
+  const result = { routes: compiled.sort(compareRoutes) };
+  compiledRouteTables.set(routes, result);
+  return result;
 }
 
-export function compileRouteTable<TEvent = unknown>(routes: RouteTable<TEvent>): CompiledRouteTable<TEvent> {
-  const cached = compiledRouteTables.get(routes);
-  if (cached) {
-    return cached as CompiledRouteTable<TEvent>;
-  }
-  const compiled = compileRouteTableUncached(routes);
-  compiledRouteTables.set(routes, compiled);
-  return compiled;
-}
-
-export function matchCompiledRouteTable<TEvent>(
-  compiledRoutes: CompiledRouteTable<TEvent>,
-  pathname: string,
-): CompiledRouteMatch<TEvent> {
+export function matchCompiledRouteTable<TRoute extends RoutePatternDefinition>(
+  routes: CompiledRouteTable<TRoute>, pathname: string,
+): CompiledRouteMatch<TRoute> {
   let invalidEncoding = false;
-  for (const compiled of compiledRoutes.routes) {
+  for (const compiled of routes.routes) {
     const result = matchCompiledRoutePattern(compiled.patterns.api, pathname);
-    if (result.kind === "matched") {
-      return {
-        kind: "matched",
-        match: {
-          compiled,
-          pattern: compiled.pattern,
-          route: compiled.route,
-          params: result.params,
-        },
-      };
-    }
-    if (result.kind === "invalid-encoding") {
-      invalidEncoding = true;
-    }
+    if (result.kind === "matched") return { kind: "matched", match: { compiled, pattern: compiled.pattern, route: compiled.route, params: result.params } };
+    if (result.kind === "invalid-encoding") invalidEncoding = true;
   }
   return invalidEncoding ? { kind: "invalid-encoding" } : { kind: "no-match" };
 }
 
-export function matchRoute<TEvent>(routes: RouteTable<TEvent>, pathname: string): MatchedRoute<TEvent> | undefined {
+export function matchRoute<TRoute extends RoutePatternDefinition>(routes: Record<string, TRoute>, pathname: string): MatchedRoute<TRoute> | undefined {
   const result = matchCompiledRouteTable(compileRouteTable(routes), pathname);
-  if (result.kind !== "matched") {
-    return undefined;
-  }
-  return {
-    pattern: result.match.pattern,
-    route: result.match.route,
-    params: result.match.params,
-  };
+  return result.kind === "matched" ? result.match : undefined;
 }

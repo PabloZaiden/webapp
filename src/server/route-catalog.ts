@@ -1,140 +1,50 @@
 import {
-  buildCompiledRoutePath,
-  compileRoutePatterns,
-  compileRouteTable,
-  compareRoutePatterns,
-  matchCompiledRoutePattern,
-  resolveRouteOperationMetadata,
-  type CompiledRoute,
-  type CompiledRoutePatterns,
-  type HttpMethod,
-  type RouteAuth,
-  type RouteAutomationMetadata,
-  type RouteOperationMetadata,
-  type RouteTable,
-  type SameOriginMode,
+  buildCompiledRoutePath, compileRoutePatterns, compileRouteTable, compareRoutePatterns,
+  matchCompiledRoutePattern, HTTP_METHODS,
+  type CompiledRoutePatterns, type HttpMethod, type RoutePatternDefinition,
 } from "./routes";
 
-export interface RouteCatalogEntry extends RouteOperationMetadata {
-  path: string;
-  cliPath: string;
-  methods: HttpMethod[];
-  auth: RouteAuth;
-  sameOrigin: SameOriginMode;
-  scopes: string[];
-  tags: string[];
-  operations?: Partial<Record<HttpMethod, RouteOperationMetadata>>;
-}
+export type RouteCatalogEntry<TRoute extends RoutePatternDefinition = RoutePatternDefinition> =
+  Omit<TRoute, HttpMethod | "cliPath"> & { path: string; cliPath: string; methods: HttpMethod[] };
 
-export interface ResolvedRouteOperation extends RouteOperationMetadata {
-  method: HttpMethod;
-  automation: RouteAutomationMetadata;
-}
-
-export function resolveRouteOperation(entry: RouteCatalogEntry, method: HttpMethod): ResolvedRouteOperation {
-  if (!entry.methods.includes(method)) {
-    throw new Error(`Method ${method} is not available for ${entry.path}`);
-  }
-  const metadata = resolveRouteOperationMetadata(entry, method);
-  return {
-    ...metadata,
-    method,
-    automation: metadata.automation ?? { policy: "excluded" },
-  };
-}
-
-export interface RouteCatalogMatch {
-  entry: RouteCatalogEntry;
+export interface RouteCatalogMatch<TRoute extends RoutePatternDefinition = RoutePatternDefinition> {
+  entry: RouteCatalogEntry<TRoute>;
   path: string;
   params: Record<string, string>;
 }
 
-const compiledCatalogEntries = new WeakMap<RouteCatalogEntry, CompiledRoutePatterns>();
-
-function normalizeApiPath(input: string): string {
-  const [path = ""] = input.trim().split(/[?#]/);
-  if (!path) {
-    throw new Error("API endpoint is required");
-  }
-  if (path.startsWith("/api/") || path === "/api") {
-    return path;
-  }
-  if (path.startsWith("api/")) {
-    return `/${path}`;
-  }
-  if (path.startsWith("/")) {
-    return path;
-  }
-  return `/api/${path}`;
+export function createRouteCatalog<TRoute extends RoutePatternDefinition>(routes: Record<string, TRoute>): RouteCatalogEntry<TRoute>[] {
+  return compileRouteTable(routes).routes.filter(compiled => compiled.route.catalog !== false).map(compiled => ({
+    ...Object.fromEntries(Object.entries(compiled.route).filter(([key]) => !HTTP_METHODS.includes(key as HttpMethod))),
+    path: compiled.pattern, cliPath: compiled.cliPath, methods: [...compiled.methods],
+  } as RouteCatalogEntry<TRoute>)).sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function normalizeCliPath(input: string): string {
-  const [path = ""] = input.trim().split(/[?#]/);
-  return path.startsWith("/api/")
-    ? path.slice("/api/".length).replace(/^\/+|\/+$/g, "")
-    : path.replace(/^\/+|\/+$/g, "");
-}
-
-function catalogEntry<TEvent>(compiled: CompiledRoute<TEvent>): RouteCatalogEntry {
-  const entry: RouteCatalogEntry = {
-    path: compiled.pattern,
-    cliPath: compiled.cliPath,
-    methods: [...compiled.methods],
-    auth: compiled.route.auth ?? "required",
-    sameOrigin: compiled.route.sameOrigin ?? "mutations",
-    scopes: compiled.route.scopes ?? [],
-    description: compiled.route.description,
-    tags: compiled.route.tags ?? [],
-    requestSchema: compiled.route.requestSchema,
-    querySchema: compiled.route.querySchema,
-    responseSchema: compiled.route.responseSchema,
-    automation: compiled.route.automation,
-    delegation: compiled.route.delegation,
-    partialResults: compiled.route.partialResults,
-    actorInvalidation: compiled.route.actorInvalidation,
-    operations: compiled.route.operations,
-  };
-  compiledCatalogEntries.set(entry, compiled.patterns);
-  return entry;
-}
-
-export function createRouteCatalog<TEvent = unknown>(routes: RouteTable<TEvent>): RouteCatalogEntry[] {
-  return compileRouteTable(routes).routes
-    .filter((compiled) => compiled.route.catalog !== false)
-    .map((compiled) => catalogEntry(compiled))
-    .sort((left, right) => left.path.localeCompare(right.path));
-}
-
-function compiledPatternsForEntry(entry: RouteCatalogEntry): CompiledRoutePatterns {
-  const existing = compiledCatalogEntries.get(entry);
-  if (existing) {
-    return existing;
+const patterns = new WeakMap<object, CompiledRoutePatterns>();
+function compiledPatterns(entry: RouteCatalogEntry): CompiledRoutePatterns {
+  let value = patterns.get(entry);
+  if (!value) {
+    value = compileRoutePatterns(entry.path, entry.cliPath);
+    patterns.set(entry, value);
   }
-  const compiled = compileRoutePatterns(entry.path, entry.cliPath);
-  compiledCatalogEntries.set(entry, compiled);
-  return compiled;
+  return value;
 }
 
-export function findRouteCatalogEntry(catalog: readonly RouteCatalogEntry[], input: string): RouteCatalogMatch | undefined {
-  const apiPath = normalizeApiPath(input);
-  const cliPath = normalizeCliPath(input);
-  const sorted = catalog
-    .map((entry) => ({ entry, patterns: compiledPatternsForEntry(entry) }))
-    .sort((left, right) => {
-      const specificity = compareRoutePatterns(left.patterns.api, right.patterns.api);
-      return specificity || left.entry.path.localeCompare(right.entry.path);
-    });
-  const apiFirst = input.trim().startsWith("/") || input.trim().startsWith("api/");
-  for (const surface of apiFirst ? ["api", "cli"] as const : ["cli", "api"] as const) {
-    for (const { entry, patterns } of sorted) {
-      const match = matchCompiledRoutePattern(patterns[surface], surface === "api" ? apiPath : cliPath);
-      if (match.kind === "matched") {
-        return {
-          entry,
-          path: surface === "api" ? apiPath : buildCompiledRoutePath(patterns.api, match.captures),
-          params: match.params,
-        };
-      }
+export function findRouteCatalogEntry<TRoute extends RoutePatternDefinition>(
+  catalog: readonly RouteCatalogEntry<TRoute>[], input: string,
+): RouteCatalogMatch<TRoute> | undefined {
+  const [trimmed = ""] = input.trim().split(/[?#]/);
+  if (!trimmed) throw new Error("An endpoint is required");
+  const api = trimmed.startsWith("/") ? trimmed : trimmed.startsWith("api/") ? `/${trimmed}` : `/api/${trimmed}`;
+  const cli = trimmed.replace(/^\/?api\//, "").replace(/^\/+|\/+$/g, "");
+  const sorted = catalog.map(entry => ({ entry, patterns: compiledPatterns(entry) }))
+    .sort((a, b) => compareRoutePatterns(a.patterns.api, b.patterns.api) || a.entry.path.localeCompare(b.entry.path));
+  for (const surface of trimmed.startsWith("/") || trimmed.startsWith("api/") ? ["api", "cli"] as const : ["cli", "api"] as const) {
+    for (const { entry, patterns: compiled } of sorted) {
+      const match = matchCompiledRoutePattern(compiled[surface], surface === "api" ? api : cli);
+      if (match.kind === "matched") return {
+        entry, path: surface === "api" ? api : buildCompiledRoutePath(compiled.api, match.captures), params: match.params,
+      };
     }
   }
   return undefined;

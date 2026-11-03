@@ -2,8 +2,6 @@ import type { ReactNode } from "react";
 import type { ActionMenuItem, SidebarAction, SidebarBuildContext, SidebarNode, SidebarNodeSnapshot, SidebarTab, WebAppRoute } from "./sidebar/types";
 import type { ButtonVariant } from "./components";
 
-export type SettingsScope = "user" | "admin" | "owner";
-
 export type SettingsAction = {
   id: string;
   label: string;
@@ -25,7 +23,6 @@ export type SettingsRow = {
   id: string;
   title: string;
   description?: string;
-  scope?: SettingsScope;
   content?: ReactNode;
   contentPlacement?: SettingsRowContentPlacement;
   labelFor?: string;
@@ -38,7 +35,6 @@ export type SettingsSection = {
   id: string;
   title: string;
   description?: string;
-  scope?: SettingsScope;
   category?: SettingsCategory;
   collapsible?: boolean;
   defaultExpanded?: boolean;
@@ -100,4 +96,5 @@ export interface WebAppRootProps {
     sections?: SettingsSection[];
   };
   version?: string;
+  theme?: import("./theme").WebAppThemeAdapter;
 }

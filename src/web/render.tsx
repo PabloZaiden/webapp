@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import { ToastProvider } from "./toast";
-import { RemoteClientBoundary } from "./remote-client";
 
 /**
  * Public lifecycle handle for a root managed by `renderWebApp`.
@@ -30,7 +29,7 @@ function roots(): WeakMap<Element, WebAppRootEntry> {
 }
 
 function WebAppRuntime({ element }: { element: ReactNode }) {
-  return <ToastProvider><RemoteClientBoundary>{element}</RemoteClientBoundary></ToastProvider>;
+  return <ToastProvider>{element}</ToastProvider>;
 }
 
 function createRegistryEntry(

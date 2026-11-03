@@ -24,10 +24,8 @@ export interface RuntimeConfig {
   developmentSourcePath?: string;
   logLevel: LogLevelName;
   logLevelFromEnv: boolean;
-  passkeyDisabled: boolean;
   sameOriginDisabled: boolean;
   publicBaseUrl?: string;
-  authIssuer?: string;
   trustProxy: TrustProxyConfig;
   development: false | { hmr: true; console: true };
 }
@@ -360,7 +358,6 @@ export function readRuntimeConfig(input: {
     appDirectoryName,
     environment,
   });
-  const persisted = readWebAppConfig(dataDir);
   const logLevelRaw = readEnv(environment, envPrefix, "LOG_LEVEL");
   const logLevel = parseLogLevel(logLevelRaw, input.defaultLogLevel ?? DEFAULT_LOG_LEVEL, envName(envPrefix, "LOG_LEVEL"));
   const publicBaseUrl = parsePublicBaseUrl(readEnv(environment, envPrefix, "PUBLIC_BASE_URL"), envName(envPrefix, "PUBLIC_BASE_URL"));
@@ -371,26 +368,18 @@ export function readRuntimeConfig(input: {
     chain: parseTrustProxyChain(readEnv(environment, envPrefix, "TRUST_PROXY_CHAIN"), envName(envPrefix, "TRUST_PROXY_CHAIN")),
   } satisfies TrustProxyConfig;
   const host = readEnv(environment, envPrefix, "HOST")
-    || persisted.server?.host
     || "localhost";
-  const portFromConfig = persisted.server?.port === undefined
-    ? undefined
-    : String(persisted.server.port);
   return {
     appName: input.appName,
     envPrefix,
     appDirectoryName,
     host,
-    port: parsePort(readEnv(environment, envPrefix, "PORT") ?? portFromConfig, envName(envPrefix, "PORT")),
+    port: parsePort(readEnv(environment, envPrefix, "PORT"), envName(envPrefix, "PORT")),
     dataDir,
-    configPath: webAppConfigPath(dataDir),
-    developmentSourcePath: persisted.development?.sourcePath,
     logLevel,
     logLevelFromEnv: Boolean(logLevelRaw),
-    passkeyDisabled: isTruthyEnv(readEnv(environment, envPrefix, "DISABLE_PASSKEY")),
     sameOriginDisabled: isTruthyEnv(readEnv(environment, envPrefix, "DISABLE_SAME_ORIGIN_CHECK")),
     publicBaseUrl,
-    authIssuer: readEnv(environment, envPrefix, "AUTH_ISSUER"),
     trustProxy,
     development: environment["NODE_ENV"] === "production" ? false : { hmr: true, console: true },
   };
@@ -408,10 +397,8 @@ export function safeRuntimeConfig(config: RuntimeConfig): Record<string, unknown
     developmentSourcePath: config.developmentSourcePath,
     logLevel: config.logLevel,
     logLevelFromEnv: config.logLevelFromEnv,
-    passkeyDisabled: config.passkeyDisabled,
     sameOriginDisabled: config.sameOriginDisabled,
     publicBaseUrl: config.publicBaseUrl,
-    authIssuer: config.authIssuer,
     trustProxy: {
       enabled: config.trustProxy.enabled,
       headers: [...config.trustProxy.headers],

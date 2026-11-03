@@ -4,9 +4,12 @@ import type { WebAppDuplex, WebAppExternalClient, WebAppResourceUrl, WebAppSaveR
 import { validateExternalSession } from "./external-client";
 import { nativeWebAppDuplex } from "./native-duplex";
 import {
-  clientAccessToken, configureExternalClientStorageScope, configureRemoteClient, getClientSession,
-  type WebAppRemoteClientOptions,
-} from "./client-session";
+  configureWebAppRuntime, getWebAppRuntimeSnapshot, subscribeWebAppRuntime,
+  type WebAppClientRuntime,
+} from "./runtime";
+import { setExternalRealtimeSource, setRealtimeIdentity } from "./realtime/shared";
+import type { RealtimeSource } from "./realtime/source";
+import { createLogger } from "./logger";
 
 export class WebAppApiError extends Error {
   status: number;
@@ -35,6 +38,7 @@ declare global {
 }
 
 const authRequiredListeners = new Set<AuthRequiredListener>();
+authRequiredListeners.add(() => setRealtimeIdentity(undefined));
 let configuredPublicBasePath: string | undefined;
 let configuredApiBaseUrl: string | undefined;
 let configuredWebSocketBaseUrl: string | undefined;
@@ -43,7 +47,47 @@ let configuredMode: "integrated" | "remote" | "external" = "integrated";
 let configuredClientVersion: string | undefined;
 let configuredConnectionPickerUrl: string | undefined;
 let externalClient: WebAppExternalClient | undefined;
+let transport: WebAppClientOptions = {};
+let realtimePath: string | false = "/api/ws";
+let sessionAbort = new AbortController();
+let activeSessionKey = "";
 const ABSOLUTE_URL_PATTERN = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
+
+export interface WebAppClientOptions {
+  publicBasePath?: string | null;
+  apiBaseUrl?: string | null;
+  wsBaseUrl?: string | null;
+  partialResults?: PartialResultMetadata;
+  mode?: "integrated" | "remote" | "external";
+  external?: WebAppExternalClient;
+  version?: string;
+  connectionPickerUrl?: string;
+  request?(request: Request): Promise<Response>;
+  connect?(path: string, options: { signal?: AbortSignal }): Promise<WebAppDuplex>;
+  resourceUrl?(path: string, options: { signal?: AbortSignal; kind?: "resource" | "websocket" }): Promise<WebAppResourceUrl>;
+  saveResource?(path: string, options: WebAppSaveResourceOptions): Promise<void>;
+  createRealtimeSource?(): RealtimeSource;
+  runtime?: WebAppClientRuntime;
+  realtimePath?: string | false;
+}
+
+function synchronizeRuntime(): void {
+  const state = getWebAppRuntimeSnapshot();
+  const key = `${state.scope}\0${state.generation}\0${String(state.ready)}\0${String(Boolean(state.error))}`;
+  if (key !== activeSessionKey) {
+    sessionAbort.abort(new Error("The client session changed."));
+    sessionAbort = new AbortController();
+    activeSessionKey = key;
+  }
+  const create = transport.createRealtimeSource ?? (externalClient ? () => externalClient!.createRealtimeSource() : undefined);
+  if (create) {
+    setExternalRealtimeSource(state.ready && !state.error ? { identity: state.scope, generation: state.generation, create } : undefined);
+  } else {
+    setRealtimeIdentity(state.ready && !state.error && realtimePath !== false ? `${state.scope}:${state.generation}` : undefined,
+      realtimePath === false ? undefined : realtimePath);
+  }
+}
+subscribeWebAppRuntime(synchronizeRuntime);
 
 export function onAuthRequired(listener: AuthRequiredListener): () => void {
   authRequiredListeners.add(listener);
@@ -56,17 +100,7 @@ function emitAuthRequired(): void {
   }
 }
 
-export function configureWebAppClient(options: {
-  publicBasePath?: string | null;
-  apiBaseUrl?: string | null;
-  wsBaseUrl?: string | null;
-  partialResults?: PartialResultMetadata;
-  mode?: "integrated" | "remote" | "external";
-  remote?: WebAppRemoteClientOptions;
-  external?: WebAppExternalClient;
-  version?: string;
-  connectionPickerUrl?: string;
-} = {}): void {
+export function configureWebAppClient(options: WebAppClientOptions = {}): void {
   if (options.connectionPickerUrl !== undefined) {
     const url = new URL(options.connectionPickerUrl, document.baseURI);
     if (!options.connectionPickerUrl.trim() || url.origin !== window.location.origin || url.username || url.password) {
@@ -74,10 +108,9 @@ export function configureWebAppClient(options: {
     }
     configuredConnectionPickerUrl = url.href;
   }
-  const mode = options.mode ?? (options.external ? "external" : options.remote ? "remote" : configuredMode);
-  if (mode === "external" && (getClientSession().enabled || options.remote
-    || options.apiBaseUrl || options.wsBaseUrl)) {
-    throw new TypeError("An external client cannot also use an API server or remote server credentials.");
+  const mode = options.mode ?? (options.external ? "external" : configuredMode);
+  if (mode === "external" && (options.apiBaseUrl || options.wsBaseUrl)) {
+    throw new TypeError("An external client cannot also use an API server.");
   }
   if (options.external && mode !== "external") {
     throw new TypeError("An external transport requires external client mode.");
@@ -98,13 +131,16 @@ export function configureWebAppClient(options: {
     const client = options.external;
     validateExternalSession(client.session.getSnapshot());
     externalClient = client;
-    configureExternalClientStorageScope(() => `external:${validateExternalSession(client.session.getSnapshot()).scope}`);
   }
+  transport = { ...transport, ...options };
   if ("publicBasePath" in options) setWebAppPublicBasePath(options.publicBasePath);
   if ("apiBaseUrl" in options) configuredApiBaseUrl = normalizeOptionalBaseUrl(options.apiBaseUrl);
   if ("wsBaseUrl" in options) configuredWebSocketBaseUrl = normalizeOptionalBaseUrl(options.wsBaseUrl);
   if ("partialResults" in options) configuredPartialResults = options.partialResults;
-  if (options.mode === "remote" || options.remote) configureRemoteClient(configuredApiBaseUrl, options.remote);
+  if (options.realtimePath !== undefined) realtimePath = options.realtimePath;
+  if (options.runtime) configureWebAppRuntime(options.runtime);
+  else if (options.external) configureWebAppRuntime(options.external.session);
+  synchronizeRuntime();
 }
 
 export function getWebAppClientMode(): "integrated" | "remote" | "external" {
@@ -190,7 +226,7 @@ export function appWebSocketUrl(path = "/api/ws"): string {
   if (configuredMode === "external") {
     throw new Error("An external client does not have native API WebSocket URLs. Use appDuplexConnection.");
   }
-  const configuredWsBaseUrl = getClientSession().enabled ? apiBaseUrl() : configuredWebSocketBaseUrl ?? configuredApiBaseUrl;
+  const configuredWsBaseUrl = configuredWebSocketBaseUrl ?? configuredApiBaseUrl;
   const url = new URL(configuredWsBaseUrl ? buildAbsoluteUrl(configuredWsBaseUrl, path) : appAbsoluteUrl(path));
   if (url.protocol === "http:") {
     url.protocol = "ws:";
@@ -201,7 +237,14 @@ export function appWebSocketUrl(path = "/api/ws"): string {
 }
 
 export async function appRequest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const request = new Request(typeof input === "string" ? appPath(input) : input, init);
+  const source = new Request(typeof input === "string" ? appPath(input) : input, init);
+  const request = new Request(source, { signal: AbortSignal.any([source.signal, sessionAbort.signal]) });
+  const signal = sessionAbort.signal;
+  if (transport.request) {
+    const response = await transport.request(request);
+    signal.throwIfAborted();
+    return response;
+  }
   const external = getWebAppExternalClient();
   if (external) {
     const base = getPublicBaseUrl();
@@ -226,31 +269,11 @@ export async function appRequest(input: RequestInfo | URL, init?: RequestInit): 
       integrity: request.integrity,
       signal: request.signal,
     }) : new Request(url, request);
-    return await external.request(delegated);
-  }
-  if (!getClientSession().enabled) return await fetchAppRequest(request);
-  assertSelectedApiUrl(new URL(request.url));
-  const retry = request.clone();
-  const accessToken = await clientAccessToken();
-  const send = async (source: Request, token: string) => {
-    const headers = new Headers(source.headers);
-    headers.set("authorization", `Bearer ${token}`);
-    return await fetchAppRequest(new Request(source, { headers, credentials: "omit", redirect: "error" }));
-  };
-  const response = await send(request, accessToken);
-  if (response.status !== 401) return response;
-  let failure: unknown;
-  try {
-    failure = await response.clone().json();
-  } catch {
-    // Non-authentication 401 responses belong to the caller and must not replay a mutation.
+    const response = await external.request(delegated);
+    signal.throwIfAborted();
     return response;
   }
-  if (typeof failure !== "object" || failure === null || !("error" in failure)
-    || !["invalid_token", "authentication_required"].includes(String(failure.error))) return response;
-  const token = await clientAccessToken(accessToken);
-  await response.body?.cancel();
-  return await send(retry, token);
+  return await fetchAppRequest(request);
 }
 
 export type { WebAppResourceUrl } from "./external-client";
@@ -260,49 +283,80 @@ export async function appResourceUrl(
   kind: "resource" | "websocket" = "resource",
   options: { signal?: AbortSignal } = {},
 ): Promise<WebAppResourceUrl> {
+  const signal = sessionAbort.signal;
+  const combined = { signal: options.signal ? AbortSignal.any([options.signal, signal]) : signal };
+  if (transport.resourceUrl) {
+    const resource = await transport.resourceUrl(path, { ...combined, kind });
+    if (combined.signal.aborted) { resource.dispose?.(); combined.signal.throwIfAborted(); }
+    return resource;
+  }
   const external = getWebAppExternalClient();
   if (external) {
     if (kind !== "resource" || !external.resourceUrl) {
       throw new Error("This client does not provide a browser URL for this resource.");
     }
-    return await external.resourceUrl(path, options);
+    const resource = await external.resourceUrl(path, combined);
+    if (combined.signal.aborted) { resource.dispose?.(); combined.signal.throwIfAborted(); }
+    return resource;
   }
   const url = new URL(kind === "websocket" ? appWebSocketUrl(path) : appPath(path));
-  if (!getClientSession().enabled) return { url: url.toString(), expiresAt: null };
-  if (url.protocol === "wss:") url.protocol = "https:";
-  if (url.protocol === "ws:") url.protocol = "http:";
-  const base = assertSelectedApiUrl(url);
-  const target = `/${url.pathname.slice(base.pathname.replace(/\/$/, "").length).replace(/^\/+/, "")}${url.search}`;
-  const response = await appJson<unknown>("/api/auth/client-ticket", {
-    method: "POST", body: JSON.stringify({ url: target, kind }), signal: options.signal,
-  });
-  if (!response || typeof response !== "object" || !("url" in response) || !("expiresAt" in response)
-    || typeof response.url !== "string" || typeof response.expiresAt !== "number"
-    || !Number.isFinite(response.expiresAt) || response.expiresAt <= Date.now()) {
-    throw new Error("The server returned an invalid client resource ticket.");
-  }
-  const resource = new URL(buildAbsoluteUrl(base.toString(), response.url));
-  assertSelectedApiUrl(resource);
-  if (kind === "websocket") resource.protocol = resource.protocol === "https:" ? "wss:" : "ws:";
-  return { url: resource.toString(), expiresAt: response.expiresAt };
+  return { url: url.toString(), expiresAt: null };
 }
 
 export async function appWebSocketConnection(path = "/api/ws", options: { signal?: AbortSignal } = {}): Promise<WebSocket> {
   if (getWebAppExternalClient()) {
     throw new Error("An external client provides message channels, not native WebSockets. Use appDuplexConnection.");
   }
-  const resource = await appResourceUrl(path, "websocket", options);
-  options.signal?.throwIfAborted();
-  return new WebSocket(resource.url);
+  const signal = options.signal ? AbortSignal.any([options.signal, sessionAbort.signal]) : sessionAbort.signal;
+  const resource = await appResourceUrl(path, "websocket", { signal });
+  let socket: WebSocket;
+  try { signal.throwIfAborted(); socket = new WebSocket(resource.url); }
+  catch (error) { resource.dispose?.(); throw error; }
+  const close = () => { socket.close(1000, "session_changed"); };
+  signal.addEventListener("abort", close, { once: true });
+  socket.addEventListener("close", () => { signal.removeEventListener("abort", close); resource.dispose?.(); }, { once: true });
+  return socket;
+}
+
+export function hasWebAppResourceTransport(): boolean {
+  return Boolean(transport.resourceUrl || externalClient?.resourceUrl);
 }
 
 export async function appDuplexConnection(path: string, options: { signal?: AbortSignal } = {}): Promise<WebAppDuplex> {
+  const signal = sessionAbort.signal;
+  const combined = { signal: options.signal ? AbortSignal.any([options.signal, signal]) : signal };
+  if (transport.connect) {
+    const connection = await transport.connect(path, combined);
+    return await bindDuplexLifetime(connection, combined.signal);
+  }
   const external = getWebAppExternalClient();
-  if (external) return await external.connect(path, options);
-  return nativeWebAppDuplex(await appWebSocketConnection(path, options), options.signal);
+  if (external) {
+    const connection = await external.connect(path, combined);
+    return await bindDuplexLifetime(connection, combined.signal);
+  }
+  return nativeWebAppDuplex(await appWebSocketConnection(path, combined), combined.signal);
+}
+
+async function bindDuplexLifetime(connection: WebAppDuplex, signal: AbortSignal): Promise<WebAppDuplex> {
+  if (signal.aborted) {
+    await connection.close(1000, "session_changed");
+    signal.throwIfAborted();
+  }
+  const cleanup = () => { signal.removeEventListener("abort", close); unsubscribe?.(); };
+  const close = () => {
+    cleanup();
+    void connection.close(1000, "session_changed").catch(error =>
+      createLogger("webapp:transport").error("Could not close the retired transport", { error }));
+  };
+  let unsubscribe: (() => void) | undefined;
+  unsubscribe = connection.subscribe({ onMessage() {}, onError() {}, onClose: cleanup });
+  signal.addEventListener("abort", close, { once: true });
+  if (signal.aborted) close();
+  return connection;
 }
 
 export async function appSaveResource(path: string, options: WebAppSaveResourceOptions): Promise<void> {
+  if (transport.saveResource) { await transport.saveResource(path, options); return; }
   const external = getWebAppExternalClient();
   if (external) {
     if (!external.saveResource) throw new Error("This client does not support saving resources.");
@@ -328,18 +382,7 @@ export async function appSaveResource(path: string, options: WebAppSaveResourceO
   }
 }
 function apiBaseUrl(): string | undefined {
-  const session = getClientSession();
-  if (!session.enabled) return configuredApiBaseUrl;
-  if (!session.endpoint) throw new Error("Choose an API server first.");
-  return session.endpoint;
-}
-
-function assertSelectedApiUrl(url: URL): URL {
-  const base = new URL(`${apiBaseUrl()}/`);
-  if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) {
-    throw new Error("Refusing to send server credentials to a different API endpoint.");
-  }
-  return base;
+  return configuredApiBaseUrl;
 }
 
 export async function appFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -352,7 +395,7 @@ export async function appFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     credentials: init?.credentials ?? "same-origin",
     headers,
   });
-  if (response.headers.get("x-webapp-passkey-required") === "true" || response.headers.get("x-passkey-auth-required") === "true") {
+  if (response.status === 401) {
     emitAuthRequired();
   }
   if (!response.ok) {

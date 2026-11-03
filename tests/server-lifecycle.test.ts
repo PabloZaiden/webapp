@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import {
   createWebAppServer,
   defineRoutes,
-  sqliteWebAppStore,
   type WebAppServerOptions,
   type WebAppServerLifecycleHooks,
 } from "@pablozaiden/webapp/server";
@@ -145,14 +144,11 @@ function createLifecycleApp(
       dataDir,
       logLevel: "info",
       logLevelFromEnv: false,
-      passkeyDisabled: true,
       sameOriginDisabled: true,
       trustProxy: { enabled: false, headers: [], chain: "first" },
       development: false,
     },
     web: testWeb,
-    store: sqliteWebAppStore({ dataDir }),
-    auth: { passkeys: false },
     routes: defineRoutes({}),
     server,
     lifecycle,

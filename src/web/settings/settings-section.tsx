@@ -42,7 +42,7 @@ function Action({ action, onError }: { action: SettingsAction; onError: (error?:
   );
 }
 
-export function SettingsFieldRow({ title, description, content, contentPlacement, actions, feedback, danger, labelFor }: Omit<SettingsRow, "id" | "scope">) {
+export function SettingsFieldRow({ title, description, content, contentPlacement, actions, feedback, danger, labelFor }: Omit<SettingsRow, "id">) {
   const [error, setError] = useState<string>();
   const inline = contentPlacement !== "below";
   return (

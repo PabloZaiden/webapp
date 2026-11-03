@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
-import { createWebAppServer, defineRoutes, jsonResponse, memoryWebAppStore } from "@pablozaiden/webapp/server";
+import { createWebAppServer, defineRoutes, jsonResponse } from "@pablozaiden/webapp/server";
 import { realtimeServerMessageSchema, type RealtimeServerMessage } from "@pablozaiden/webapp/contracts";
 import { createRealtimeRuntime } from "../src/web/realtime/connection";
 import { createVersionedSyncController, type VersionedSyncState } from "../src/web/realtime/versioned-sync";
@@ -35,17 +35,16 @@ async function fixture(maxBufferedBytes?: number) {
   let snapshotStarted = deferred<void>();
   const app = createWebAppServer<Delta>({
     appName: "Realtime contract", envPrefix: "TEST_REALTIME", web: false,
-    store: memoryWebAppStore(),
     runtimeConfig: {
       appName: "Realtime contract", envPrefix: "TEST_REALTIME", host: "127.0.0.1", port,
       dataDir: directory, logLevel: "error", logLevelFromEnv: false,
-      passkeyDisabled: true, sameOriginDisabled: true,
+      sameOriginDisabled: true,
       trustProxy: { enabled: false, headers: [], chain: "first" }, development: false,
     },
-    realtime: { maxBufferedBytes },
+    realtime: { maxBufferedBytes, authenticate: () => ({ data: { userId: "recipient" } }) },
     routes: defineRoutes<Delta>({
       "/api/document": {
-        auth: "user", sameOrigin: "mutations",
+        auth: "public", sameOrigin: "mutations",
         async GET() {
           const cut = { epoch, revision, data: text };
           snapshotStarted.resolve();
@@ -58,33 +57,33 @@ async function fixture(maxBufferedBytes?: number) {
           text += input.text;
           const delta: Delta = { type: "document.delta", epoch, baseRevision, revision, text: input.text };
           if (input.defer) deferredDelta = delta;
-          else ctx.realtime.publish(delta, { target: { userId: input.otherOwner ? "another-owner" : ctx.requireUser().id, documentId: "active" } });
-          ctx.userRealtime.publishEntityChanged("documents", "active", { scope: "workspace" });
+          else ctx.realtime.publish(delta, { target: { userId: input.otherOwner ? "another-owner" : "recipient", documentId: "active" } });
+          ctx.realtime.publishEntityChanged("documents", "active", { scope: "workspace", target: { userId: "recipient" } });
           return jsonResponse({ revision });
         },
       },
       "/api/document/owner": {
-        auth: "user", sameOrigin: "mutations",
+        auth: "public", sameOrigin: "mutations",
         async POST(req, ctx) {
           const input = await req.json() as { epoch: string };
           epoch = input.epoch;
           revision = 0;
-          ctx.userRealtime.publishEntityChanged("documents", "active");
+          ctx.realtime.publishEntityChanged("documents", "active", { target: { userId: "recipient" } });
           return jsonResponse({ epoch });
         },
       },
       "/api/document/flush": {
-        auth: "user", sameOrigin: "mutations",
+        auth: "public", sameOrigin: "mutations",
         POST(_req, ctx) {
           if (deferredDelta) {
-            ctx.realtime.publish(deferredDelta, { target: { userId: ctx.requireUser().id, documentId: "active" } });
+            ctx.realtime.publish(deferredDelta, { target: { userId: "recipient", documentId: "active" } });
             deferredDelta = undefined;
           }
           return jsonResponse({ ok: true });
         },
       },
       "/api/connections": {
-        auth: "user", sameOrigin: "mutations",
+        auth: "public", sameOrigin: "mutations",
         GET: (_req, ctx) => jsonResponse({ count: ctx.realtime.connectionCount }),
       },
     }),

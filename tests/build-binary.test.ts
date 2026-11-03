@@ -1,14 +1,8 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { buildWebAppBinary, buildWebAppClient } from "@pablozaiden/webapp/build";
 import { fetchClientArtifacts } from "./support/client-artifacts";
-
-interface CommandResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
 
 async function freePort(): Promise<number> {
   const server = Bun.serve({
@@ -42,41 +36,27 @@ async function waitForHealth(baseUrl: string, timeoutMs = 30_000): Promise<void>
   throw new Error(`Compiled example at ${baseUrl} did not become healthy`);
 }
 
-async function runCommand(
-  command: readonly string[],
-  environment: Record<string, string | undefined>,
-): Promise<CommandResult> {
-  const child = Bun.spawn([...command], {
-    env: environment,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-  return { exitCode, stdout, stderr };
-}
-
-test("builds and manages the Kitchen Sink example as a standalone binary", async () => {
+test("compiled core-only example serves the shell and live data without account storage", async () => {
   const exampleDirectory = resolve("examples/kitchen-sink");
   const binaryPath = resolve(
     exampleDirectory,
     "dist/kitchen-sink",
   );
   const dataDirectory = resolve(".cache/tests", `compiled-kitchen-sink-${crypto.randomUUID()}`);
+  const runtimeDirectory = `${dataDirectory}-runtime`;
   const port = await freePort();
   const environment = {
     ...process.env,
     KITCHEN_SINK_HOST: "127.0.0.1",
     KITCHEN_SINK_PORT: String(port),
     KITCHEN_SINK_DATA_DIR: dataDirectory,
-    KITCHEN_SINK_DISABLE_PASSKEY: "true",
+    HOME: runtimeDirectory,
   };
-  let built = false;
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  let output: Promise<unknown> | undefined;
 
   rmSync(dataDirectory, { recursive: true, force: true });
+  mkdirSync(runtimeDirectory, { recursive: true });
   try {
     const build = Bun.spawn([process.execPath, "src/build.ts"], {
       cwd: exampleDirectory,
@@ -85,20 +65,11 @@ test("builds and manages the Kitchen Sink example as a standalone binary", async
     });
     const buildExitCode = await build.exited;
     expect(buildExitCode).toBe(0);
-    built = true;
-
-    const started = await runCommand([binaryPath, "serve", "up"], environment);
-    expect(started).toMatchObject({ exitCode: 0, stderr: "" });
+    const launched = Bun.spawn([binaryPath], { cwd: runtimeDirectory, env: environment, stdout: "pipe", stderr: "pipe" });
+    child = launched;
+    output = Promise.all([new Response(launched.stdout).text(), new Response(launched.stderr).text()]);
     const baseUrl = `http://127.0.0.1:${String(port)}`;
     await waitForHealth(baseUrl);
-
-    const status = await runCommand([binaryPath, "serve", "status"], environment);
-    expect(status).toMatchObject({ exitCode: 0, stderr: "" });
-    expect(JSON.parse(status.stdout)).toMatchObject({
-      managed: true,
-      running: true,
-      config: { port },
-    });
 
     const document = await fetch(`${baseUrl}/`);
     expect(document.status).toBe(200);
@@ -116,50 +87,25 @@ test("builds and manages the Kitchen Sink example as a standalone binary", async
     expect(diagnostics.status).toBe(200);
     expect(await diagnostics.json()).toMatchObject({
       app: "kitchen-sink",
-      publicRoute: true,
+      persistence: "memory",
     });
 
-    const projectSchemas = await runCommand([binaryPath, "schema", "projects"], environment);
-    expect(projectSchemas).toMatchObject({ exitCode: 0, stderr: "" });
-    const catalog = JSON.parse(projectSchemas.stdout);
-    expect(catalog).toMatchObject({
-      methods: ["GET", "POST"],
-      requestSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
-      operations: {
-        GET: { responseSchema: { type: "array" }, automation: { policy: "read" } },
-        POST: { requestSchema: { required: ["name"] }, automation: { policy: "write", completion: "completed" } },
-      },
+    const project = await fetch(`${baseUrl}/api/projects`, {
+      method: "POST", headers: { origin: baseUrl, "content-type": "application/json" }, body: JSON.stringify({ name: "Memory project" }),
     });
-    const createSchema = await runCommand([binaryPath, "schema", "projects", "--method", "POST"], environment);
-    expect(createSchema).toMatchObject({ exitCode: 0, stderr: "" });
-    expect(JSON.parse(createSchema.stdout)).toMatchObject({
-      method: "POST",
-      requestSchema: { required: ["name"] },
-      responseSchema: { type: "object", required: ["id", "userId", "name", "status", "updatedAt"] },
-    });
-    const missingSchemaMethod = await runCommand([binaryPath, "schema", "projects", "--method"], environment);
-    expect(missingSchemaMethod.exitCode).toBe(1);
-    expect(missingSchemaMethod.stderr).toContain("requires a value");
-    const missingApiMethod = await runCommand([binaryPath, "api", "projects", "-X"], environment);
-    expect(missingApiMethod.exitCode).toBe(1);
-    expect(missingApiMethod.stderr).toContain("requires a value");
-
-    const stopped = await runCommand([binaryPath, "serve", "down"], environment);
-    expect(stopped).toMatchObject({ exitCode: 0, stderr: "" });
-
-    const stoppedStatus = await runCommand([binaryPath, "serve", "status"], environment);
-    expect(stoppedStatus).toMatchObject({ exitCode: 0, stderr: "" });
-    expect(JSON.parse(stoppedStatus.stdout)).toMatchObject({
-      managed: false,
-      running: false,
-      config: { port },
-    });
-  } finally {
-    if (built) {
-      const stopped = await runCommand([binaryPath, "serve", "down"], environment);
-      expect(stopped.exitCode).toBe(0);
+    expect(project.status).toBe(200);
+    expect(await project.json()).toMatchObject({ name: "Memory project" });
+    expect(existsSync(dataDirectory)).toBe(false);
+    expect(readdirSync(runtimeDirectory)).toEqual([]);
+    for (const path of ["/api/accounts", "/api/preferences/theme", "/api/auth/status"]) {
+      expect((await fetch(`${baseUrl}${path}`)).status).toBe(404);
     }
+  } finally {
+    child?.kill("SIGTERM");
+    if (child) expect(await child.exited).toBe(0);
+    await output;
     rmSync(dataDirectory, { recursive: true, force: true });
+    rmSync(runtimeDirectory, { recursive: true, force: true });
   }
 }, 120_000);
 
@@ -177,11 +123,10 @@ test("serves development assets and embeds the published frontend unchanged in a
     await Bun.write(join(directory, "main.css"), `body { margin: 0; }`);
     await Bun.write(join(assetDirectory, "workers", "editor.js"), worker);
     await Bun.write(join(assetDirectory, "workers", "editor.js.map"), sourcemap);
-    await Bun.write(entrypoint, `import { createWebAppServer, memoryWebAppStore } from "@pablozaiden/webapp/server";
+    await Bun.write(entrypoint, `import { createWebAppServer } from "@pablozaiden/webapp/server";
 const app = createWebAppServer({
   appName: "Asset Host",
   envPrefix: "ASSET_HOST",
-  store: memoryWebAppStore(),
   web: {
     entry: new URL("./main.ts", import.meta.url),
     assets: [{ src: new URL("./assets", import.meta.url), path: "/webapp-assets/editor" }],
@@ -211,7 +156,6 @@ process.on("SIGTERM", async () => { await app.stop(true); process.exit(0); });
           ASSET_HOST_HOST: "127.0.0.1",
           ASSET_HOST_PORT: String(port),
           ASSET_HOST_DATA_DIR: join(directory, `data-${mode}`),
-          ASSET_HOST_DISABLE_PASSKEY: "true",
           TMPDIR: runtimeDirectory,
         },
         stdout: "pipe",

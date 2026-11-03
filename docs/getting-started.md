@@ -1,433 +1,76 @@
 # Getting started
 
-Apps are one Bun application: backend routes, websocket, React UI and static assets are served by the same server. The framework does not support or require a standalone client dist directory.
+Use Bun 1.4+ and React 19. Applications declare `react` and `react-dom`; pin
+Webapp to an immutable GitHub commit and update manifest/lock together.
+One Bun process serves the UI, API and WebSockets. Do not add a separate
+frontend development server.
 
 ```ts
-import { z } from "zod";
-import { createWebAppCli } from "@pablozaiden/webapp/cli";
-import { createLogger, createRouteCatalog, createWebAppServer, defineRoutes, jsonResponse, parseJson } from "@pablozaiden/webapp/server";
-
-const items: Array<{ id: string; userId: string; title: string }> = [];
-const itemCreateSchema = z.object({ title: z.string() });
-const log = createLogger("items");
-
-const routes = defineRoutes({
-  "/api/items": {
-    auth: "user",
-    requestSchema: itemCreateSchema,
-    description: "List or create items.",
-    cliPath: "items",
-    tags: ["items"],
-    GET: (_req, ctx) => {
-      const ownedItems = ctx.filterOwned(items);
-      log.info("Listed items", { count: ownedItems.length });
-      return jsonResponse(ownedItems);
+// src/index.ts
+import { createWebAppServer, defineRoutes, jsonResponse } from "@pablozaiden/webapp/server";
+const app = createWebAppServer({
+  appName: "Example",
+  envPrefix: "EXAMPLE",
+  web: { entry: new URL("./web/main.tsx", import.meta.url) },
+  routes: defineRoutes({
+    "/api/greeting": {
+      auth: "public",
+      GET: () => jsonResponse({ message: "Hello" }),
     },
-    async POST(req, ctx) {
-      const user = ctx.requireUser();
-      const body = await parseJson(req, itemCreateSchema);
-      const item = { id: crypto.randomUUID(), userId: user.id, title: body.title };
-      items.push(item);
-      ctx.userRealtime.publishEntityChanged("items", item.id);
-      return jsonResponse(item);
-    },
-  },
-  "/api/webhooks/:source/:token": {
-    auth: "public",
-    sameOrigin: "never",
-    POST: () => jsonResponse({ ok: true }),
-  },
+  }),
+  realtime: { access: "public" },
 });
-
-let app: ReturnType<typeof createWebAppServer> | undefined;
-const getApp = () => app ??= createWebAppServer({
-    appName: "My App",
-    envPrefix: "MY_APP",
-    auth: { passkeys: true, apiKeys: true, deviceAuth: true },
-    realtime: { path: "/api/ws" },
-    routes,
-  });
-
-const cli = createWebAppCli({
-  appName: "My App",
-  commandName: "my-app",
-  envPrefix: "MY_APP",
-  version: "1.0.0",
-  realtimePath: "/api/ws",
-  routeCatalog: createRouteCatalog(routes),
-  start: async () => {
-    await getApp().start();
-  },
-});
-
-process.exitCode = await cli.run();
+await app.start();
 ```
-
-The server uses a 255-second request idle timeout by default. Apps can override
-it through `server.idleTimeout`; use `0` only when every request may remain
-open indefinitely, and use route-level `ctx.server?.timeout(req, seconds)` for
-individual streams or long-running operations:
-
-```ts
-createWebAppServer({
-  appName: "My App",
-  envPrefix: "MY_APP",
-  server: { idleTimeout: 120 },
-  routes,
-});
-```
-
-The maximum supported value is 255 seconds, as required by Bun.
-
-TLS is disabled by default. To terminate TLS in the Bun process, pass Bun's
-TLS options through `server.tls`; the option is forwarded unchanged to
-`Bun.serve`:
-
-```ts
-createWebAppServer({
-  appName: "My App",
-  envPrefix: "MY_APP",
-  server: {
-    tls: {
-      cert: Bun.file("./tls/cert.pem"),
-      key: Bun.file("./tls/key.pem"),
-    },
-  },
-  routes,
-});
-```
-
-When `server.tls` is omitted, the server continues to listen over HTTP.
-
-The framework generates the HTML document, React mount point, fixed-scale viewport metadata, PWA manifest, default SVG icons, and the theme prepaint script. On iPhone, iPad, and other mobile browsers that honor viewport scaling tokens, the generated viewport prevents pinch-to-zoom while preserving normal scrolling; clients that ignore those tokens are unaffected. By default it uses `./web/main.tsx` relative to the Bun entry file as the frontend entrypoint, so apps only need to create that file. Override document defaults only when the app needs different metadata:
-
-```ts
-createWebAppServer({
-  appName: "My App",
-  envPrefix: "MY_APP",
-  web: {
-    entry: "./frontend.tsx",
-    title: "My App",
-    shortName: "MyApp",
-    themeColor: "#111827",
-    backgroundColor: "#ffffff",
-    pwa: true,
-    icons: {
-      favicon: { src: "./src/web/icons/app-192.png", sizes: "192x192", type: "image/png" },
-      appleTouch: { src: "./src/web/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
-      manifest: [
-        { src: "./src/web/icons/app-192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
-        { src: "./src/web/icons/app-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
-      ],
-    },
-  },
-  routes,
-});
-```
-
-Do not create an app-owned `index.html` or add global touch handlers to control zoom. The framework owns the viewport policy so the same metadata is emitted for development, compiled clients, and installed PWAs without disabling scrolling.
-
-PWA support is on by default, with generated initials icons unless the app provides `web.icons`. Icon paths are relative to the app package root; production apps should provide at least 192x192 and 512x512 PNG manifest icons plus an Apple touch icon. Set `web.pwa: false` only for apps that deliberately should not be installable. The standard theme preference key is `webapp.theme`; apps should not use app-specific theme storage keys.
-
-Apps should stay one app and one binary. Use subcommands for different modes:
-
-```bash
-my-app serve
-my-app version
-my-app logs
-my-app api items
-my-app notify --message "optional app-owned command"
-```
-
-For non-interactive authenticated commands, provide the exact environment pair:
-
-```bash
-export MY_APP_BASE_URL=https://app.example.test
-export MY_APP_API_KEY='key-from-settings'
-my-app api items
-```
-
-The pair is used when the selected profile has no stored device credentials.
-A missing or partial pair is ignored.
-
-See `docs/cli.md` for framework CLI helpers and generic API command support.
-
-Frontend entrypoints should use `renderWebApp` so Bun/browser hot reload reuses the existing React root instead of calling `createRoot()` twice. Import the framework CSS explicitly so Bun hot reload observes style changes:
 
 ```tsx
-import { Page, Panel, WebAppRoot, renderWebApp } from "@pablozaiden/webapp/web";
+// src/web/main.tsx
+import { Page, WebAppRoot, renderWebApp } from "@pablozaiden/webapp/web";
 import "@pablozaiden/webapp/web/styles.css";
-
-function Home() {
-  return (
-    <Page>
-      <Panel>Hello</Panel>
-    </Page>
-  );
-}
-
-renderWebApp(
-  <WebAppRoot
-    appName="My App"
-    homeRoute={{ view: "home" }}
-    sidebar={{ getNodes: () => [] }}
-    routes={{ home: <Home /> }}
-  />,
-);
+renderWebApp(<WebAppRoot appName="Example" homeRoute={{view:"home"}}
+  sidebar={{ getNodes: () => [] }}
+  routes={{ home: <Page>Hello</Page> }} />);
 ```
 
-`renderWebApp` renders into `#root` by default and reuses the existing
-framework-managed root across hot reloads. Repeated calls update the mounted
-container; when the caller disposes the application, call `unmount()` on the
-returned handle before rendering into that container again. This removes the
-old registry entry so remounting creates a usable root. Renderer
-reconfiguration applies to newly created roots after that lifecycle transition,
-not to an already-mounted container. Pass a custom element id or `Element` only
-when the app uses a different mount point.
+Run `bun --hot src/index.ts`. The framework generates the HTML document,
+renderer/bootstrap, icons and PWA manifest. Use `renderWebApp`, not a parallel
+React root registry. `web:false` disables document generation for headless apps.
 
-### Theme state
+Public mode is deliberate here. Private routes default to required identity and
+fail closed without an app identity adapter. The core creates no users or
+database, owns no admin/login screens, and keeps browser preferences in memory.
+Apps own those policies and explicitly select persistence.
 
-The framework applies the local or system theme before the first React render and
-loads the signed-in user's saved preference in the background. Components
-rendered inside `WebAppRoot` can use the public hook when JavaScript needs the
-effective theme, such as for a terminal, editor, or chart:
+## Existing examples
 
-```tsx
-import { Page, useTheme } from "@pablozaiden/webapp/web";
+- **Kitchen Sink:** public core-only, ephemeral projects and UI preferences.
+  `bun run dev:kitchen-sink` (port 3202). No data volume is needed; restart
+  resets data.
+- **Notes TODO:** public shared workspace by default, application-owned SQLite
+  under `NOTES_TODO_DATA_DIR`, explicit browser preference adapter.
+  `bun run dev:notes-todo` (port 3201). Mount the data directory when persistence
+  matters; this example is not secure for public exposure without opt-in auth.
 
-function ThemeAwareRoute() {
-  const { preference, resolvedTheme } = useTheme();
-
-  return (
-    <Page>
-      <p>Preference: {preference}</p>
-      <p>Resolved theme: {resolvedTheme}</p>
-    </Page>
-  );
-}
-```
-
-`preference` is `system`, `light`, or `dark`; `resolvedTheme` is always
-`light` or `dark` and follows operating-system changes while `preference` is
-`system`. Prefer CSS dark-mode styling when JavaScript does not need the
-resolved value. Do not inspect or mutate framework-owned root classes or
-attributes to infer theme state.
-
-### Client logging and log-level state
-
-Use the shared browser `tslog` service from `@pablozaiden/webapp/web`; do not
-create an application-owned logger or write application logs directly with
-`console.*`:
-
-```tsx
-import { createLogger } from "@pablozaiden/webapp/web";
-
-const projectsLog = createLogger("projects");
-projectsLog.debug("Loaded projects", { count: 12 });
-```
-
-`WebAppRoot` synchronizes the client logger with the effective level from its
-shared configuration request. The seven levels are `silly`, `trace`, `debug`,
-`info`, `warn`, `error`, and `fatal`; the setting is shared with server
-logging. Use `useLogLevel()` only when UI code needs to display the current
-level or its environment-controlled state. Applications should not fetch
-framework configuration or `/api/preferences/log-level` to configure logging.
-
-`level` and `fromEnv` are unavailable until valid framework configuration has
-loaded. Do not substitute a default level when `error` is set. The framework
-Settings control owns persistence and updates the shared client and server
-logger levels without a page reload; `fromEnv` indicates that the server
-environment locks the value.
-
-### Temporary server logs
-
-Admins can enable temporary server-log capture from Developer Settings next to
-the log-level selector. The shared WebApp server logger exposes the current state in
-`/api/config`. The global preference is stored by the configured `WebAppStore`;
-the default SQLite store preserves it across process restarts, and capture is
-disabled until an administrator enables it. Admin clients can retrieve a
-chronological snapshot from `GET /api/server/logs` after enabling capture.
-Entries are appended to a private JSON Lines file in the operating system's
-temporary directory without a count or size cap. The preference survives a
-restart, but the log entries do not: capture starts in a new file, while
-turning capture off or shutting the server down cleanly removes the current
-file. Abrupt termination may leave it for the OS to clean. Retrieving the
-snapshot loads every entry into memory, and an unbounded capture can exhaust
-temporary disk space.
-
-### Transient notifications
-
-The standard `renderWebApp` runtime provides the framework notification service
-to the application tree. Use the public hook for short-lived action outcomes;
-do not add an application-owned provider, queue, timer system, or notification
-CSS:
-
-```tsx
-import { useToast } from "@pablozaiden/webapp/web";
-
-function SaveButton() {
-  const toast = useToast();
-
-  async function save() {
-    await saveRecord();
-    toast.success("Saved");
-  }
-
-  return <button type="button" onClick={() => void save()}>Save</button>;
-}
-```
-
-`useToast()` exposes `success`, `error`, `warning`, and `info` helpers. Each
-returns a stable ID that can be passed to `dismiss`; `dismissAll` removes every
-active notification. Pass an `id` to replace an existing notification and
-reset its timer. Notifications dismiss after 5 seconds by default; provide a
-positive `duration` in milliseconds for a custom timeout or use
-`duration: 0` for a persistent notification that requires explicit dismissal.
-The framework keeps at most five active notifications.
-
-`WebAppRoot` displays notifications as colored text and a severity icon in the
-main header, whether the sidebar is open or closed. On mobile, only the colored
-severity icon is shown, leaving room for the page title and actions while
-keeping the full message accessible to screen readers. The latest error takes
-priority over other active messages; otherwise the latest message is shown.
-A `+N` indicator counts additional active messages. Click the preview to read
-the full active messages in a framework modal and optionally dismiss them.
-An open modal remains readable when a message expires, but expired or dismissed
-messages cannot be reopened: there is no notification history.
-
-Use `ErrorState`, loading states, and field validation for persistent page or
-form state. Use `ConfirmDialog` for destructive confirmation. Do not report the
-same failure in both an inline error state and a toast unless both surfaces
-serve distinct, intentional purposes.
-
-`WebAppRoot` owns the shell and `.wapp-main-content`; each route component should return a `Page` wrapper so standard content margins, mobile padding and scroll behavior stay consistent. `Page` uses the padded layout by default. For routes whose child content fills the available shell viewport and owns its own spacing or scrolling, use the framework full layout instead of overriding framework CSS:
-
-```tsx
-function TerminalRoute() {
-  return (
-    <Page layout="full">
-      <Terminal />
-    </Page>
-  );
-}
-```
-
-The `full` layout removes the page gutters and provides a flex-sized, overflow-contained surface for viewport-sized content. Use it for terminals, editors, previews and similar surfaces; the child should provide any internal padding and scrolling it needs.
-
-Use the framework URL helpers for browser API calls, websocket URLs, app-local
-links and history targets instead of deriving paths from `window.location` in
-each app. They honor `<base>`, the framework-provided `publicBasePath`, and
-reverse-proxy subpaths for direct path deep links such as `/workspaces`:
-
-```tsx
-import {
-  appAbsoluteUrl,
-  appFetch,
-  appJson,
-  appPagePath,
-  appPath,
-  appRequest,
-  appWebSocketUrl,
-  configureWebAppClient,
-  setWebAppPublicBasePath,
-} from "@pablozaiden/webapp/web";
-
-configureWebAppClient();
-
-const config = await appJson<{ publicBasePath: string }>("/api/config");
-setWebAppPublicBasePath(config.publicBasePath);
-
-const downloadUrl = appPath("/api/items/export");
-const shareUrl = appAbsoluteUrl("/#/items");
-const setupPage = appPagePath("/setup");
-const terminalUrl = appWebSocketUrl("/api/terminal");
-const rawResponse = await appRequest("/api/items");
-window.history.replaceState(null, "", appPagePath("/"));
-```
-
-`WebAppRoot` loads the framework config and applies its `publicBasePath`
-before rendering application content. The server returns `/` for a root
-deployment and a normalized prefix such as `/tools/notes` when a trusted
-reverse proxy publishes the app below that path. `appPagePath` returns a
-same-origin pathname with the configured prefix; it preserves query strings
-and fragments, so use it for `history.replaceState` and other page-level
-navigation. The prefix must contain only normalized path segments; `.` and `..`
-segments, including URL-encoded forms, are rejected. The setup and device
-framework pages use this same contract.
-
-`appPath` returns an absolute API URL, while `appAbsoluteUrl` returns an
-absolute URL for an app-local page or hash route. `appWebSocketUrl` returns a
-WebSocket URL and converts `http:`/`https:` to `ws:`/`wss:`. `configureWebAppClient`
-accepts an explicit `publicBasePath` for applications that initialize the
-client outside `WebAppRoot`; `apiBaseUrl` and `wsBaseUrl` are independent
-overrides for API and WebSocket origins and do not change page links.
-
-`appJson` is the framework helper for successful JSON responses and builds on
-`appFetch`. Both `appJson` and `appFetch` honor configured URLs, credentials,
-auth-required events, and `WebAppApiError` responses. Use `appFetch` when a
-successful response body does not need to be parsed, and use `appRequest` when
-the app needs a raw response without the framework's error normalization, such
-as downloads or custom error handling. `appJson` intentionally rejects
-successful empty or non-JSON responses instead of fabricating a default value.
-
-Recommended dev script:
-
-```json
-{
-  "scripts": {
-    "dev": "bun --hot src/index.ts serve"
-  }
-}
-```
-
-The app configures an uppercase `envPrefix`; the framework reads only variables under that prefix:
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `{PREFIX}_HOST` | `localhost` | Bind host |
-| `{PREFIX}_PORT` | `3000` | Bind port |
-| `{PREFIX}_DATA_DIR` | `$HOME/.<app>` | Default directory for SQLite and app-owned persistence; an explicit value replaces the default completely |
-| `{PREFIX}_LOG_LEVEL` | `info` | `silly`, `trace`, `debug`, `info`, `warn`, `error`, `fatal`; locks settings log-level control when set |
-| `{PREFIX}_DISABLE_PASSKEY` | unset | Emergency bypass that authenticates as the stored owner or creates an `admin` owner when none exists; it does not create additional users |
-| `{PREFIX}_DISABLE_SAME_ORIGIN_CHECK` | unset | Development/testing escape hatch |
-| `{PREFIX}_TRUST_PROXY` | `false` | Explicitly trust the documented `X-Forwarded-*` headers; keep disabled for direct deployments |
-| `{PREFIX}_TRUST_PROXY_HEADERS` | `proto,host,prefix` when enabled | Comma-separated subset of supported forwarded values: `proto`, `host`, `prefix` |
-| `{PREFIX}_TRUST_PROXY_CHAIN` | `first` | Select the left-most (`first`) or right-most (`last`) non-empty value from comma-separated forwarded headers |
-| `{PREFIX}_PUBLIC_BASE_URL` | request origin | Authoritative absolute `http` or `https` origin (without a path, query, or fragment) for auth/device URLs; it overrides forwarded protocol and host values |
-| `{PREFIX}_AUTH_ISSUER` | `urn:{prefix}:webapp` | JWT issuer override |
-
-The configured data directory contains `config.json` and detached-server
-state under `server.pid` and `logs/server.log`. When the default SQLite store
-is used, it also contains the framework-owned `webapp.sqlite`. The example
-applications keep their application entities in
-separate files in that same directory: Notes TODO uses `notes-todo.sqlite`
-for sections, notes and todos, while Kitchen Sink uses `kitchen-sink.sqlite`
-for projects. Keeping these files separate prevents example-specific tables
-from being added to the framework authentication store.
-
-Example application databases create or migrate their schema during startup.
-Owner seed data is written transactionally and is idempotent across repeated
-starts. Point the prefixed `*_DATA_DIR` at storage that survives process
-restarts and redeployments; deleting or changing the directory intentionally
-starts a new application state.
-
-For a reverse-proxy deployment that strips and overwrites the forwarded
-headers, configure the trust policy explicitly:
+Notes TODO's optional password/session example is enabled only with:
 
 ```bash
-MY_APP_TRUST_PROXY=true
-MY_APP_TRUST_PROXY_HEADERS=proto,host,prefix
-MY_APP_TRUST_PROXY_CHAIN=first
-MY_APP_PUBLIC_BASE_URL=https://app.example.test
+NOTES_TODO_AUTH=password \
+NOTES_TODO_HOST=localhost \
+NOTES_TODO_ENROLL_PASSWORD='an operator-selected long password' \
+bun run dev:notes-todo
 ```
 
-The default is fail-closed: forwarded headers are ignored unless
-`TRUST_PROXY=true`. The framework recognizes only `X-Forwarded-Proto`,
-`X-Forwarded-Host`, and `X-Forwarded-Prefix`; it does not infer trust from
-their presence and does not parse the RFC `Forwarded` header. A trusted prefix
-is used for cookie paths and externally generated links. The proxy must remove
-client-supplied values before writing these headers, and direct untrusted
-access to the application port must be blocked. This configuration does not
-provide a proxy-address allowlist.
+The operator authorizes first enrollment at startup; remove the enrollment
+environment secret after creation. Login/change/logout are app-owned endpoints.
+There is no public signup, recovery or email. Use HTTPS/public origin settings
+for remote deployment; authentication bonuses allow HTTP only on loopback.
+Set `NOTES_TODO_PUBLIC_BASE_URL` when binding outside loopback. Auth state
+uses an owner-only data directory and database.
+An optional demo webhook requires `NOTES_TODO_WEBHOOK_TOKEN`.
 
-For CI/CD setup in apps built with the framework, use `docs/github-actions.md`. It includes copy-paste GitHub Actions and a production Dockerfile template.
+Use [server](server.md), [auth bonuses](auth.md), [Settings/preferences](settings.md),
+[realtime](realtime.md), [sidebar](sidebar.md), [UI guidelines](ui-guidelines.md),
+[remote clients](remote-clients.md) and [deployment](deployment.md) as needed.
+Before delivery run `bun run build && bun run test` and `bun run typecheck`.
+Validate meaningful browser flows with disposable Bun.WebView captures; do not
+add component/layout tests as substitutes for user-boundary evidence.

@@ -1,17 +1,16 @@
-import type { AuthenticatedRequestState } from "./auth/types";
-import { getRequestOriginInfo } from "./auth/request-origin";
+import { getRequestOriginInfo } from "./request-origin";
 import type { RuntimeConfig } from "./runtime-config";
 import { errorResponse } from "./responses";
 import type { SameOriginMode } from "./routes";
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-export function checkSameOrigin(req: Request, config: RuntimeConfig, auth: AuthenticatedRequestState, mode: SameOriginMode = "mutations"): Response | undefined {
+export function checkSameOrigin(req: Request, config: RuntimeConfig, auth: { credential: "ambient" | "explicit" }, mode: SameOriginMode = "mutations"): Response | undefined {
   if (config.sameOriginDisabled || mode === "never") {
     return undefined;
   }
   // Explicit credentials do not rely on an ambient browser cookie session.
-  if (auth.kind === "api-key" || auth.kind === "bearer") {
+  if (auth.credential === "explicit") {
     return undefined;
   }
   const mutating = MUTATING.has(req.method.toUpperCase());
