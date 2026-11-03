@@ -41,6 +41,28 @@ Set `data.webappSocketHandler` to select an entry in `websockets`. Custom
 handlers never fall back to the realtime bus when a callback is absent. App
 handlers own authorization and cleanup of their transports.
 
+Configure listener-wide WebSocket buffering through `server.websocket`:
+
+```ts
+server: {
+  websocket: {
+    backpressureLimit: 0,
+    closeOnBackpressureLimit: false,
+  },
+},
+```
+
+These are Bun's `backpressureLimit` and `closeOnBackpressureLimit` options.
+Omitted values retain Bun's defaults. `backpressureLimit: 0` explicitly disables
+the send-buffer ceiling; omitting it does not. Unlimited buffering can exhaust
+process memory when producers persistently outpace consumers, so keep
+application flow control and lifecycle cleanup.
+
+The options apply to all WebSockets on the listener, including realtime and
+custom transports. They do not change the realtime bus's independent delivery
+limits. Entries in `websockets` select callbacks, not listener options; the
+framework retains ownership of Bun's open/message/close/drain dispatch.
+
 Set `web: false` for API/WS-only processes. `web.paths` restricts document
 fallback to explicit paths, for example `["/", "/login", "/account"]`, without
 giving those paths authentication semantics. Documents and assets are public

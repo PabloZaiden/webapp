@@ -44,6 +44,11 @@ export interface WebAppServerOptions {
   /** Inactivity timeout, 0 disables it. Individual handlers may use server.timeout. */
   idleTimeout?: number;
   tls?: Bun.TLSOptions | Bun.TLSOptions[];
+  /** Listener-wide Bun buffering options; callbacks remain framework-owned. */
+  websocket?: Pick<
+    WebSocketHandler<WebAppWebSocketData>,
+    "backpressureLimit" | "closeOnBackpressureLimit"
+  >;
 }
 
 export interface WebAppServerLifecycleHooks {

@@ -148,6 +148,7 @@ export function createWebAppServer<TEvent = unknown, TIdentity = unknown>(
     },
     idleTimeout: resolveServerIdleTimeout(input.server?.idleTimeout),
     tls: input.server?.tls,
+    websocket: input.server?.websocket,
     publicRoutes,
     appWebsockets: input.websockets ?? {},
     wsPath,
