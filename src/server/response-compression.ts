@@ -10,7 +10,7 @@ function acceptsGzip(request: Request): boolean {
   let wildcard = 0;
   let identity: number | undefined;
   for (const entry of (request.headers.get("accept-encoding") ?? "").split(",")) {
-    const [encoding, ...parameters] = entry.trim().toLowerCase().split(";");
+    const [encoding, ...parameters] = entry.toLowerCase().split(";").map(token => token.trim());
     if (encoding !== "gzip" && encoding !== "*" && encoding !== "identity") continue;
     let quality = 1;
     for (const parameter of parameters) {
@@ -75,7 +75,10 @@ export async function compressResponse(request: Request, response: Response): Pr
   // A 304 often omits Content-Type. Its validators still describe the cached variant.
   if (response.status === 304 && !headers.has("content-type")) {
     addEncodingVary(headers);
-    if (gzip) weakEtag(headers);
+    if (gzip) {
+      weakEtag(headers);
+      headers.delete("content-length");
+    }
     return responseWithBody(response, null, headers);
   }
   if (!compressible(headers)) return response;
@@ -83,11 +86,16 @@ export async function compressResponse(request: Request, response: Response): Pr
   if (response.status === 200 && matchesEtag(request, headers)) {
     if (gzip) weakEtag(headers);
     headers.delete("content-length");
-    await response.body?.cancel();
+    void response.body?.cancel().catch(error => {
+      log.error("Conditional response body cancellation failed", { error: String(error) });
+    });
     return new Response(null, { status: 304, headers });
   }
   if (response.status === 304) {
-    if (gzip) weakEtag(headers);
+    if (gzip) {
+      weakEtag(headers);
+      headers.delete("content-length");
+    }
     return responseWithBody(response, null, headers);
   }
   const declaredLength = headers.get("content-length");
