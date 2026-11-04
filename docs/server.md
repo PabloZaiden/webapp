@@ -88,6 +88,28 @@ pinch-to-zoom; browsers that ignore them are unaffected. Normal scrolling
 remains enabled. Do not replace this policy with app-owned HTML, global touch
 handlers, `preventDefault()` or `touch-action: none`.
 
+## HTTP compression
+
+Set `server: { compression: true }` to negotiate gzip for textual GET
+responses (JSON, JavaScript, XML and text) of at least 1 KiB. It is off by
+default. Public framework assets, documents and app request-hook responses use
+the same policy; Bun's native development bundle/HMR routes remain Bun-owned.
+
+The server honors `Accept-Encoding` quality values and explicit exclusions,
+preserves existing `Vary` fields and adds `Accept-Encoding`. Compression streams
+with backpressure after probing a small prefix, without buffering a second
+complete response or adding a response cache. Strong ETags become weak validators
+for gzip; weak `If-None-Match` revalidation continues to return 304. HEAD and 304
+responses remain bodyless, without advertising an uncompressed size for gzip.
+
+Downloads with `Content-Disposition`, partial responses, already encoded
+bodies, binary media and `text/event-stream` are not compressed. Responses
+with `Cache-Control: no-transform` opt out, including other latency-sensitive
+streams or responses whose secret/reflected content should not share a
+compression context. POST/mutation responses are unchanged. Browsers and normal
+HTTP clients decode gzip transparently. Proxies must preserve these headers and
+must not compress an already encoded response again.
+
 ## Routes and authorization
 
 ```ts
