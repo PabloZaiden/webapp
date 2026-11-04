@@ -13,6 +13,7 @@ import { createRouteCatalog } from "./route-catalog";
 import { checkSameOrigin } from "./same-origin";
 import { getRequestOriginInfo } from "./request-origin";
 import type { WebAppConfigResponse } from "../contracts";
+import { compressResponse } from "./response-compression";
 
 export const MAX_SERVER_IDLE_TIMEOUT_SECONDS = 255;
 export const DEFAULT_SERVER_IDLE_TIMEOUT_SECONDS = MAX_SERVER_IDLE_TIMEOUT_SECONDS;
@@ -30,6 +31,9 @@ export * from "./server-types";
 export function createWebAppServer<TEvent = unknown, TIdentity = unknown>(
   input: WebAppServerConfig<TEvent, TIdentity>,
 ): WebAppServer<TEvent> {
+  if (input.server?.compression !== undefined && typeof input.server.compression !== "boolean") {
+    throw new Error("server.compression must be a boolean");
+  }
   const config = input.runtimeConfig ?? readRuntimeConfig(input);
   if (config.appName !== input.appName || config.envPrefix !== input.envPrefix) {
     throw new Error("runtimeConfig appName and envPrefix must match the createWebAppServer inputs");
@@ -127,6 +131,7 @@ export function createWebAppServer<TEvent = unknown, TIdentity = unknown>(
     let response: Response | undefined;
     try {
       response = await dispatchRequest(req, server);
+      if (response && input.server?.compression) response = await compressResponse(req, response);
     } catch (error) {
       response = requestBodyErrorResponse(error);
       if (!response) {

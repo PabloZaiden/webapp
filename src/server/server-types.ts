@@ -41,6 +41,8 @@ export type PublicRouteDefinition = PublicRouteValue | {
 };
 
 export interface WebAppServerOptions {
+  /** Negotiate gzip for textual GET responses of at least 1 KiB. Defaults to false. */
+  compression?: boolean;
   /** Inactivity timeout, 0 disables it. Individual handlers may use server.timeout. */
   idleTimeout?: number;
   tls?: Bun.TLSOptions | Bun.TLSOptions[];
