@@ -147,13 +147,16 @@ of 48 CSS pixels reveals the tray (or half its width for a narrower tray).
 Only one tray stays open. Swipe right or tap its row to close it without
 navigating; outside interaction, route changes, and Escape also close it.
 Escape retains the mobile drawer and returns focus to the row.
+Background trays never consume Escape intended for a foreground dialog or a
+hidden sidebar. Dragging in either direction suppresses row activation.
 
 Swipe callbacks run without activating the row, dismissing the mobile drawer,
 or changing the current route. Applications must bind actions to the actual
 entity, explicitly filter unavailable/private/read-only operations, and retain
 their own pending state, error feedback, and destructive confirmation.
 Disabled descriptors remain disabled; destructive actions appear last in red.
-Form actions preserve native validation and submission. Hidden trays are inert
+Form actions preserve native validation and submission without becoming the
+page form's implicit Enter submitter. Hidden trays are inert
 and excluded from accessibility navigation; existing context/title-bar actions
 remain the keyboard-accessible alternatives. Pinned entries reuse the source
 node's current swipe actions, without persisting callbacks.

@@ -560,6 +560,10 @@ textarea::placeholder {
   transition: none;
 }
 
+.wapp-sidebar-swipe :where(button):focus-visible {
+  outline-offset: -2px;
+}
+
 .wapp-sidebar-swipe-actions {
   position: absolute;
   inset: 0 0 0 auto;

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { isDestructiveActionMenuItem, submitActionMenuForm } from "../action-menu-item";
+import { isTopmostOverlayElement } from "../overlay";
 import type { ActionMenuItem } from "./types";
 
 type SwipeStart = {
@@ -53,6 +54,9 @@ export function SidebarSwipeActions({
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      const row = rowRef.current;
+      if (!row || row.closest("[inert], [hidden], [aria-hidden='true']")
+        || row.getClientRects().length === 0 || isTopmostOverlayElement(row) === false) return;
       event.preventDefault();
       event.stopPropagation();
       onOpenChange(false);
@@ -94,8 +98,8 @@ export function SidebarSwipeActions({
       if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) < DIRECTION_THRESHOLD) return;
       start.intent = Math.abs(deltaX) > Math.abs(deltaY) * 1.2 ? "horizontal" : "vertical";
     }
-    if (start.intent !== "horizontal") return;
     suppressClickRef.current = true;
+    if (start.intent !== "horizontal") return;
     setDragOffset(Math.max(-width, Math.min(0, start.offset + deltaX)));
   }
 
@@ -137,17 +141,15 @@ export function SidebarSwipeActions({
         {orderedActions.map((action, index) => (
           <button
             key={action.id ?? `${action.label}:${index}`}
-            type={action.form !== undefined ? "submit" : "button"}
-            form={action.form}
+            type="button"
             className={`wapp-sidebar-swipe-action${isDestructiveActionMenuItem(action) ? " danger" : ""}`}
             data-action-id={action.id}
             disabled={action.disabled}
-            onClick={(event) => {
+            onClick={() => {
               onOpenChange(false);
               contentRef.current?.querySelector("button")?.focus({ preventScroll: true });
               if (action.form !== undefined) {
-                event.preventDefault();
-                submitActionMenuForm(action, event.currentTarget);
+                submitActionMenuForm(action);
               }
               action.onAction?.();
             }}
