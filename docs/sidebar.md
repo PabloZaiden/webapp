@@ -120,8 +120,46 @@ Sidebar nodes support:
 | `badge` | Status/count value; sidebar items render it as a compact status dot with accessible label/tooltip |
 | `badgeAppearance` | `dot` (default) or `text`; textual badges use the shared title-case status style |
 | `itemLayout` | `default` (default) or `subtitle-above-title`; the latter keeps the subtitle and textual badge on the first line and lets the title wrap below |
+| `swipeActions` | Optional actions revealed by dragging an item left; callbacks target that item without activating its route |
 | `render` | Optional custom content renderer for `type: "item"` nodes; it receives the node, active/child-collapse state, navigation, and actions |
 | `defaultCollapsed` | Initial collapsed state |
+
+### Swipe actions
+
+Opt an item into left-swipe actions with `swipeActions`. Reuse the same action
+descriptors as its menus, selecting only the small set useful for quick access:
+
+```tsx
+{
+  type: "item",
+  id: task.id,
+  title: task.title,
+  route: { view: "task", taskId: task.id },
+  actions: taskActions,
+  swipeActions: taskActions.filter((action) =>
+    action.id === "mark-done" || action.id === "delete"),
+}
+```
+
+The framework owns touch/mouse dragging, horizontal-intent detection, clipping,
+and click suppression. Vertical gestures retain native scrolling. A left drag
+of 48 CSS pixels reveals the tray (or half its width for a narrower tray).
+Only one tray stays open. Swipe right or tap its row to close it without
+navigating; outside interaction, route changes, and Escape also close it.
+Escape retains the mobile drawer and returns focus to the row.
+Background trays never consume Escape intended for a foreground dialog or a
+hidden sidebar. Dragging in either direction suppresses row activation.
+
+Swipe callbacks run without activating the row, dismissing the mobile drawer,
+or changing the current route. Applications must bind actions to the actual
+entity, explicitly filter unavailable/private/read-only operations, and retain
+their own pending state, error feedback, and destructive confirmation.
+Disabled descriptors remain disabled; destructive actions appear last in red.
+Form actions preserve native validation and submission without becoming the
+page form's implicit Enter submitter. Hidden trays are inert
+and excluded from accessibility navigation; existing context/title-bar actions
+remain the keyboard-accessible alternatives. Pinned entries reuse the source
+node's current swipe actions, without persisting callbacks.
 
 ### Fixed bottom content
 

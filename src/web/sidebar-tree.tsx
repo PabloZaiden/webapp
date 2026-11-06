@@ -1,9 +1,10 @@
-import { useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Badge, ContextMenu, formatStatusLabel, type ContextMenuPosition } from "./components";
 import { AnimatedList, Collapsible } from "./motion";
 import { routeToHash } from "./routing";
 import type { SidebarCollapsedState } from "./sidebar-state";
 import type { SidebarNode, WebAppRoute } from "./sidebar/types";
+import { SidebarSwipeActions } from "./sidebar/swipe-actions";
 
 type SidebarTreeParentKind = "root" | "section" | "item";
 
@@ -31,7 +32,19 @@ function sidebarIndentStyle(level: number, parentKind: SidebarTreeParentKind): {
   return { marginLeft: `${baseIndentRem + nestedSectionIndentRem}rem` };
 }
 
-export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed, searchActive, level = 0, parentKind = "root" }: SidebarTreeProps) {
+export function SidebarTree(props: SidebarTreeProps) {
+  const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
+  const routeKey = routeToHash(props.route);
+  useEffect(() => setOpenSwipeId(null), [routeKey, props.searchActive]);
+  return <SidebarTreeLevel {...props} openSwipeId={openSwipeId} setOpenSwipeId={setOpenSwipeId} />;
+}
+
+type SidebarTreeLevelProps = SidebarTreeProps & {
+  openSwipeId: string | null;
+  setOpenSwipeId: (id: string | null) => void;
+};
+
+function SidebarTreeLevel({ nodes, route, navigate, collapsed, toggleCollapsed, searchActive, level = 0, parentKind = "root", openSwipeId, setOpenSwipeId }: SidebarTreeLevelProps) {
   const [contextMenu, setContextMenu] = useState<{ position: ContextMenuPosition; nodeId: string } | null>(null);
   const contextNode = contextMenu ? nodes.find((node) => node.id === contextMenu.nodeId) : undefined;
   const contextActions = contextNode?.contextActions ?? contextNode?.actions ?? [];
@@ -77,7 +90,7 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
               </div>
               {hasChildren ? (
                 <Collapsible open={!isCollapsed} className="wapp-sidebar-collapsible">
-                  <SidebarTree nodes={node.children ?? []} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} level={level + 1} parentKind="section" />
+                  <SidebarTreeLevel nodes={node.children ?? []} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} level={level + 1} parentKind="section" openSwipeId={openSwipeId} setOpenSwipeId={setOpenSwipeId} />
                 </Collapsible>
               ) : null}
               {!isCollapsed && !hasChildren && level === 0 ? <div className="wapp-sidebar-empty">No items.</div> : null}
@@ -151,15 +164,18 @@ export function SidebarTree({ nodes, route, navigate, collapsed, toggleCollapsed
           actions,
         });
         const itemContent = customContent ?? standardContent;
+        const itemButton = <button {...itemProps}>{itemContent}</button>;
         return (
           <div className={`wapp-sidebar-item-wrap ${hasChildren ? "has-toggle" : ""}`} key={node.id} style={sidebarIndentStyle(level, parentKind)}>
             {hasChildren ? <button type="button" className="wapp-tree-toggle" aria-expanded={!isCollapsed} aria-label={toggleAriaLabel} disabled={searchActive} onClick={toggleNodeCollapsed}>{isCollapsed ? "▶" : "▼"}</button> : null}
-            <button {...itemProps}>
-              {itemContent}
-            </button>
+            {node.swipeActions?.length ? (
+              <SidebarSwipeActions title={node.title} actions={node.swipeActions} open={openSwipeId === node.id} onOpenChange={(open) => setOpenSwipeId(open ? node.id : null)}>
+                {itemButton}
+              </SidebarSwipeActions>
+            ) : itemButton}
             {node.children ? (
               <Collapsible open={!isCollapsed} className="wapp-sidebar-children">
-                <SidebarTree nodes={node.children} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} level={level + 1} parentKind="item" />
+                <SidebarTreeLevel nodes={node.children} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} level={level + 1} parentKind="item" openSwipeId={openSwipeId} setOpenSwipeId={setOpenSwipeId} />
               </Collapsible>
             ) : null}
           </div>
