@@ -536,10 +536,70 @@ textarea::placeholder {
   flex-wrap: wrap;
 }
 
-.wapp-sidebar-item-wrap.has-toggle > .wapp-sidebar-item {
+.wapp-sidebar-item-wrap.has-toggle > .wapp-sidebar-item,
+.wapp-sidebar-item-wrap.has-toggle > .wapp-sidebar-swipe {
   width: auto;
   flex: 1;
   min-width: 0;
+}
+
+.wapp-sidebar-swipe {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 0.5rem;
+}
+
+.wapp-sidebar-swipe-content {
+  touch-action: pan-y;
+  user-select: none;
+  transition: transform 160ms ease;
+}
+
+.wapp-sidebar-swipe-content.is-dragging {
+  transition: none;
+}
+
+.wapp-sidebar-swipe-actions {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: flex;
+  max-width: calc(100% - 2.75rem);
+}
+
+.wapp-sidebar-swipe-action {
+  flex: 0 1 5rem;
+  width: 5rem;
+  min-width: 0;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--wapp-text);
+  padding: 0.375rem;
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.wapp-sidebar-swipe-action:hover:not(:disabled) {
+  background: var(--wapp-surface-pill);
+}
+
+.wapp-sidebar-swipe-action.danger {
+  color: var(--wapp-danger);
+}
+
+.wapp-sidebar-swipe-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wapp-sidebar-swipe-content {
+    transition: none;
+  }
 }
 
 .wapp-sidebar-children {

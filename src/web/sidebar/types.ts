@@ -87,6 +87,8 @@ export interface SidebarNode {
   actions?: ActionMenuItem[];
   /** Overrides sidebar context-menu and renderer actions; title-bar actions continue to use `actions`. */
   contextActions?: ActionMenuItem[];
+  /** Opt-in left-swipe actions; callbacks target this node without activating its route. */
+  swipeActions?: ActionMenuItem[];
   pinnable?: boolean;
   pinId?: string;
   defaultCollapsed?: boolean;
