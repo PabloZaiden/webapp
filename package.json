@@ -50,7 +50,7 @@
     "jose": "6.2.12",
     "tailwindcss": "4.3.3",
     "tslog": "5.2.0",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   },
   "peerDependencies": {
     "react": "^19.3.0",
