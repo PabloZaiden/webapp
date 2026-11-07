@@ -49,7 +49,7 @@
     "bun-plugin-tailwind": "0.1.2",
     "jose": "6.2.12",
     "tailwindcss": "4.3.3",
-    "tslog": "5.2.0",
+    "tslog": "5.4.0",
     "zod": "4.6.5"
   },
   "peerDependencies": {
