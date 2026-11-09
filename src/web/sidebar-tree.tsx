@@ -46,6 +46,7 @@ type SidebarTreeLevelProps = SidebarTreeProps & {
 
 function SidebarTreeLevel({ nodes, route, navigate, collapsed, toggleCollapsed, searchActive, level = 0, parentKind = "root", openSwipeId, setOpenSwipeId }: SidebarTreeLevelProps) {
   const [contextMenu, setContextMenu] = useState<{ position: ContextMenuPosition; nodeId: string } | null>(null);
+  const hasToggleGutter = nodes.some((node) => node.type === "item" && Boolean(node.children?.length));
   const contextNode = contextMenu ? nodes.find((node) => node.id === contextMenu.nodeId) : undefined;
   const contextActions = contextNode?.contextActions ?? contextNode?.actions ?? [];
   const contextMenuReady = contextNode && (!contextNode.route || isNodeActive(contextNode, route)) && contextActions.length > 0;
@@ -166,7 +167,7 @@ function SidebarTreeLevel({ nodes, route, navigate, collapsed, toggleCollapsed, 
         const itemContent = customContent ?? standardContent;
         const itemButton = <button {...itemProps}>{itemContent}</button>;
         return (
-          <div className={`wapp-sidebar-item-wrap ${hasChildren ? "has-toggle" : ""}`} key={node.id} style={sidebarIndentStyle(level, parentKind)}>
+          <div className={`wapp-sidebar-item-wrap ${hasToggleGutter ? "has-toggle-gutter" : ""}`} key={node.id} style={sidebarIndentStyle(level, parentKind)}>
             {hasChildren ? <button type="button" className="wapp-tree-toggle" aria-expanded={!isCollapsed} aria-label={toggleAriaLabel} disabled={searchActive} onClick={toggleNodeCollapsed}>{isCollapsed ? "▶" : "▼"}</button> : null}
             {node.swipeActions?.length ? (
               <SidebarSwipeActions title={node.title} actions={node.swipeActions} open={openSwipeId === node.id} onOpenChange={(open) => setOpenSwipeId(open ? node.id : null)}>

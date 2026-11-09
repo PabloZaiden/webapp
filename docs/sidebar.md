@@ -124,6 +124,13 @@ Sidebar nodes support:
 | `render` | Optional custom content renderer for `type: "item"` nodes; it receives the node, active/child-collapse state, navigation, and actions |
 | `defaultCollapsed` | Initial collapsed state |
 
+Item rows share a disclosure gutter only when at least one sibling item has
+children. Expandable and leaf rows then align in both collapsed and expanded
+states, including custom renderers and swipe-enabled rows. Each nested list
+decides independently; leaf-only lists do not gain disclosure spacing merely
+because their containing section or another list can expand. Children remain
+indented beneath their parent item's content.
+
 ### Swipe actions
 
 Opt an item into left-swipe actions with `swipeActions`. Reuse the same action
