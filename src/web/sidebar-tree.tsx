@@ -24,7 +24,7 @@ function isNodeActive(node: SidebarNode, route: WebAppRoute): boolean {
 }
 
 function sidebarIndentStyle(level: number, parentKind: SidebarTreeParentKind): { marginLeft?: string } | undefined {
-  if (level <= 0) {
+  if (level <= 0 || parentKind === "item") {
     return undefined;
   }
   const baseIndentRem = level * 0.375;

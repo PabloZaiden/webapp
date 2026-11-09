@@ -128,8 +128,10 @@ Item rows share a disclosure gutter only when at least one sibling item has
 children. Expandable and leaf rows then align in both collapsed and expanded
 states, including custom renderers and swipe-enabled rows. Each nested list
 decides independently; leaf-only lists do not gain disclosure spacing merely
-because their containing section or another list can expand. Children remain
-indented beneath their parent item's content.
+because their containing section or another list can expand. The compact
+disclosure column preserves the control's hit area without pushing row text
+farther inward. Children use a small, fixed indent beneath their parent item's
+content rather than accumulating additional margins from their nesting depth.
 
 ### Swipe actions
 
