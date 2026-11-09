@@ -174,9 +174,9 @@ function SidebarTreeLevel({ nodes, route, navigate, collapsed, toggleCollapsed, 
                 {itemButton}
               </SidebarSwipeActions>
             ) : itemButton}
-            {node.children ? (
+            {hasChildren ? (
               <Collapsible open={!isCollapsed} className="wapp-sidebar-children">
-                <SidebarTreeLevel nodes={node.children} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} level={level + 1} parentKind="item" openSwipeId={openSwipeId} setOpenSwipeId={setOpenSwipeId} />
+                <SidebarTreeLevel nodes={node.children ?? []} route={route} navigate={navigate} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} level={level + 1} parentKind="item" openSwipeId={openSwipeId} setOpenSwipeId={setOpenSwipeId} />
               </Collapsible>
             ) : null}
           </div>
