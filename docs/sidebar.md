@@ -486,7 +486,7 @@ const provider: SidebarPinProvider = {
 };
 
 // Keep the provider stable for the current account/runtime identity.
-<WebAppRoot sidebar={{ getNodes, pinning: { provider } }} {...appProps} />
+<WebAppRoot {...appProps} sidebar={{ getNodes, pinning: { provider } }} />
 ```
 
 `load` returns the ordered collection. `add` and `remove` are individual,

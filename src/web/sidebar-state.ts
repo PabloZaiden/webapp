@@ -269,8 +269,10 @@ export function useSidebarPins(appName: string, storageKey: string | undefined, 
   const pins = query.data;
   const ready = options.enabled && options.ready && pins !== undefined && !query.loading && !query.error && !saveError;
   const currentPins = useMemo(
-    () => options.ready && pins ? reconcileStoredPins(pins, options.nodes) : [],
-    [options.nodes, options.ready, pins],
+    () => pins
+      ? options.ready || options.provider ? reconcileStoredPins(pins, options.nodes) : pins
+      : [],
+    [options.nodes, options.provider, options.ready, pins],
   );
 
   useEffect(() => provider.subscribe?.(() => { void query.refresh(); }), [provider, query.refresh]);
