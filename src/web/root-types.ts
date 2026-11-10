@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { ActionMenuItem, SidebarAction, SidebarBuildContext, SidebarNode, SidebarNodeSnapshot, SidebarTab, WebAppRoute } from "./sidebar/types";
+import type { ActionMenuItem, SidebarAction, SidebarBuildContext, SidebarNode, SidebarNodeSnapshot, SidebarPinProvider, SidebarTab, WebAppRoute } from "./sidebar/types";
 import type { ButtonVariant } from "./components";
 
 export type SettingsAction = {
@@ -80,6 +80,7 @@ export interface WebAppRootProps {
     pinning?: false | {
       sectionTitle?: string;
       storageKey?: string;
+      provider?: SidebarPinProvider;
     };
     getNodes: (ctx: SidebarBuildContext) => SidebarNode[] | SidebarNodeSnapshot;
   };

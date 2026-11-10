@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type ReactNode } from "react";
 import { AppShell } from "./app-shell";
 import { getWebAppClientVersion } from "./api-client";
-import { Button, EmptyState, Panel } from "./components";
+import { Button, EmptyState, ErrorState, Panel } from "./components";
 import { useMobileBreakpoint, useMobileSidebarSwipe, useMobileViewportHeight } from "./mobile-hooks";
 import { routeToHash, supportsElementViewTransitions, useRoute } from "./routing";
 import { flattenSidebarItems, useSidebarCollapsedState, useSidebarDesktopCollapsedState, useSidebarPins, useSidebarTab } from "./sidebar-state";
@@ -180,7 +180,7 @@ function WebAppRootContent({
   const sidebarPins = useSidebarPins(
     appName,
     sidebar.pinning ? sidebar.pinning.storageKey : undefined,
-    { enabled: pinningEnabled, ready: pinningSnapshotReady, nodes: allPinnableItems },
+    { enabled: pinningEnabled && frameworkReady, ready: pinningSnapshotReady, nodes: allPinnableItems, provider: sidebar.pinning ? sidebar.pinning.provider : undefined },
   );
   const activeRouteIsInBaseNodes = useMemo(
     () => baseItems.some((node) => routeMatches(node.route, route)),
@@ -207,7 +207,7 @@ function WebAppRootContent({
   }, [activeRouteIsInBaseNodes, activeTab, baseNodes, baseSnapshots, hasPinOutsideActiveTab, pinningEnabled, sidebar, sidebarTabs]);
   const actionLookupItems = useMemo(() => uniqueSidebarItems(actionLookupTrees), [actionLookupTrees]);
   const pinningActionFor = useCallback((node: SidebarNode, snapshotReady = pinningSnapshotReady): ActionMenuItem | undefined => {
-    if (!snapshotReady || !pinningEnabled || !node.pinnable || !node.route) return undefined;
+    if (!snapshotReady || !sidebarPins.ready || !pinningEnabled || !node.pinnable || !node.route) return undefined;
     const id = node.pinId ?? node.id;
     const pinned = sidebarPins.pinIds.has(id);
     return pinned
@@ -358,6 +358,10 @@ function WebAppRootContent({
         homeRoute={homeRoute}
         topActions={sidebar.topActions ?? []}
         sidebarBottomContent={sidebar.bottomContent}
+        sidebarStatus={pinningEnabled ? sidebarPins.error
+          ? <ErrorState title="Pins unavailable" description={sidebarPins.error.message}
+              action={<Button onClick={() => void sidebarPins.retry()}>Retry</Button>} />
+          : sidebarPins.loading ? <p role="status">Loading pins...</p> : undefined : undefined}
         mainOverlay={mainOverlay}
         nodes={nodes}
         route={route}
