@@ -67,6 +67,15 @@ can load from another origin without cross-origin cookies or relaxing resource
 policy headers. HTTP resource endpoints must allow that client's origin through
 CORS after authorizing the resource. Explicit `crossOrigin` image options are
 preserved; direct `blob:` and `data:` sources remain unchanged.
+Failed image loads get one automatic retry while visible and online.
+`ResourceImage` reacquires its resource URL, including when a lazy image first
+loads after a capability expires, and disposes the replaced handle. Images
+still failing retry on a later foreground, focus, or online event, not on a
+polling timer. Successful images are left alone. The shell's public app logo
+uses the same bounded recovery without routing public assets through the
+authenticated API transport. Persistent failures remain visible and emit a
+warning without logging image URLs or resource capabilities; recovery never
+extends authorization or reloads the application.
 `appSaveResource` supports app/native handoff; acceptance is not proof of a
 completed saved file.
 
