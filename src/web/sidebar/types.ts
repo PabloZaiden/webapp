@@ -1,4 +1,15 @@
 import type { ReactNode } from "react";
+import type { SidebarPin } from "../../contracts/sidebar-pins";
+
+export type { SidebarPin } from "../../contracts/sidebar-pins";
+
+export interface SidebarPinProvider {
+  load(signal: AbortSignal): Promise<SidebarPin[]>;
+  add(pin: SidebarPin, signal: AbortSignal): Promise<void>;
+  remove(id: string, signal: AbortSignal): Promise<void>;
+  /** Notify on external changes; consumers reload the authoritative collection. */
+  subscribe?(invalidate: () => void): () => void;
+}
 
 export type BadgeVariant =
   | "default"

@@ -74,6 +74,7 @@ export interface AppShellProps {
   homeRoute: WebAppRoute;
   topActions: SidebarAction[];
   sidebarBottomContent?: ReactNode;
+  sidebarStatus?: ReactNode;
   mainOverlay?: ReactNode;
   nodes: SidebarNode[];
   route: WebAppRoute;
@@ -109,6 +110,7 @@ export function AppShell({
   homeRoute,
   topActions,
   sidebarBottomContent,
+  sidebarStatus,
   mainOverlay,
   nodes,
   route,
@@ -378,6 +380,7 @@ export function AppShell({
               </div>
             </div>
           ) : null}
+          {sidebarStatus}
           <SidebarTree nodes={nodes} route={route} navigate={navigateFromSidebar} collapsed={collapsed} toggleCollapsed={toggleCollapsed} searchActive={searchActive} />
         </div>
         {sidebarBottomContent != null && sidebarBottomContent !== false ? (

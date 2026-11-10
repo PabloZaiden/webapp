@@ -466,3 +466,40 @@ For activity-style items with a context above the title, use the standard
 ```
 
 Disable pinning with `sidebar.pinning: false`; customize storage/title with `sidebar.pinning.storageKey` and `sidebar.pinning.sectionTitle`.
+
+### Application-owned pin persistence
+
+Supply `sidebar.pinning.provider` to replace the local preference-backed provider
+entirely. The default continues to use the selected preference adapter and
+existing client-scoped namespace; select the browser preference adapter for
+localStorage. An injected provider never reads or writes local pin storage,
+and failures do not fall back to it.
+
+```tsx
+import type { SidebarPinProvider } from "@pablozaiden/webapp/web";
+
+const provider: SidebarPinProvider = {
+  load: (signal) => accountPins.load(signal),
+  add: (pin, signal) => accountPins.add(pin, signal),
+  remove: (id, signal) => accountPins.remove(id, signal),
+  subscribe: (invalidate) => accountPins.subscribe(invalidate),
+};
+
+// Keep the provider stable for the current account/runtime identity.
+<WebAppRoot sidebar={{ getNodes, pinning: { provider } }} {...appProps} />
+```
+
+`load` returns the ordered collection. `add` and `remove` are individual,
+asynchronous mutations, not whole-list replacements. `subscribe` is optional;
+notify on external changes and reconnects so Webapp can reload authoritative
+state. All operations receive cancellation signals. Apps own authentication,
+authorization, durable storage, and external change transport. The shared
+`sidebarPinSchema` and `SidebarPin` contract are exported from `/contracts`;
+the provider interface and pin type are also exported from `/web`.
+
+Webapp owns initial loading, visible load/save errors with a read-only Retry,
+and read/mutation ordering. A failed or uncertain mutation is never replayed
+automatically. Pins render using the current matching nodes and their actions.
+With an injected provider, missing or temporarily unavailable nodes are hidden,
+not deleted from persistence; snapshot reconciliation never writes to the
+provider. Removing an account pin requires an explicit Unpin operation.
