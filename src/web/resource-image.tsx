@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ImgHTMLAttributes } from "react";
 import { appRequest, appResourceUrl, hasWebAppResourceTransport } from "./api-client";
+import { useImageRecovery } from "./image-recovery";
 import { useWebAppRuntime } from "./runtime";
 
 /** Loads private API images without exposing bearer credentials in image URLs. */
@@ -10,7 +11,9 @@ export function ResourceImage({ src, ...props }: Omit<ImgHTMLAttributes<HTMLImag
     src, scope: session?.scope, generation: session?.generation,
     ready: session?.ready ?? true, error: session?.error,
   }), [src, session?.scope, session?.generation, session?.ready, session?.error]);
-  const [resource, setResource] = useState<{ identity: typeof identity; url?: string; error?: Error }>();
+  const recovery = useImageRecovery(identity);
+  const { attempt, onError } = recovery;
+  const [resource, setResource] = useState<{ identity: typeof identity; attempt: number; url: string }>();
   useEffect(() => {
     if (!remote || !identity.ready || identity.error) return;
     const controller = new AbortController();
@@ -21,7 +24,7 @@ export function ResourceImage({ src, ...props }: Omit<ImgHTMLAttributes<HTMLImag
           const resource = await appResourceUrl(identity.src, "resource", { signal: controller.signal });
           if (controller.signal.aborted) { resource.dispose?.(); return; }
           dispose = () => resource.dispose?.();
-          setResource({ identity, url: resource.url });
+          setResource({ identity, attempt, url: resource.url });
           return;
         }
         const response = await appRequest(identity.src, { signal: controller.signal });
@@ -30,11 +33,9 @@ export function ResourceImage({ src, ...props }: Omit<ImgHTMLAttributes<HTMLImag
         if (controller.signal.aborted) return;
         const objectUrl = URL.createObjectURL(blob);
         dispose = () => URL.revokeObjectURL(objectUrl);
-        setResource({ identity, url: objectUrl });
+        setResource({ identity, attempt, url: objectUrl });
       } catch (error) {
-        if (!controller.signal.aborted) setResource({
-          identity, error: error instanceof Error ? error : new Error(String(error)),
-        });
+        if (!controller.signal.aborted) onError(error instanceof Error ? error : new Error(String(error)));
       }
     }
     void load();
@@ -42,12 +43,20 @@ export function ResourceImage({ src, ...props }: Omit<ImgHTMLAttributes<HTMLImag
       controller.abort();
       dispose?.();
     };
-  }, [identity, remote]);
+  }, [identity, remote, attempt, onError]);
   if (!remote) return <img src={src} {...props} />;
-  const current = resource?.identity === identity ? resource : undefined;
-  const error = identity.error ?? current?.error;
+  const current = resource?.identity === identity && resource.attempt === attempt ? resource : undefined;
+  const error = identity.error ?? recovery.error;
   if (error) return <span className={props.className} role="img"
     title={error.message} aria-label={error.message}>!</span>;
   if (!current?.url) return <span className={props.className} aria-hidden="true" />;
-  return <img src={current.url} {...props} crossOrigin={props.crossOrigin ?? "anonymous"} />;
+  return <img key={attempt} src={current.url} {...props} crossOrigin={props.crossOrigin ?? "anonymous"}
+    onError={event => {
+      recovery.onError(new Error("Unable to load image."));
+      props.onError?.(event);
+    }}
+    onLoad={event => {
+      recovery.onLoad();
+      props.onLoad?.(event);
+    }} />;
 }

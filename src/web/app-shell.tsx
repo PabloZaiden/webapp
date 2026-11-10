@@ -12,6 +12,7 @@ import type { SidebarAction, SidebarNode, SidebarTab, WebAppRoute } from "./side
 import { nativeMenuAction, useNativeToolbar } from "./native-toolbar";
 import { useNativeHeaderLayout } from "./native-header-layout";
 import { useTheme } from "./theme";
+import { RecoverableImage } from "./image-recovery";
 import type { HeaderPrimaryAction } from "./root-types";
 
 const EMPTY_PRIMARY_ACTIONS: HeaderPrimaryAction[] = [];
@@ -330,7 +331,7 @@ export function AppShell({
             title={appName}
             onClick={navigateHome}
           >
-            {hasAppIcon ? <img src={appIconSource} alt="" /> : <Icon name="home" />}
+            {appIconSource ? <RecoverableImage src={appIconSource} alt="" /> : <Icon name="home" />}
           </button>
           <div className="wapp-sidebar-actions">
             {topActions.length ? (
