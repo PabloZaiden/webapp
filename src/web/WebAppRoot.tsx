@@ -180,7 +180,7 @@ function WebAppRootContent({
   const sidebarPins = useSidebarPins(
     appName,
     sidebar.pinning ? sidebar.pinning.storageKey : undefined,
-    { enabled: pinningEnabled, ready: pinningSnapshotReady, nodes: allPinnableItems, provider: sidebar.pinning ? sidebar.pinning.provider : undefined },
+    { enabled: pinningEnabled && frameworkReady, ready: pinningSnapshotReady, nodes: allPinnableItems, provider: sidebar.pinning ? sidebar.pinning.provider : undefined },
   );
   const activeRouteIsInBaseNodes = useMemo(
     () => baseItems.some((node) => routeMatches(node.route, route)),

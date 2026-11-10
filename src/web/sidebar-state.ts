@@ -167,13 +167,6 @@ function createLocalPinProvider(key: string) {
       signal.throwIfAborted();
       write(pins);
     },
-    subscribe(invalidate: () => void) {
-      const onStorage = (event: StorageEvent) => {
-        if (event.key === key || event.key === null) invalidate();
-      };
-      window.addEventListener("storage", onStorage);
-      return () => window.removeEventListener("storage", onStorage);
-    },
   } satisfies SidebarPinProvider & {
     reconcile(pins: SidebarPin[], signal: AbortSignal): Promise<void>;
   };
@@ -257,21 +250,25 @@ type SidebarPinsOptions = {
 export function useSidebarPins(appName: string, storageKey: string | undefined, options: SidebarPinsOptions) {
   const key = pinStorageKey(appName, storageKey);
   const local = useMemo(() => createLocalPinProvider(key), [key]);
-  const provider = options.provider ?? local;
+  const provider: SidebarPinProvider = options.provider ?? local;
   const owner = useRef(provider);
   owner.current = provider;
   const [saveError, setSaveError] = useState<Error>();
   const query = useLiveQuery({
-    load: async (signal) => sidebarPinSchema.array().parse(await provider.load(signal)),
+    load: async (signal) => ({
+      provider,
+      pins: sidebarPinSchema.array().parse(await provider.load(signal)),
+    }),
     deps: [provider],
     enabled: options.enabled,
   });
-  const pins = query.data;
+  const pins = query.data?.provider === provider ? query.data.pins : undefined;
   const ready = options.enabled && options.ready && pins !== undefined && !query.loading && !query.error && !saveError;
   const currentPins = useMemo(
-    () => pins
-      ? options.ready || options.provider ? reconcileStoredPins(pins, options.nodes) : pins
-      : [],
+    () => {
+      if (!pins) return [];
+      return options.ready || options.provider ? reconcileStoredPins(pins, options.nodes) : pins;
+    },
     [options.nodes, options.provider, options.ready, pins],
   );
 

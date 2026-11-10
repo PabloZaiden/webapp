@@ -474,6 +474,8 @@ entirely. The default continues to use the selected preference adapter and
 existing client-scoped namespace; select the browser preference adapter for
 localStorage. An injected provider never reads or writes local pin storage,
 and failures do not fall back to it.
+The local default retains its session/reload behavior without live cross-tab
+invalidation; applications provide live invalidation through `subscribe`.
 
 ```tsx
 import type { SidebarPinProvider } from "@pablozaiden/webapp/web";
