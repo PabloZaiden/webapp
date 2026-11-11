@@ -297,6 +297,10 @@ validation, submitter semantics and Enter submission from the menu.
 Callbacks and loading state remain live without re-registering the screen.
 A route normally has one primary action; the latest nested primary set wins.
 
+The fixed title-bar menu uses a bulleted-list glyph, corresponding to the
+native SF Symbol `list.bullet`. Keep the shell's contextual accessible name.
+Sidebar menus and standalone `ActionMenu` triggers retain their ellipsis.
+
 ```tsx
 function ComposeView() {
   const [name, setName] = useState("");

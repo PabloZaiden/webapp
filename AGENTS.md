@@ -38,7 +38,8 @@
   final confirmation. Use public form/list/tool layouts rather than consumer
   CSS recipes. Framework-owned screens and examples use the same primitives.
 - Ordinary primary actions are unboxed too. Show direct actions when they fit;
-  reserve ellipsis for constrained space or meaningful secondary groups.
+  title-bar menus use a bulleted-list glyph. Other menus retain ellipsis for
+  constrained space or meaningful secondary groups.
 - Settings use two zones: identity at left, controls/actions aligned right and
   vertically centered. Size short fields to their content; group related short
   fields instead of stretching every input. Keep normal status feedback inline.
