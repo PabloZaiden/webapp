@@ -85,6 +85,11 @@ export function HeaderActionBar({ primary, overflow, headerRef, ariaLabel, nativ
     <div ref={primaryRef} tabIndex={-1} className={`wapp-header-primary${collapsed ? " wapp-header-primary-collapsed" : ""}`} aria-hidden={collapsed || undefined}>
       {buttons}
     </div>
-    {menuActions.length ? <div ref={menuRef}><ActionMenu items={menuActions} ariaLabel={ariaLabel} buttonRef={menuButtonRef} /></div> : null}
+    {menuActions.length ? <div ref={menuRef}><ActionMenu
+      items={menuActions} ariaLabel={ariaLabel} buttonRef={menuButtonRef}
+      trigger={<svg aria-hidden="true" viewBox="0 0 24 24" className="wapp-svg">
+        <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+      </svg>}
+    /></div> : null}
   </div>;
 }
