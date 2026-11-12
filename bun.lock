@@ -10,7 +10,7 @@
         "bun-plugin-tailwind": "0.1.2",
         "jose": "6.2.15",
         "tailwindcss": "4.3.5",
-        "tslog": "5.4.0",
+        "tslog": "5.5.0",
         "zod": "4.6.7",
       },
       "devDependencies": {
@@ -188,7 +188,7 @@
 
     "tslib": ["tslib@2.9.1", "", {}, "sha512-a4Ux9VKuIMHsOS7ENbEq6hK2ZGYIT27Rtl0E4eD9KqwxhKiQeMZE/9xb3IdYwWaSOyIBQLExhQgXDTYoiCxnWA=="],
 
-    "tslog": ["tslog@5.4.0", "", { "bin": { "tslog": "esm/subpaths/cli.js" } }, "sha512-LXFfS+Fc6L6FxDswCwagpnb3crfby/UuQpTMh0uZKuMI9ppdFn6fd7wpPV4begwVarhOwzLdUNpjW/LTBc8nbA=="],
+    "tslog": ["tslog@5.5.0", "", { "bin": { "tslog": "esm/subpaths/cli.js" } }, "sha512-GgdyKPwUtVMKDSHFtZJg3taWUHyL8pV262AfVlak00gE4qwpCpTEZT1tQ/ZS/FQsiTWqjvAD/viTt1vDmNhQ4A=="],
 
     "tsyringe": ["tsyringe@4.10.0", "", { "dependencies": { "tslib": "^1.9.3" } }, "sha512-axr3IdNuVIxnaK5XGEUFTu3YmAQ6lllgrvqfEoR16g/HGnYY/6We4oWENtAnzK6/LpJ2ur9PAb80RBt7/U4ugw=="],
 
