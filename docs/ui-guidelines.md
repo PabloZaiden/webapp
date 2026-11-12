@@ -98,9 +98,12 @@ and notify subscribers when they change. The shell can place its header beside
 an edge occlusion instead of reserving an otherwise empty top strip. The row
 still clears the full top inset before route content starts; the drawer reuses
 its top space only when no occlusion crosses its width.
-Centered notches, insufficient room, zoom, missing geometry and mismatched
-viewport sizes retain conventional safe-area clearance. Ordinary browsers and
-other hosts need no adapter. Do not infer occlusions from device names or sizes.
+Only occlusions contained within the top inset can replace that clearance;
+a full-height side region does not describe the separate top system bar.
+Centered notches, taller regions, insufficient room, zoom, missing geometry
+and mismatched viewport sizes retain conventional safe-area clearance.
+Ordinary browsers and other hosts need no adapter. Do not infer occlusions
+from device names or sizes.
 
 ### Native host toolbars
 
