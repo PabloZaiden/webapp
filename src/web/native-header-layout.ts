@@ -51,7 +51,8 @@ function layoutStyles(layout: NativeToolbarLayout, header: HTMLElement, sidebar:
     || (window.visualViewport?.scale ?? 1) !== 1 || layout.safeArea.top === 0) return {};
   const top = layout.safeArea.top;
   const regions = layout.occlusions.filter((rect) => rect.y < top && rect.y + rect.height > 0 && rect.width > 0 && rect.height > 0);
-  if (!regions.length) return {};
+  // A side strip cannot replace an independent top safe area.
+  if (!regions.length || regions.some((rect) => rect.y + rect.height > top)) return {};
   const box = header.getBoundingClientRect();
   if (box.top !== 0) return {};
   const overlaps = regions.filter((rect) => rect.x < box.right && rect.x + rect.width > box.left);
