@@ -170,6 +170,10 @@ Use these first:
 | `EmptyState` | Empty or missing content |
 | `ConfirmDialog` | Destructive confirmation |
 
+`FloatingPanel` keeps its placement and viewport bounds as asynchronous content
+or its anchor changes size. Let the framework reposition it rather than adding
+application-owned measurements or fixed-height loading placeholders.
+
 The default `Panel` is muted, `DataList` uses compact borderless rows, and `Button` is a
 subtle, intrinsic-width, unboxed action, including primary actions. Use
 `variant="primary"` explicitly for the principal action, `variant="link"` for a textual action and `tone="danger"` for

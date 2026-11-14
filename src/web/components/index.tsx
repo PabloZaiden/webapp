@@ -1064,7 +1064,11 @@ export function FloatingPanel({
 
     updatePosition();
     schedulePositionUpdate();
+    const observer = new ResizeObserver(schedulePositionUpdate);
+    if (panelRef.current) observer.observe(panelRef.current);
+    if (anchorRef.current) observer.observe(anchorRef.current);
     return () => {
+      observer.disconnect();
       if (positionFrameRef.current !== null) {
         window.cancelAnimationFrame(positionFrameRef.current);
         positionFrameRef.current = null;
