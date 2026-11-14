@@ -176,6 +176,11 @@ export function AppShell({
   const sidebarTabRefs = useRef(new Map<string, HTMLButtonElement>());
   const closeSidebar = () => setSidebarOpen(false);
   const sidebarRef = useRef<HTMLElement>(null);
+  const sidebarScrollRef = useRef<HTMLDivElement>(null);
+  const activateSidebarTab = (id: string) => {
+    sidebarScrollRef.current?.scrollTo({ top: 0, behavior: "instant" });
+    onSidebarTabChange(id);
+  };
   const nativeLayout = useNativeHeaderLayout(mainHeaderRef, sidebarRef);
   const drawerLayerRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -267,7 +272,7 @@ export function AppShell({
     event.preventDefault();
     const nextTab = sidebarTabs[nextIndex];
     if (nextTab) {
-      onSidebarTabChange(nextTab.id);
+      activateSidebarTab(nextTab.id);
       sidebarTabRefs.current.get(nextTab.id)?.focus();
     }
   };
@@ -359,7 +364,7 @@ export function AppShell({
             </div>
           </div>
         </div> : null}
-        <div className="wapp-sidebar-scroll">
+        <div ref={sidebarScrollRef} className="wapp-sidebar-scroll">
           {sidebarSearchEnabled ? (
             <div className="wapp-search">
               <label className="sr-only" htmlFor={sidebarSearchId}>Search</label>
@@ -414,7 +419,7 @@ export function AppShell({
                         sidebarTabRefs.current.delete(tab.id);
                       }
                     }}
-                    onClick={() => onSidebarTabChange(tab.id)}
+                    onClick={() => activateSidebarTab(tab.id)}
                     onKeyDown={(event) => handleSidebarTabKeyDown(event, tab.id)}
                   >
                     {hasIcon ? <span className={`wapp-sidebar-tab-icon${generatedIcon ? " initial" : ""}`} aria-hidden="true">{icon}</span> : null}
