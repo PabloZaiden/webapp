@@ -88,7 +88,11 @@ the existing mobile-drawer dismissal behavior; keep ongoing app state outside
 the drawer when it should survive navigation.
 
 Optional sidebar tabs stay fixed below the version footer while tree/search
-scroll independently. The first tab is selected by default. Selection uses the
+scroll independently. Activating any tab, including the selected tab, immediately
+scrolls the sidebar tree/search area to the top on desktop and in the mobile
+drawer. Pointer, touch, and keyboard activation leave search, tree expansion,
+pins, the current route, and main-content scroll unchanged.
+The first tab is selected by default. Selection uses the
 explicit [preference adapter](settings.md#persistence), memory-only by default.
 Stored IDs are validated; unavailable/stale values fall back to the first tab.
 `getNodes` receives `activeTab` and normalized search. Header/pin actions resolve
