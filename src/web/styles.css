@@ -24,6 +24,14 @@
   --wapp-action-bg: #e5e7eb;
   --wapp-action-text: #111827;
   --wapp-action-border: #9ca3af;
+  --wapp-sidebar-bg: var(--wapp-shell-bg);
+  --wapp-sidebar-text: var(--wapp-text);
+  --wapp-sidebar-hover-bg: #f3f4f6;
+  --wapp-sidebar-section-hover-bg: #f3f4f6;
+  --wapp-sidebar-active-bg: var(--wapp-surface-pill);
+  --wapp-sidebar-active-text: var(--wapp-text);
+  --wapp-content-bg: var(--wapp-shell-bg);
+  --wapp-header-bg: var(--wapp-shell-bg);
   --wapp-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --wapp-overlay-bg: rgb(0 0 0 / 0.5);
   --wapp-overlay-blur: blur(4px);
@@ -81,6 +89,10 @@
   --wapp-action-bg: #303030;
   --wapp-action-text: #fafafa;
   --wapp-action-border: #525252;
+  --wapp-sidebar-hover-bg: #1b1b1b;
+  --wapp-sidebar-section-hover-bg: #262626cc;
+  --wapp-sidebar-active-bg: #242424;
+  --wapp-sidebar-active-text: #ffffff;
   --wapp-shadow: 0 1px 2px rgb(0 0 0 / 0.22);
   --wapp-overlay-bg: rgb(0 0 0 / 0.68);
   --wapp-overlay-blur: blur(6px);
@@ -150,6 +162,7 @@ textarea::placeholder {
 }
 
 .wapp-sidebar {
+  flex: 0 0 18rem;
   width: 18rem;
   min-width: 18rem;
   min-height: 0;
@@ -159,21 +172,15 @@ textarea::placeholder {
   padding-top: var(--wapp-sidebar-safe-area-top, var(--wapp-safe-area-top));
   padding-left: var(--wapp-safe-area-left);
   overflow: hidden;
-  border-right: 0;
-  background: var(--wapp-shell-bg);
-  transition: width 180ms ease, min-width 180ms ease, transform 180ms ease, opacity 180ms ease;
-}
-
-:root.dark .wapp-sidebar {
-  background: var(--wapp-shell-bg);
+  border-right: var(--wapp-sidebar-border-width, 0px) solid var(--wapp-border-soft);
+  background: var(--wapp-sidebar-bg);
+  color: var(--wapp-sidebar-text);
+  margin-left: 0;
+  transition: margin-left var(--wapp-motion-normal) var(--wapp-motion-ease);
 }
 
 .wapp-shell.sidebar-collapsed .wapp-sidebar {
-  width: 0;
-  min-width: 0;
-  padding-left: 0;
-  overflow: hidden;
-  opacity: 0;
+  margin-left: -18rem;
   pointer-events: none;
 }
 
@@ -185,10 +192,11 @@ textarea::placeholder {
   align-items: center;
   gap: 0.75rem;
   border-bottom: 0;
-  background: var(--wapp-shell-bg);
+  background: var(--wapp-header-bg);
 }
 
 .wapp-sidebar-header {
+  background: var(--wapp-sidebar-bg);
   flex-wrap: wrap;
   justify-content: space-between;
   padding: 0.375rem 0.75rem;
@@ -479,12 +487,12 @@ textarea::placeholder {
 }
 
 .wapp-sidebar-section-title button:first-child:hover {
-  background: #f3f4f6;
+  background: var(--wapp-sidebar-section-hover-bg);
   color: var(--wapp-text);
 }
 
 :root.dark .wapp-sidebar-section-title button:first-child:hover {
-  background: rgb(38 38 38 / 0.8);
+  background: var(--wapp-sidebar-section-hover-bg);
 }
 
 .wapp-sidebar-section-label {
@@ -621,31 +629,31 @@ textarea::placeholder {
   justify-content: space-between;
   gap: 0.625rem;
   border: 1px solid transparent;
-  border-radius: 0.5rem;
+  border-radius: var(--wapp-control-radius, 0.5rem);
   background: transparent;
-  color: var(--wapp-text);
+  color: var(--wapp-sidebar-text);
   cursor: pointer;
   padding: 0.375rem;
   text-align: left;
 }
 
 .wapp-sidebar-item:hover {
-  background: #f3f4f6;
+  background: var(--wapp-sidebar-hover-bg);
 }
 
 :root.dark .wapp-sidebar-item:hover {
-  background: #1b1b1b;
-  color: var(--wapp-text);
+  background: var(--wapp-sidebar-hover-bg);
+  color: var(--wapp-sidebar-text);
 }
 
 .wapp-sidebar-item.active {
-  background: var(--wapp-surface-pill);
-  color: var(--wapp-text);
+  background: var(--wapp-sidebar-active-bg);
+  color: var(--wapp-sidebar-active-text);
 }
 
 :root.dark .wapp-sidebar-item.active {
-  background: #242424;
-  color: #ffffff;
+  background: var(--wapp-sidebar-active-bg);
+  color: var(--wapp-sidebar-active-text);
 }
 
 .wapp-sidebar-item > span:first-child {
@@ -874,7 +882,7 @@ textarea::placeholder {
   height: var(--wapp-viewport-height);
   display: flex;
   flex-direction: column;
-  background: var(--wapp-shell-bg);
+  background: var(--wapp-content-bg);
 }
 
 .wapp-shell.sidebar-collapsed .wapp-main {
@@ -911,7 +919,7 @@ textarea::placeholder {
   min-height: 0;
   overflow: auto;
   overflow-x: hidden;
-  background: var(--wapp-shell-bg);
+  background: var(--wapp-content-bg);
   padding: 0 var(--wapp-safe-area-right) 0 var(--wapp-main-safe-area-left);
   scroll-padding-bottom: var(--wapp-mobile-bottom-clearance);
 }
@@ -1112,15 +1120,15 @@ textarea::placeholder {
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
-  border: 1px solid var(--wapp-border-soft);
-  border-radius: 0.75rem;
+  border: var(--wapp-panel-border-width, 1px) solid var(--wapp-border-soft);
+  border-radius: var(--wapp-panel-radius, 0.75rem);
   background: var(--wapp-surface);
   padding: 1rem;
 }
 
 .wapp-panel-muted {
   border-color: var(--wapp-border-muted);
-  border-radius: 0.625rem;
+  border-radius: var(--wapp-panel-radius, 0.625rem);
   background: var(--wapp-surface-inset);
 }
 
@@ -1522,8 +1530,8 @@ textarea::placeholder {
   justify-content: center;
   gap: 0.5rem;
   min-height: 2.25rem;
-  border: 1px solid transparent;
-  border-radius: 0.4375rem;
+  border: var(--wapp-control-border-width, 1px) solid transparent;
+  border-radius: var(--wapp-control-radius, 0.4375rem);
   background: transparent;
   color: var(--wapp-muted);
   cursor: pointer;
@@ -2417,8 +2425,8 @@ textarea::placeholder {
 .wapp-field textarea {
   width: 100%;
   min-height: 2.5rem;
-  border: 1px solid var(--wapp-border);
-  border-radius: 0.4375rem;
+  border: var(--wapp-control-border-width, 1px) solid var(--wapp-border);
+  border-radius: var(--wapp-control-radius, 0.4375rem);
   background: var(--wapp-surface-inset);
   color: var(--wapp-text);
   box-shadow: none;
@@ -2431,8 +2439,8 @@ textarea::placeholder {
   width: 100%;
   max-width: 36rem;
   min-height: 2.5rem;
-  border: 1px solid var(--wapp-border);
-  border-radius: 0.4375rem;
+  border: var(--wapp-control-border-width, 1px) solid var(--wapp-border);
+  border-radius: var(--wapp-control-radius, 0.4375rem);
   background: var(--wapp-surface-inset);
   color: var(--wapp-text);
   padding: 0.5rem 0.75rem;
@@ -2449,8 +2457,8 @@ textarea::placeholder {
 
 .wapp-inline-select {
   min-height: 2.5rem;
-  border: 1px solid var(--wapp-border);
-  border-radius: 0.4375rem;
+  border: var(--wapp-control-border-width, 1px) solid var(--wapp-border);
+  border-radius: var(--wapp-control-radius, 0.4375rem);
   background: var(--wapp-surface);
   color: var(--wapp-text);
   box-shadow: var(--wapp-shadow);
@@ -3195,6 +3203,7 @@ select.wapp-input,
   width: min(18rem, 86vw);
   min-width: min(18rem, 86vw);
   padding-left: var(--wapp-safe-area-left);
+  margin-left: 0;
   transform: translateX(-100%);
   opacity: 1;
   pointer-events: auto;

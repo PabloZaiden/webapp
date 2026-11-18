@@ -68,6 +68,32 @@ exact key override; otherwise `webapp.theme` uses selected client scoping.
 `useTheme()` exposes preference, resolvedTheme, setPreference, savePreference,
 loading/error/retry. Reuse it for app logic instead of observing root DOM.
 
+## Visual themes
+
+Use the public `ThemeStyles` component to apply a visual theme independently
+of Light/Dark/System. Omit `theme` to restore the framework defaults:
+
+```tsx
+<ThemeStyles theme={{
+  light: { "--wapp-sidebar-bg": "#edf2ef", "--wapp-primary": "#28634c" },
+  dark: { "--wapp-sidebar-bg": "#111c17", "--wapp-primary": "#9cd9b4" },
+}} />
+```
+
+Applications own catalogs, imports and persistence. Validate imported or stored
+definitions with `themeStyleSchema` from `/contracts`; it is also enforced by
+`ThemeStyles`. Supported token names are exported as `THEME_STYLE_TOKENS`.
+Colors accept hex notation or `transparent`; radii accept `px`/`rem` up to 24px,
+and border widths up to 2px. Arbitrary declarations, resource URLs and CSS
+expressions are not supported. Partial palettes inherit the default tokens.
+Keep text/background contrast and semantic status colors accessible.
+
+The root's public `data-wapp-themed` attribute is present while a custom style
+is mounted. Applications may use it to opt their own content into themed
+colors; shell geometry remains framework-owned. Use sidebar/content surface,
+panel/control radius and border-width tokens instead of selecting shell nodes.
+The component's lifetime owns its styles; mount one active instance per app.
+
 `useLogLevel()` reflects the supplied runtime's level and optional environment
 lock metadata. Apps update their own preference/server state and publish a new
 runtime snapshot; framework UI does not fetch account configuration.
