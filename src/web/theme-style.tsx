@@ -8,7 +8,8 @@ function declarations(tokens: ThemeStyleTokens): string {
 /** App-supplied visual tokens, independent of the saved Light/Dark/System mode. */
 export function ThemeStyles({ theme }: { theme?: ThemeStyle }) {
   const parsed = theme === undefined ? undefined : themeStyleSchema.parse(theme);
-  const themed = parsed !== undefined;
+  const themed = parsed !== undefined
+    && (Object.keys(parsed.light).length > 0 || Object.keys(parsed.dark).length > 0);
   useLayoutEffect(() => {
     document.documentElement.toggleAttribute("data-wapp-themed", themed);
     return () => document.documentElement.removeAttribute("data-wapp-themed");
