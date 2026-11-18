@@ -98,6 +98,10 @@
   --wapp-overlay-blur: blur(6px);
 }
 
+:root[data-wapp-themed] {
+  accent-color: var(--wapp-primary);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -794,7 +798,7 @@ textarea::placeholder {
   overflow-y: hidden;
   padding: 0.25rem 0.625rem var(--wapp-safe-area-bottom);
   border-top: 1px solid var(--wapp-border-soft);
-  background: var(--wapp-shell-bg);
+  background: var(--wapp-sidebar-bg);
   scrollbar-width: none;
 }
 

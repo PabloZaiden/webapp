@@ -14,5 +14,5 @@ export function ThemeStyles({ theme }: { theme?: ThemeStyle }) {
     document.documentElement.toggleAttribute("data-wapp-themed", themed);
     return () => document.documentElement.removeAttribute("data-wapp-themed");
   }, [themed]);
-  return parsed ? <style>{`:root{${declarations(parsed.light)}}:root.dark{${declarations(parsed.dark)}}`}</style> : null;
+  return parsed ? <style>{`:root:not(.dark){${declarations(parsed.light)}}:root.dark{${declarations(parsed.dark)}}`}</style> : null;
 }
