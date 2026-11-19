@@ -73,7 +73,7 @@ function publishToolbar(host: NativeToolbarHost, snapshot: NativeToolbarSnapshot
   return next;
 }
 
-export function nativeMenuAction(item: ActionMenuItem & { systemImage?: string; loading?: boolean }, id: string): NativeToolbarAction {
+export function nativeMenuAction(item: ActionMenuItem & { loading?: boolean }, id: string): NativeToolbarAction {
   return {
     id, label: item.label, systemImage: item.systemImage,
     disabled: item.disabled === true, active: false, busy: item.loading === true,

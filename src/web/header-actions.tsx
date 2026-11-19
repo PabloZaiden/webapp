@@ -65,6 +65,7 @@ function sameActionMenuShape(first: ActionMenuItem[], second: ActionMenuItem[]):
     }
     return item.id === other.id
       && item.label === other.label
+      && item.systemImage === other.systemImage
       && item.form === other.form
       && item.disabled === other.disabled
       && item.destructive === other.destructive;

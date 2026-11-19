@@ -45,7 +45,6 @@ export type SettingsSection = {
 
 export type HeaderPrimaryAction = ActionMenuItem & {
   icon?: ReactNode;
-  systemImage?: string;
   loading?: boolean;
 };
 
