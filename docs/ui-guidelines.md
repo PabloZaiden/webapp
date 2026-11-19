@@ -119,8 +119,8 @@ acceptance the entire sidebar header is omitted, reclaiming its row rather
 than leaving an empty band. Home invokes the same protected web navigation.
 `imageURL` supplies its bundled raster logo; hosts must load it successfully
 before accepting presentation and must not fetch credentials or remote images.
-`systemImage` optionally supplies the host's system symbol for a
-sidebar or primary action. Activation returns to the current web callback
+`systemImage` optionally supplies the host's system symbol for a sidebar,
+primary or page-menu action. Activation returns to the current web callback
 registry, scoped to the route visit; disabled/busy actions and blocking web
 dialogs cannot be bypassed. Native form actions retain validation and an actual
 submitter. Hidden, live primary submitters remain mounted for implicit keyboard

@@ -61,6 +61,7 @@ export interface SidebarTab {
 export type ActionMenuItem = {
   id?: string;
   label: string;
+  systemImage?: string;
   disabled?: boolean;
   destructive?: boolean;
 } & (

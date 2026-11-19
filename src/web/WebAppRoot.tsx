@@ -211,8 +211,8 @@ function WebAppRootContent({
     const id = node.pinId ?? node.id;
     const pinned = sidebarPins.pinIds.has(id);
     return pinned
-      ? { id: "unpin", label: "Unpin from sidebar", onAction: () => sidebarPins.unpin(id) }
-      : { id: "pin", label: "Pin to sidebar", onAction: () => sidebarPins.pin(node) };
+      ? { id: "unpin", label: "Unpin from sidebar", systemImage: "pin.slash", onAction: () => sidebarPins.unpin(id) }
+      : { id: "pin", label: "Pin to sidebar", systemImage: "pin", onAction: () => sidebarPins.pin(node) };
   }, [pinningEnabled, pinningSnapshotReady, sidebarPins]);
   const addPinningAction = useCallback((node: SidebarNode, snapshotReady: boolean): SidebarNode => {
     const pinAction = pinningActionFor(node, snapshotReady);
